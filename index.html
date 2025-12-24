@@ -6162,150 +6162,89 @@
                     }
                     
                     // دالة جديدة: طباعة بالصورة للطابعات الحرارية الصينية
-                    async function printAsImageForThermal(){
-                        try {
-                            const sale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
+                    // دالة طباعة بالصورة (محسّنة - أسرع وأخف)
+                    async function printAsImageForThermal(saleArg){                        try {
+                            // إذا تم تمرير sale، استخدمه، وإلا استخدم أحدث فاتورة
+                            let sale = saleArg;
+                            if (!sale) {
+                                sale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
+                            }
                             if (!sale) throw new Error('لا توجد فواتير للطباعة');
                             
-                            // إنشاء عنصر مؤقت للفاتورة
+                            // إنشاء عنصر مؤقت للفاتورة (تصميم مبسط وأسرع)
                             const tempDiv = document.createElement('div');
-                            tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:300px;background:white;padding:10px;font-family:Cairo,Arial;direction:rtl;';
+                            tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:280px;background:white;padding:8px;font-family:Cairo,Arial;direction:rtl;';
                             
                             const customer = findCustomer(sale.customerId);
-                            const company = (state.settings && state.settings.companyName) ? state.settings.companyName : 'اسم الشركة';
                             const dateStr = formatArabicDate(sale.date);
-                            const repName = sale.repName || '';
                             const custName = customer ? customer.name : 'عميل';
                             
                             let itemsHtml = '';
                             (sale.items||[]).forEach(it => {
                                 const p = findProduct(it.productId);
-                                const name = p ? p.name : (it.name || 'منتج');
+                                const name = (p ? p.name : (it.name || 'منتج')).substring(0, 20);
                                 const qty = it.quantity || it.qty || 0;
                                 const price = Number(it.price||0);
                                 const total = qty * price * (1 - (it.discountPercent||0)/100);
-                                itemsHtml += `
-                                    <div style="display:flex;justify-content:space-between;padding:2px 0;border-bottom:1px dotted #ccc;font-size:11px;">
-                                        <span style="flex:1;font-weight:600;">${name}</span>
-                                        <span style="width:40px;text-align:center;">${qty}</span>
-                                        <span style="width:70px;text-align:left;font-weight:600;">${formatCurrency(total)}</span>
-                                    </div>`;
+                                itemsHtml += `<div style="display:flex;justify-content:space-between;padding:1px 0;font-size:10px;"><span style="flex:1;">${name}</span><span style="width:30px;text-align:center;">${qty}</span><span style="width:60px;text-align:left;">${formatCurrency(total)}</span></div>`;
                             });
                             
-                            tempDiv.innerHTML = `
-                                <div style="text-align:center;border:2px solid #000;padding:8px;background:white;">
-                                    <div style="font-size:18px;font-weight:800;margin-bottom:3px;">Delente</div>
-                                    <div style="font-size:10px;margin-bottom:8px;opacity:0.8;">it is just milk</div>
-                                    <div style="font-size:14px;font-weight:700;margin-bottom:8px;">فاتورة مبيعات</div>
-                                    <div style="border-top:1px dashed #000;margin:5px 0;"></div>
-                                    <div style="font-size:12px;text-align:right;line-height:1.6;">
-                                        <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                                            <span style="font-weight:600;">${sale.invoiceNumber || sale.id}</span>
-                                            <span>: رقم الفاتورة</span>
-                                        </div>
-                                        <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                                            <span>${dateStr}</span>
-                                            <span>: التاريخ</span>
-                                        </div>
-                                        <div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                                            <span style="font-weight:600;">${custName}</span>
-                                            <span>: العميل</span>
-                                        </div>
-                                        ${repName ? `<div style="display:flex;justify-content:space-between;margin-bottom:2px;">
-                                            <span>${repName}</span>
-                                            <span>: المندوب</span>
-                                        </div>` : ''}
-                                    </div>
-                                    <div style="border-top:1px dashed #000;margin:5px 0;"></div>
-                                    <div style="font-size:11px;display:flex;justify-content:space-between;font-weight:700;padding:3px 0;background:#f0f0f0;">
-                                        <span style="flex:1;">الصنف</span>
-                                        <span style="width:40px;text-align:center;">الكمية</span>
-                                        <span style="width:70px;text-align:left;">الإجمالي</span>
-                                    </div>
-                                    ${itemsHtml}
-                                    <div style="border-top:2px solid #000;margin:8px 0;"></div>
-                                    <div style="font-size:14px;font-weight:800;display:flex;justify-content:space-between;margin:5px 0;">
-                                        <span>${formatCurrency(sale.total||0)} ج.م</span>
-                                        <span>: الإجمالي</span>
-                                    </div>
-                                    <div style="font-size:12px;display:flex;justify-content:space-between;margin:3px 0;">
-                                        <span>${formatCurrency(sale.paidAmount||0)} ج.م</span>
-                                        <span>: المدفوع</span>
-                                    </div>
-                                    <div style="font-size:12px;display:flex;justify-content:space-between;margin:3px 0;">
-                                        <span>${formatCurrency((sale.total||0) - (sale.paidAmount||0))} ج.م</span>
-                                        <span>: المتبقي</span>
-                                    </div>
-                                    <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-                                    <div style="font-size:10px;text-align:center;line-height:1.5;">
-                                        <div>شكراً لتعاملكم معنا</div>
-                                    </div>
-                                </div>`;
+                            tempDiv.innerHTML = `<div style="text-align:center;border:2px solid #000;padding:6px;background:white;">
+                                <div style="font-size:16px;font-weight:800;margin-bottom:2px;">Delente</div>
+                                <div style="font-size:12px;font-weight:700;margin-bottom:6px;">فاتورة مبيعات</div>
+                                <div style="border-top:1px dashed #000;margin:4px 0;"></div>
+                                <div style="font-size:10px;text-align:right;line-height:1.4;">
+                                    <div style="display:flex;justify-content:space-between;"><span style="font-weight:600;">${sale.invoiceNumber || sale.id}</span><span>: رقم</span></div>
+                                    <div style="display:flex;justify-content:space-between;"><span>${dateStr}</span><span>: التاريخ</span></div>
+                                    <div style="display:flex;justify-content:space-between;"><span>${custName.substring(0,20)}</span><span>: العميل</span></div>
+                                </div>
+                                <div style="border-top:1px dashed #000;margin:4px 0;"></div>
+                                ${itemsHtml}
+                                <div style="border-top:2px solid #000;margin:6px 0;"></div>
+                                <div style="font-size:13px;font-weight:800;display:flex;justify-content:space-between;">
+                                    <span>${formatCurrency(sale.total||0)} ج.م</span><span>: الإجمالي</span>
+                                </div>
+                                <div style="font-size:10px;display:flex;justify-content:space-between;margin:2px 0;">
+                                    <span>${formatCurrency(sale.paidAmount||0)} ج.م</span><span>: المدفوع</span>
+                                </div>
+                                <div style="font-size:10px;display:flex;justify-content:space-between;">
+                                    <span>${formatCurrency((sale.total||0)-(sale.paidAmount||0))} ج.م</span><span>: المتبقي</span>
+                                </div>
+                                <div style="border-top:1px dashed #000;margin:6px 0;"></div>
+                                <div style="font-size:9px;text-align:center;">شكراً لتعاملكم معنا</div>
+                            </div>`;
                             
                             document.body.appendChild(tempDiv);
                             
-                            // استخدام html2canvas لتحويل الفاتورة إلى صورة
+                            // تحويل لصورة (بدون انتظار html2canvas لو مش متاح)
                             if (typeof html2canvas === 'undefined') {
-                                alert('يجب تحميل مكتبة html2canvas أولاً');
                                 document.body.removeChild(tempDiv);
-                                return;
+                                throw new Error('مكتبة html2canvas غير محملة');
                             }
                             
                             const canvas = await html2canvas(tempDiv, {
                                 backgroundColor: '#ffffff',
                                 scale: 2,
                                 logging: false,
-                                width: 300,
-                                windowWidth: 300
+                                width: 280
                             });
                             
                             document.body.removeChild(tempDiv);
                             
-                            // إنشاء نافذة طباعة جديدة بالصورة
-                            const w = window.open('', '', 'width=320,height=600');
-                            if (!w) { 
-                                alert('يرجى السماح بالنوافذ المنبثقة للطباعة'); 
-                                return; 
-                            }
+                            // فتح نافذة طباعة
+                            const w = window.open('', '', 'width=300,height=500');
+                            if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
                             
                             w.document.open();
-                            w.document.write(`
-                                <!DOCTYPE html>
-                                <html>
-                                <head>
-                                    <meta charset="utf-8">
-                                    <title>طباعة فاتورة</title>
-                                    <style>
-                                        @page { size: 80mm auto; margin: 0; }
-                                        body { margin: 0; padding: 0; }
-                                        img { width: 100%; max-width: 300px; display: block; margin: 0 auto; }
-                                        @media print { 
-                                            body { margin: 0; padding: 0; }
-                                            img { page-break-after: avoid; }
-                                        }
-                                    </style>
-                                </head>
-                                <body>
-                                    <img src="${canvas.toDataURL('image/png')}" />
-                                </body>
-                                </html>
-                            `);
+                            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;}img{width:100%;display:block;}</style></head><body><img src="${canvas.toDataURL('image/png')}"/></body></html>`);
                             w.document.close();
                             
-                            setTimeout(() => {
-                                try { w.focus(); } catch(_){}
-                                try { w.print(); } catch(_){}
-                            }, 500);
-                            
-                            if ('onafterprint' in w) { 
-                                w.onafterprint = () => { 
-                                    try { w.close(); } catch(_){} 
-                                }; 
-                            }
+                            setTimeout(() => { try{w.focus();w.print();}catch(_){} }, 300);
+                            if('onafterprint' in w) w.onafterprint = () => { try{w.close();}catch(_){} };
                             
                         } catch(e) { 
-                            console.error('Print as image failed:', e);
-                            alert('فشل الطباعة: '+ e.message); 
+                            console.error('Print failed:', e);
+                            alert('فشل الطباعة: '+ (e.message || e)); 
                         }
                     }
                     
@@ -13931,7 +13870,16 @@
                     // Wire action buttons (print / share / bluetooth)
                     try {
                         const printBtn = el.querySelector('.print-sale-btn');
-                        if (printBtn) printBtn.addEventListener('click', async (evt) => { evt.preventDefault(); try { showPrintPreviewModal(sale, () => { window.printSaleById(sale.id); }); } catch(e){ console.warn('printSaleById error', e);} });
+                        if (printBtn) printBtn.addEventListener('click', async (evt) => { 
+                            evt.preventDefault(); 
+                            try { 
+                                // استخدام الطباعة بالصورة مباشرة (أسرع وأفضل للطابعات الحرارية)
+                                await window.printAsImageForThermal(sale);
+                            } catch(e){ 
+                                console.error('print error', e);
+                                alert('فشل الطباعة: ' + (e.message || e));
+                            }
+                        });
                         const shareBtn = el.querySelector('.share-sale-image-btn');
                         if (shareBtn) shareBtn.addEventListener('click', async (evt) => { evt.preventDefault(); try { await window.exportSaleImageById(sale.id); } catch(e){ console.warn('exportSaleImageById error', e);} });
                         const btBtn = el.querySelector('.bt-print-sale-btn');
