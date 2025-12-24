@@ -1,0 +1,4 @@
+/* Minimal fallback to avoid 404 when opening index.html via file://
+   For production, install Tailwind and replace this file with a built stylesheet. */
+html,body{font-family: 'Cairo', sans-serif;}
+.r{direction:rtl}
