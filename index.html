@@ -1118,41 +1118,68 @@
                                     }
                                 }, err => console.warn('role doc snapshot error', err));
                             } catch(e){ console.warn('setup role listener failed', e); }
-                            try { UIController.showApp(); } catch(e){}
-                            try { initializeAppForUser(); } catch(e){}
-                            try { setupRealtimeListeners(); } catch(e){ console.warn('setupRealtimeListeners error', e); }
-                            try { if (typeof autoRestoreSalesIfEmpty === 'function') autoRestoreSalesIfEmpty(); } catch(e){}
+                            try { UIController.showApp(); } catch(e){ console.error('showApp error:', e); }
+                            try { initializeAppForUser(); } catch(e){ console.error('initializeAppForUser error:', e); }
+                            try { setupRealtimeListeners(); } catch(e){ console.error('setupRealtimeListeners error:', e); }
+                            try { if (typeof autoRestoreSalesIfEmpty === 'function') autoRestoreSalesIfEmpty(); } catch(e){ console.error('autoRestoreSalesIfEmpty error:', e); }
+                            
+                            // === تأخير الدوال الثقيلة لتجنب blocking UI على الموبايل ===
                             // Start real-time sync for cost lists
-                            try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.warn('initRealtimeSync error', e); }
-                            // محاولة استرداد تلقائية إذا فشل تحميل البيانات أول مرة (مثلاً خطأ عابر أو ترتيب تحميل السكربتات)
-                            try { initRealtimeRecovery(); } catch(e){ console.warn('initRealtimeRecovery error', e); }
-                            try { setPresenceOnline(); } catch(e){}
-                            // إلغاء الاعتماد على appState القديم: القراءة ستكون فقط من المجموعات العليا (collections)
-                            // ثم إن بقيت فارغة تماماً، إبذر الافتراضيات فقط
-                            try { if (typeof seedDefaultsIfEmpty === 'function') seedDefaultsIfEmpty(); } catch(e){ console.warn('seedDefaultsIfEmpty error', e); }
+                            setTimeout(() => {
+                                try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.error('initRealtimeSync error:', e); }
+                            }, 500);
+                            
+                            // محاولة استرداد تلقائية إذا فشل تحميل البيانات أول مرة
+                            setTimeout(() => {
+                                try { if (typeof initRealtimeRecovery === 'function') initRealtimeRecovery(); } catch(e){ console.error('initRealtimeRecovery error:', e); }
+                            }, 800);
+                            
+                            try { setPresenceOnline(); } catch(e){ console.error('setPresenceOnline error:', e); }
+                            
+                            // إلغاء الاعتماد على appState القديم
+                            setTimeout(() => {
+                                try { if (typeof seedDefaultsIfEmpty === 'function') seedDefaultsIfEmpty(); } catch(e){ console.error('seedDefaultsIfEmpty error:', e); }
+                            }, 1000);
+                            
                             // في حال البذر لم يجد شيئاً وظهرت مجموعات قديمة
-                            try { initLegacyCollectionsIfEmpty(); } catch(e){}
-                            // محاولة ضمان تحميل البيانات الأساسية (مكررة زمنياً)
-                            try { scheduleEnsureCoreData(); } catch(e){ console.warn('scheduleEnsureCoreData error', e); }
-                            // ضبط الفترة النشطة تلقائياً للشهر الحالي + إقفال الشهر السابق تلقائياً (للمشرف)
-                            try { maybeAutoClosePreviousMonth(); } catch(e){}
-                            try { ensureDefaultActivePeriod(); } catch(e){}
+                            setTimeout(() => {
+                                try { if (typeof initLegacyCollectionsIfEmpty === 'function') initLegacyCollectionsIfEmpty(); } catch(e){ console.error('initLegacyCollectionsIfEmpty error:', e); }
+                            }, 1200);
+                            
+                            // محاولة ضمان تحميل البيانات الأساسية
+                            setTimeout(() => {
+                                try { if (typeof scheduleEnsureCoreData === 'function') scheduleEnsureCoreData(); } catch(e){ console.error('scheduleEnsureCoreData error:', e); }
+                            }, 1500);
+                            
+                            // ضبط الفترة النشطة تلقائياً
+                            setTimeout(() => {
+                                try { if (typeof maybeAutoClosePreviousMonth === 'function') maybeAutoClosePreviousMonth(); } catch(e){ console.error('maybeAutoClosePreviousMonth error:', e); }
+                                try { if (typeof ensureDefaultActivePeriod === 'function') ensureDefaultActivePeriod(); } catch(e){ console.error('ensureDefaultActivePeriod error:', e); }
+                            }, 1800);
+                            
                             // Auto-resume GPS sharing if previously enabled
-                            try {
-                                if (localStorage.getItem('gps_sharing_enabled') === '1') {
-                                    if (typeof startLocationSharing === 'function') startLocationSharing();
-                                    else setTimeout(function(){ try { if (typeof startLocationSharing === 'function') startLocationSharing(); } catch(e){} }, 1000);
-                                }
-                                if (typeof window.__gpsHeaderSync === 'function') window.__gpsHeaderSync();
-                            } catch(e){}
-                            // تشغيل إصلاح ضريبة الشوكولاتة تلقائياً مرة واحدة (أدمن/مدير)
-                            try { setTimeout(()=>{ try { autoFixChocolateVatOnce(); } catch(e){} }, 1200); } catch(e){}
+                            setTimeout(() => {
+                                try {
+                                    if (localStorage.getItem('gps_sharing_enabled') === '1') {
+                                        if (typeof startLocationSharing === 'function') startLocationSharing();
+                                    }
+                                    if (typeof window.__gpsHeaderSync === 'function') window.__gpsHeaderSync();
+                                } catch(e){ console.error('GPS sharing error:', e); }
+                            }, 2000);
+                            
+                            // تشغيل إصلاح ضريبة الشوكولاتة تلقائياً
+                            setTimeout(() => {
+                                try { if (typeof autoFixChocolateVatOnce === 'function') autoFixChocolateVatOnce(); } catch(e){ console.error('autoFixChocolateVatOnce error:', e); }
+                            }, 2500);
+                            
                             // Reviewer mode UI updates
-                            try { applyReviewerModeUI(); } catch(e){}
+                            try { applyReviewerModeUI(); } catch(e){ console.error('applyReviewerModeUI error:', e); }
+                            
                             // إعادة تطبيق قيود التنقل فور تحديد الدور
-                            try { applyRoleNavRestrictions(); } catch(e){}
-                            // محاولات إضافية خلال أول 10 ثواني بعد تسجيل الدخول لضمان الإخفاء للمندوب
-                            let tries = 0; const tmr = setInterval(()=>{ tries++; try { applyRoleNavRestrictions(); } catch(e){} if (tries>10) clearInterval(tmr); },1000);
+                            try { applyRoleNavRestrictions(); } catch(e){ console.error('applyRoleNavRestrictions error:', e); }
+                            
+                            // محاولات إضافية خلال أول 10 ثواني بعد تسجيل الدخول
+                            let tries = 0; const tmr = setInterval(()=>{ tries++; try { applyRoleNavRestrictions(); } catch(e){ console.error('roleNavRestrictions retry error:', e); } if (tries>10) clearInterval(tmr); },1000);
                         } else {
                             try { AuthSystem.logout(); } catch(e){}
                             try { UIController.showLoginPage(); } catch(e){}
