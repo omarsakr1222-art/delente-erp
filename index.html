@@ -4,6 +4,26 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Delente ERP - نظام إدارة الأعمال</title>
+    <!-- Global Error Handler for Mobile Debugging -->
+    <script>
+        window.onerror = function(msg, url, line, col, error) {
+            try {
+                const fullMsg = msg + '\n\nFile: ' + url + '\nLine: ' + line + ':' + col;
+                const errorText = (error && error.stack) ? error.stack : fullMsg;
+                
+                // Show alert with error details
+                alert('🚨 Mobile Error Detected:\n\n' + fullMsg + '\n\n' + (error && error.stack ? error.stack.substring(0, 200) : ''));
+                
+                // Replace page with error display
+                document.body.innerHTML = '<div style="color:red; background:white; font-size:18px; padding:20px; font-family:monospace; white-space:pre-wrap; direction:ltr; text-align:left;"><strong>⚠️ ERROR DETECTED:</strong>\n\n' + fullMsg + '\n\n<strong>Stack:</strong>\n' + (error && error.stack ? error.stack : 'No stack trace') + '</div>';
+                document.body.style.margin = '0';
+                document.body.style.height = '100vh';
+            } catch(e) {
+                document.body.innerHTML = '<div style="color:red; background:white; padding:20px;">Critical Error Handler Failed</div>';
+            }
+            return true; // Suppress default error handling
+        };
+    </script>
     <style id="fallback-hidden-css">
         /* Fallback: ensure elements with class 'hidden' are actually hidden
            even if Tailwind fails to load on some devices/browsers */
