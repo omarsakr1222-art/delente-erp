@@ -25486,7 +25486,7 @@
             }
         }
 
-        // Print invoice via Bluetooth using ESC/POS commands (same method as test button)
+        // Print invoice via Bluetooth using ESC/POS commands - ASCII ONLY, like test button
         async function printInvoiceViaBluetooth(saleArg) {
             console.log('🔵 BT Invoice Print Started');
             const processingMsg = document.createElement('div');
@@ -25538,21 +25538,28 @@
                     throw new Error('لم يُعثر على خدمة البرينتر. جرب برينتر آخر.');
                 }
                 
-                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">✓ متصل (${usedCombo.name})!<br>جاري تحضير الفاتورة...</div>`;
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">✓ متصل (${usedCombo.name})!<br>جاري الطباعة...</div>`;
                 
-                // Build invoice data - ENGLISH ONLY (printer doesn't support Arabic)
+                // Helper: Convert ASCII string to byte array (OLD-SCHOOL, like test button)
+                function stringToAsciiBytes(str) {
+                    const bytes = [];
+                    for (let i = 0; i < str.length; i++) {
+                        const code = str.charCodeAt(i);
+                        if (code <= 127) {
+                            bytes.push(code);
+                        } else {
+                            bytes.push(63); // ? for non-ASCII
+                        }
+                    }
+                    return bytes;
+                }
+                
+                // Build invoice data - ASCII ONLY
                 const customer = findCustomer(saleArg.customerId);
-                const customerName = customer ? customer.name.substring(0, 20) : 'Customer';
-                
-                // Convert date to English format (DD/MM/YYYY)
+                const customerName = (customer && customer.name) ? customer.name.substring(0, 15) : 'Customer';
+                const invoiceNum = (saleArg.invoiceNumber || '0').toString();
                 const dateObj = new Date(saleArg.createdAt);
                 const engDate = ('0' + dateObj.getDate()).slice(-2) + '/' + ('0' + (dateObj.getMonth() + 1)).slice(-2) + '/' + dateObj.getFullYear();
-                
-                // Helper function to convert string to bytes
-                function textToBytes(text) {
-                    const encoder = new TextEncoder();
-                    return Array.from(encoder.encode(text));
-                }
                 
                 // Start building ESC/POS command array
                 let escpos = [
@@ -25561,62 +25568,73 @@
                 ];
                 
                 // Add store name
-                escpos = escpos.concat(textToBytes('DELENTE STORE\n'));
-                escpos.push(0x0A);
+                escpos = escpos.concat(stringToAsciiBytes('DELENTE STORE'));
+                escpos.push(0x0A, 0x0A);
                 
                 // Add separator
-                escpos = escpos.concat(textToBytes('====================\n'));
+                escpos = escpos.concat(stringToAsciiBytes('===================='));
+                escpos.push(0x0A);
                 
                 // Left align for invoice details
                 escpos.push(0x1B, 0x61, 0x00);
                 
                 // Invoice number
-                escpos = escpos.concat(textToBytes('Invoice #' + (saleArg.invoiceNumber || 'N/A') + '\n'));
+                escpos = escpos.concat(stringToAsciiBytes('Invoice #' + invoiceNum));
+                escpos.push(0x0A);
                 
                 // Customer name
-                escpos = escpos.concat(textToBytes('Customer: ' + customerName + '\n'));
+                escpos = escpos.concat(stringToAsciiBytes('Customer: ' + customerName));
+                escpos.push(0x0A);
                 
                 // Date
-                escpos = escpos.concat(textToBytes('Date: ' + engDate + '\n'));
+                escpos = escpos.concat(stringToAsciiBytes('Date: ' + engDate));
+                escpos.push(0x0A);
                 
                 // Separator
-                escpos = escpos.concat(textToBytes('--------------------\n'));
+                escpos = escpos.concat(stringToAsciiBytes('--------------------'));
+                escpos.push(0x0A);
                 
                 // Items header
-                escpos = escpos.concat(textToBytes('ITEMS\n'));
+                escpos = escpos.concat(stringToAsciiBytes('ITEMS'));
+                escpos.push(0x0A);
                 
                 // Add each item
-                saleArg.items.forEach((item, idx) => {
-                    const product = findProduct(item.productId);
-                    const pName = product ? product.name.substring(0, 20) : 'Item';
-                    const qty = item.quantity || 0;
-                    const price = item.unitPrice || 0;
-                    const total = qty * price;
-                    
-                    escpos = escpos.concat(textToBytes(`${idx + 1}. ${pName}\n`));
-                    escpos = escpos.concat(textToBytes(`   ${qty}x ${price.toFixed(2)}=${total.toFixed(2)}\n`));
-                });
+                if (saleArg.items && Array.isArray(saleArg.items)) {
+                    saleArg.items.forEach((item, idx) => {
+                        const product = findProduct(item.productId);
+                        const pName = (product && product.name) ? product.name.substring(0, 15) : 'Item';
+                        const qty = item.quantity || 0;
+                        const price = item.unitPrice || 0;
+                        const total = qty * price;
+                        
+                        escpos = escpos.concat(stringToAsciiBytes((idx + 1) + '. ' + pName));
+                        escpos.push(0x0A);
+                        escpos = escpos.concat(stringToAsciiBytes('   ' + qty + 'x ' + price.toFixed(2) + '=' + total.toFixed(2)));
+                        escpos.push(0x0A);
+                    });
+                }
                 
                 // Separator
-                escpos = escpos.concat(textToBytes('--------------------\n'));
+                escpos = escpos.concat(stringToAsciiBytes('--------------------'));
+                escpos.push(0x0A);
                 
                 // Total
                 const totalAmount = saleArg.totalAmount || 0;
-                escpos = escpos.concat(textToBytes('TOTAL: ' + totalAmount.toFixed(2) + ' EGP\n'));
+                escpos = escpos.concat(stringToAsciiBytes('TOTAL: ' + totalAmount.toFixed(2) + ' EGP'));
+                escpos.push(0x0A, 0x0A);
                 
                 // Footer
-                escpos.push(0x0A);
-                escpos = escpos.concat(textToBytes('Thank you!\n'));
+                escpos = escpos.concat(stringToAsciiBytes('Thank you!'));
+                escpos.push(0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A);
                 
-                // Add blank lines and cut
-                escpos.push(0x0A, 0x0A, 0x0A, 0x0A, 0x0A);
-                escpos.push(0x1D, 0x56, 0x00); // Full cut
+                // Full cut
+                escpos.push(0x1D, 0x56, 0x00);
                 
                 const data = new Uint8Array(escpos);
                 
                 processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">جاري الطباعة...</div>`;
                 
-                // Send data in chunks
+                // Send data in chunks (100ms delay like test button)
                 for (let i = 0; i < data.length; i += 20) {
                     const chunk = data.slice(i, i + 20);
                     await characteristic.writeValue(chunk);
