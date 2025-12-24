@@ -6358,9 +6358,20 @@
                     const btBtn = document.getElementById('sales-bt-print-btn');
                     if (btBtn) btBtn.addEventListener('click', bluetoothPrintLatest);
                     
-                    // الزر الأزرق للطباعة الحرارية (صورة)
+                    // الزر الأزرق للطباعة الحرارية عبر البلوتوث (نفس طريقة زر الاختبار)
                     const quickPrintBtn = document.getElementById('sales-quick-print-btn');
-                    if (quickPrintBtn) quickPrintBtn.addEventListener('click', window.printAsImageForThermal);
+                    if (quickPrintBtn) quickPrintBtn.addEventListener('click', async () => {
+                        const latestSale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
+                        if (!latestSale) {
+                            alert('لا توجد فاتورة للطباعة');
+                            return;
+                        }
+                        if (typeof printInvoiceViaBluetooth === 'function') {
+                            await printInvoiceViaBluetooth(latestSale);
+                        } else {
+                            alert('دالة طباعة البلوتوث غير متوفرة');
+                        }
+                    });
                     
                     const htmlBtn = document.getElementById('sales-html-print-btn');
                     if (htmlBtn) htmlBtn.addEventListener('click', window.printHtmlReceiptLatest);
@@ -13899,7 +13910,19 @@
                             } catch(e){ console.warn('bt print error', e); alert('خطأ في الطباعة عبر البلوتوث: '+(e&&e.message)); } 
                         });
                         const rawbtBtn = el.querySelector('.rawbt-print-sale-btn');
-                        if (rawbtBtn) rawbtBtn.addEventListener('click', async (evt) => { evt.preventDefault(); try { showPrintPreviewModal(sale, () => { if (typeof printViaRawBT === 'function') printViaRawBT(sale); else alert('تطبيق RawBT غير متوفر'); }); } catch(e){ console.warn('rawbt print error', e); alert('خطأ في الطباعة عبر RawBT: '+(e&&e.message)); } });
+                        if (rawbtBtn) rawbtBtn.addEventListener('click', async (evt) => { 
+                            evt.preventDefault(); 
+                            try { 
+                                if (typeof printInvoiceViaBluetooth === 'function') {
+                                    await printInvoiceViaBluetooth(sale);
+                                } else {
+                                    alert('دالة طباعة البلوتوث غير متوفرة');
+                                }
+                            } catch(e){ 
+                                console.warn('bluetooth print error', e); 
+                                alert('خطأ في الطباعة عبر البلوتوث: '+(e&&e.message)); 
+                            } 
+                        });
                     } catch(e){ console.warn('wiring sale action buttons failed', e); }
                     // Tax upload status badge
                     try {
@@ -25459,6 +25482,153 @@
                 
             } catch (err) {
                 console.error('🔴 BT Test Error:', err);
+                processingMsg.innerHTML = `<div style="font-size:16px;font-weight:bold;color:red;">خطأ:</div><div style="font-size:12px;color:#666;margin:10px 0;">${err.message}</div><button onclick="this.parentElement.remove()" style="background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">إغلاق</button>`;
+            }
+        }
+
+        // Print invoice via Bluetooth using ESC/POS commands (same method as test button)
+        async function printInvoiceViaBluetooth(saleArg) {
+            console.log('🔵 BT Invoice Print Started');
+            const processingMsg = document.createElement('div');
+            processingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:#fff;padding:30px;border-radius:10px;z-index:50001;box-shadow:0 4px 6px rgba(0,0,0,0.2);text-align:center;min-width:300px;';
+            processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;margin-bottom:15px;">جاري البحث عن البرينتر...</div>`;
+            document.body.appendChild(processingMsg);
+            
+            const uuidCombos = [
+                { service: '000018f0-0000-1000-8000-00805f9b34fb', char: '00002af1-0000-1000-8000-00805f9b34fb', name: 'BLE' },
+                { service: '0000ff00-0000-1000-8000-00805f9b34fb', char: '0000ff01-0000-1000-8000-00805f9b34fb', name: 'FF00' },
+                { service: '49535343-fe7d-4ae5-8fa9-9fafd205e455', char: '49535343-8841-43f4-a8d4-ecbe34729bb3', name: 'HM-10' }
+            ];
+            
+            try {
+                if (!navigator.bluetooth) {
+                    throw new Error('Bluetooth غير مدعوم في هذا المتصفح. استخدم Chrome أو Edge.');
+                }
+                
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;margin-bottom:15px;">اختر البرينتر من القائمة</div>`;
+                
+                const device = await navigator.bluetooth.requestDevice({
+                    acceptAllDevices: true,
+                    optionalServices: uuidCombos.map(u => u.service)
+                });
+                
+                console.log('✓ Device selected:', device.name);
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:blue;">جاري الاتصال بـ ${device.name || 'البرينتر'}...</div>`;
+                const server = await device.gatt.connect();
+                console.log('✓ Connected to GATT');
+                
+                let characteristic = null;
+                let usedCombo = null;
+                
+                for (const combo of uuidCombos) {
+                    try {
+                        processingMsg.innerHTML = `<div style="font-size:14px;color:#666;">جرب ${combo.name}...</div>`;
+                        const service = await server.getPrimaryService(combo.service);
+                        characteristic = await service.getCharacteristic(combo.char);
+                        usedCombo = combo;
+                        console.log('✓ Connected using:', combo.name);
+                        break;
+                    } catch (e) {
+                        console.log('✗ Failed:', combo.name, e.message);
+                        continue;
+                    }
+                }
+                
+                if (!characteristic) {
+                    throw new Error('لم يُعثر على خدمة البرينتر. جرب برينتر آخر.');
+                }
+                
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">✓ متصل (${usedCombo.name})!<br>جاري تحضير الفاتورة...</div>`;
+                
+                // Build invoice data
+                const customer = findCustomer(saleArg.customerId);
+                const customerName = customer ? customer.name : 'عميل غير معروف';
+                const saleDate = formatArabicDate(saleArg.createdAt);
+                
+                // Helper function to convert string to bytes
+                function textToBytes(text) {
+                    const encoder = new TextEncoder();
+                    return Array.from(encoder.encode(text));
+                }
+                
+                // Start building ESC/POS command array
+                let escpos = [
+                    0x1B, 0x40, // Initialize printer
+                    0x1B, 0x61, 0x01 // Center alignment
+                ];
+                
+                // Add store name
+                escpos = escpos.concat(textToBytes('Delente\n'));
+                escpos.push(0x0A);
+                
+                // Add separator
+                escpos = escpos.concat(textToBytes('================================\n'));
+                
+                // Left align for invoice details
+                escpos.push(0x1B, 0x61, 0x00);
+                
+                // Invoice number
+                escpos = escpos.concat(textToBytes('Invoice: ' + saleArg.invoiceNumber + '\n'));
+                
+                // Customer name
+                escpos = escpos.concat(textToBytes('Customer: ' + customerName + '\n'));
+                
+                // Date
+                escpos = escpos.concat(textToBytes('Date: ' + saleDate + '\n'));
+                
+                // Separator
+                escpos = escpos.concat(textToBytes('--------------------------------\n'));
+                
+                // Items header
+                escpos = escpos.concat(textToBytes('Items:\n'));
+                
+                // Add each item
+                saleArg.items.forEach((item, idx) => {
+                    const product = findProduct(item.productId);
+                    const pName = product ? product.name : 'منتج غير معروف';
+                    const qty = item.quantity || 0;
+                    const price = item.unitPrice || 0;
+                    const total = qty * price;
+                    
+                    escpos = escpos.concat(textToBytes(`${idx + 1}. ${pName}\n`));
+                    escpos = escpos.concat(textToBytes(`   ${qty} x ${price.toFixed(2)} = ${total.toFixed(2)}\n`));
+                });
+                
+                // Separator
+                escpos = escpos.concat(textToBytes('--------------------------------\n'));
+                
+                // Total
+                const totalAmount = saleArg.totalAmount || 0;
+                escpos = escpos.concat(textToBytes('Total: ' + totalAmount.toFixed(2) + ' EGP\n'));
+                
+                // Footer
+                escpos.push(0x0A, 0x0A);
+                escpos = escpos.concat(textToBytes('Thank you!\n'));
+                
+                // Add blank lines and cut
+                escpos.push(0x0A, 0x0A, 0x0A, 0x0A, 0x0A);
+                escpos.push(0x1D, 0x56, 0x00); // Full cut
+                
+                const data = new Uint8Array(escpos);
+                
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">جاري الطباعة...</div>`;
+                
+                // Send data in chunks
+                for (let i = 0; i < data.length; i += 20) {
+                    const chunk = data.slice(i, i + 20);
+                    await characteristic.writeValue(chunk);
+                    await new Promise(r => setTimeout(r, 100));
+                }
+                
+                console.log('✓ Invoice sent successfully');
+                processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">✓ تمت الطباعة بنجاح!</div>`;
+                setTimeout(() => {
+                    try { document.body.removeChild(processingMsg); } catch(_){}
+                    try { device.gatt.disconnect(); } catch(_){}
+                }, 3000);
+                
+            } catch (err) {
+                console.error('🔴 BT Print Error:', err);
                 processingMsg.innerHTML = `<div style="font-size:16px;font-weight:bold;color:red;">خطأ:</div><div style="font-size:12px;color:#666;margin:10px 0;">${err.message}</div><button onclick="this.parentElement.remove()" style="background:#3b82f6;color:#fff;border:none;padding:8px 16px;border-radius:6px;cursor:pointer;">إغلاق</button>`;
             }
         }
