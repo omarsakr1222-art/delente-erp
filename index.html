@@ -13670,17 +13670,17 @@
             }
         }
 
-        // Quick print button logic (asks for invoice number then prints)
+        // Quick print button logic (asks for invoice number then prints AS IMAGE for thermal)
         document.addEventListener('click', async function(e){
             const btn = e.target && (e.target.id === 'sales-quick-print-btn' || (e.target.closest && e.target.closest('#sales-quick-print-btn')));
             if (!btn) return;
             try {
-                const inv = prompt('أدخل رقم الفاتورة للطباعة:');
-                if (!inv) return;
-                const sale = (state.sales||[]).find(s => String(s.invoiceNumber||'') === String(inv));
-                if (!sale) { alert('لم يتم العثور على فاتورة بهذا الرقم'); return; }
-                await window.printSaleById(sale.id);
-            } catch(err){ console.warn('quick print failed', err); }
+                // Use the image-based thermal printing function
+                await window.printAsImageForThermal();
+            } catch(err){ 
+                console.error('quick print failed', err); 
+                alert('فشل الطباعة: ' + (err && err.message ? err.message : err));
+            }
         });
 
         function renderAllSales(textFilter = '', dateFilter = '', taxStatusFilter = 'all', reviewFilterArg = null) {
