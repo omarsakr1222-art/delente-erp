@@ -25540,10 +25540,13 @@
                 
                 processingMsg.innerHTML = `<div style="font-size:18px;font-weight:bold;color:green;">✓ متصل (${usedCombo.name})!<br>جاري تحضير الفاتورة...</div>`;
                 
-                // Build invoice data
+                // Build invoice data - ENGLISH ONLY (printer doesn't support Arabic)
                 const customer = findCustomer(saleArg.customerId);
-                const customerName = customer ? customer.name : 'عميل غير معروف';
-                const saleDate = formatArabicDate(saleArg.createdAt);
+                const customerName = customer ? customer.name.substring(0, 20) : 'Customer';
+                
+                // Convert date to English format (DD/MM/YYYY)
+                const dateObj = new Date(saleArg.createdAt);
+                const engDate = ('0' + dateObj.getDate()).slice(-2) + '/' + ('0' + (dateObj.getMonth() + 1)).slice(-2) + '/' + dateObj.getFullYear();
                 
                 // Helper function to convert string to bytes
                 function textToBytes(text) {
@@ -25558,51 +25561,51 @@
                 ];
                 
                 // Add store name
-                escpos = escpos.concat(textToBytes('Delente\n'));
+                escpos = escpos.concat(textToBytes('DELENTE STORE\n'));
                 escpos.push(0x0A);
                 
                 // Add separator
-                escpos = escpos.concat(textToBytes('================================\n'));
+                escpos = escpos.concat(textToBytes('====================\n'));
                 
                 // Left align for invoice details
                 escpos.push(0x1B, 0x61, 0x00);
                 
                 // Invoice number
-                escpos = escpos.concat(textToBytes('Invoice: ' + saleArg.invoiceNumber + '\n'));
+                escpos = escpos.concat(textToBytes('Invoice #' + (saleArg.invoiceNumber || 'N/A') + '\n'));
                 
                 // Customer name
                 escpos = escpos.concat(textToBytes('Customer: ' + customerName + '\n'));
                 
                 // Date
-                escpos = escpos.concat(textToBytes('Date: ' + saleDate + '\n'));
+                escpos = escpos.concat(textToBytes('Date: ' + engDate + '\n'));
                 
                 // Separator
-                escpos = escpos.concat(textToBytes('--------------------------------\n'));
+                escpos = escpos.concat(textToBytes('--------------------\n'));
                 
                 // Items header
-                escpos = escpos.concat(textToBytes('Items:\n'));
+                escpos = escpos.concat(textToBytes('ITEMS\n'));
                 
                 // Add each item
                 saleArg.items.forEach((item, idx) => {
                     const product = findProduct(item.productId);
-                    const pName = product ? product.name : 'منتج غير معروف';
+                    const pName = product ? product.name.substring(0, 20) : 'Item';
                     const qty = item.quantity || 0;
                     const price = item.unitPrice || 0;
                     const total = qty * price;
                     
                     escpos = escpos.concat(textToBytes(`${idx + 1}. ${pName}\n`));
-                    escpos = escpos.concat(textToBytes(`   ${qty} x ${price.toFixed(2)} = ${total.toFixed(2)}\n`));
+                    escpos = escpos.concat(textToBytes(`   ${qty}x ${price.toFixed(2)}=${total.toFixed(2)}\n`));
                 });
                 
                 // Separator
-                escpos = escpos.concat(textToBytes('--------------------------------\n'));
+                escpos = escpos.concat(textToBytes('--------------------\n'));
                 
                 // Total
                 const totalAmount = saleArg.totalAmount || 0;
-                escpos = escpos.concat(textToBytes('Total: ' + totalAmount.toFixed(2) + ' EGP\n'));
+                escpos = escpos.concat(textToBytes('TOTAL: ' + totalAmount.toFixed(2) + ' EGP\n'));
                 
                 // Footer
-                escpos.push(0x0A, 0x0A);
+                escpos.push(0x0A);
                 escpos = escpos.concat(textToBytes('Thank you!\n'));
                 
                 // Add blank lines and cut
