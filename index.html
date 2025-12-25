@@ -25590,10 +25590,36 @@
             currentTab: 'raw',
             currentItem: null,
             
+            // 🔧 CRITICAL: Sync all local data to window globals BEFORE loading
+            // This ensures any recent edits in localStorage are in memory
+            _syncFromLocalStorage() {
+                try {
+                    const rawLS = localStorage.getItem('cost_raw');
+                    const packLS = localStorage.getItem('cost_pack');
+                    const finLS = localStorage.getItem('cost_finished');
+                    
+                    if (rawLS) window.costRaw = JSON.parse(rawLS);
+                    if (packLS) window.costPack = JSON.parse(packLS);
+                    if (finLS) window.costFinished = JSON.parse(finLS);
+                    
+                    console.log('✅ _syncFromLocalStorage: updated window arrays from localStorage', {
+                        raw: (window.costRaw || []).length,
+                        pack: (window.costPack || []).length,
+                        finished: (window.costFinished || []).length
+                    });
+                } catch(e) {
+                    console.warn('_syncFromLocalStorage failed:', e);
+                }
+            },
+            
             // Load inventory data from Firestore
             async loadInventoryData(category) {
                 try {
                     this.currentTab = category || 'raw';
+                    
+                    // 🔧 CRITICAL: Sync from localStorage FIRST to get latest edits
+                    this._syncFromLocalStorage();
+                    
                     const tbody = document.getElementById(`table-${this.currentTab}`);
                     if (!tbody) {
                         console.warn(`⚠️ Table not found: table-${this.currentTab}`);
