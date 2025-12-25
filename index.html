@@ -25974,7 +25974,6 @@
                         window.costPack.push(newItem);
                     } else if (category === 'finished') {
                         if (!window.costFinished) window.costFinished = [];
-                        window.finishedProducts = window.costFinished;
                         window.costFinished.push(newItem);
                     }
                     
@@ -26430,9 +26429,8 @@
                     return;
                 }
                 
-                // Use costFinished (newer) or finishedProducts (legacy) - whichever has data; else derive from grid state
-                let products = (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) ? window.costFinished :
-                                ((window.finishedProducts && Array.isArray(window.finishedProducts) && window.finishedProducts.length > 0) ? window.finishedProducts : __getFinishedFromGrid());
+                // ✅ FIXED: Use ONLY window.costFinished (removed finishedProducts fallback to avoid variable mismatch)
+                let products = (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) ? window.costFinished : __getFinishedFromGrid();
                 
                 if (!products || !Array.isArray(products) || products.length === 0) {
                     tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد منتجات تامة. اضغط "+" لإضافة منتج.</td></tr>';
