@@ -21843,6 +21843,16 @@
                         console.warn('⚠️ Permission denied - check Firestore rules or re-login');
                     }
                 });
+                
+                // 🔄 Also refresh UI if currently viewing the inventory page
+                window.addEventListener('costListsSavedToCloud', () => {
+                    try {
+                        if (window.inventorySystem && window.inventorySystem.currentTab) {
+                            console.log('🔄 Cloud update detected, refreshing UI...');
+                            setTimeout(() => window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab), 100);
+                        }
+                    } catch(e){ console.warn('UI refresh on cloud update failed:', e); }
+                });
             } catch(e) {
                 console.error('initRealtimeSync failed:', e);
             }
