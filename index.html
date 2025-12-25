@@ -22019,12 +22019,9 @@
 
         // Helper function to save cost lists to Firebase (called from saveLists)
         window.saveCostListsToFirebase = async function(immediate){
-            // Prevent non-admin users (e.g., reps) from attempting cloud saves
-            try {
-                const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                if (role !== 'admin') { console.log('saveCostListsToFirebase: skipped (not admin)'); return false; }
-            } catch(_) {}
-
+            // ✅ REMOVED ADMIN CHECK - Allow all logged-in users to save inventory
+            // Any authenticated user can now update inventory data
+            
             if (!window.db) {
                 console.warn('⚠️ saveCostListsToFirebase: Firebase not ready, waiting...');
                 try { await waitForDbReady(5000); } catch(e) { console.warn('⚠️ saveCostListsToFirebase: DB wait timed out', e); }
