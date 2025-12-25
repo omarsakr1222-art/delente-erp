@@ -541,13 +541,27 @@ async function performBluetoothPrint(sale) {
         // Ensure 576px width for 80mm printers (printable area ~72mm, device 576px)
         root.style.width = '576px';
         root.style.maxWidth = '576px';
+        root.style.fontFamily = 'Cairo, Arial, sans-serif'; // تأكيد استخدام فونت Cairo
         document.body.appendChild(temp);
 
         // Use html2canvas to render the receipt as an image
-        // Lower scale to reduce data size for Bluetooth stability
+        // Scale 1.5 for better Arabic text clarity on thermal printer
         let canvas;
         try {
-            canvas = await html2canvas(root, { scale: 0.6, backgroundColor: '#fff', width: 576, useCORS: true });
+            // Wait for fonts to load before rendering
+            if (document.fonts && document.fonts.ready) {
+                await document.fonts.ready;
+            }
+            canvas = await html2canvas(root, { 
+                scale: 1.5, // زيادة الدقة للنص العربي
+                backgroundColor: '#ffffff', 
+                width: 576, 
+                useCORS: true,
+                allowTaint: false,
+                logging: false,
+                imageTimeout: 0,
+                removeContainer: true
+            });
         } catch (e) {
             try { temp.remove(); } catch(_){}
             throw new Error('فشل تحويل الإيصال إلى صورة: ' + e.message);
@@ -562,8 +576,11 @@ async function performBluetoothPrint(sale) {
             const bytesPerLine = Math.ceil(width / 8);
             let escpos = [];
             escpos.push(0x1B, 0x40); // Initialize printer
+            
+            // GS v 0 - رسم الصورة (أفضل للطابعات الصينية)
             escpos.push(0x1D, 0x76, 0x30, 0x00, bytesPerLine & 0xFF, (bytesPerLine >> 8) & 0xFF, height & 0xFF, (height >> 8) & 0xFF);
             
+            // تحويل الصورة إلى bitmap مع عتبة أفضل للنص العربي (threshold 200)
             for (let y = 0; y < height; y++) {
                 for (let xByte = 0; xByte < bytesPerLine; xByte++) {
                     let byte = 0;
@@ -573,23 +590,23 @@ async function performBluetoothPrint(sale) {
                             const idx = (y * width + x) * 4;
                             const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
                             const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                            if (luminance < 180) byte |= (1 << (7 - bit));
+                            // عتبة 200 بدلاً من 180 لوضوح أفضل للنص العربي
+                            if (luminance < 200) byte |= (1 << (7 - bit));
                         }
                     }
                     escpos.push(byte);
                 }
             }
-            // Proper ESC/POS termination for XP-P323B: Extra line feeds + Full cut
+            // ESC/POS commands for XP-P323B: Extra line feeds + Full cut
             escpos.push(0x0A, 0x0A, 0x0A, 0x0A, 0x0A, 0x0A); // 6 line feeds to advance paper
             escpos.push(0x1D, 0x56, 0x00); // Full cut (GS V 0)
-            escpos.push(0x1B, 0x40); // Reset printer
             return new Uint8Array(escpos);
         }
 
         const escposData = canvasToEscPos(canvas);
 
         // 4. Stability Fixes (Chunking and Delay) - optimized for XP-P323B
-        async function sendChunks(data, chunkSize = 100, delayMs = 80) {
+        async function sendChunks(data, chunkSize = 512, delayMs = 50) {
             for (let i = 0; i < data.length; i += chunkSize) {
                 const chunk = data.slice(i, i + chunkSize);
                 try {
