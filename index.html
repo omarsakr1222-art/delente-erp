@@ -21827,10 +21827,25 @@
                         if (data.finished) window.costLists.costFinished = data.finished;
                         if (data.timestamp) window.costLists.timestamp = data.timestamp;
                         
-                        // 2. SYNC TO WINDOW (for inventory system) - ALWAYS update, even if empty (cloud is authoritative)
-                        if (Array.isArray(data.raw)) window.costRaw = data.raw;
-                        if (Array.isArray(data.pack)) window.costPack = data.pack;
-                        if (Array.isArray(data.finished)) window.costFinished = data.finished;
+                        // 2. SYNC TO WINDOW (for inventory system) - BUT PRESERVE NEWER LOCAL DATA
+                        // Only update if cloud has data AND it's newer than local (by merge, not replace)
+                        if (Array.isArray(data.raw) && data.raw.length > 0) {
+                            // Cloud has data - merge intelligently
+                            if (!window.costRaw || window.costRaw.length === 0) {
+                                window.costRaw = data.raw;  // Cloud is authoritative if local empty
+                            }
+                            // Otherwise keep local (user may be editing)
+                        }
+                        if (Array.isArray(data.pack) && data.pack.length > 0) {
+                            if (!window.costPack || window.costPack.length === 0) {
+                                window.costPack = data.pack;
+                            }
+                        }
+                        if (Array.isArray(data.finished) && data.finished.length > 0) {
+                            if (!window.costFinished || window.costFinished.length === 0) {
+                                window.costFinished = data.finished;
+                            }
+                        }
                         
                         // 3. SAVE TO LOCAL CACHE (for offline)
                         try {
