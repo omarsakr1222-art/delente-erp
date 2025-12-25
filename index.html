@@ -21731,31 +21731,36 @@
         }
 
         function saveLists(suppressCloud){
-            // ===== 1. Update globals and UI =====
-            try { window.costFinished = costFinished; window.costRaw = costRaw; window.costPack = costPack; window.costOps = costOps; } catch(_){ }
+            // ===== 1. Ensure we're using window globals =====
+            try { 
+                costFinished = window.costFinished || costFinished; 
+                costRaw = window.costRaw || costRaw; 
+                costPack = window.costPack || costPack; 
+                costOps = window.costOps || costOps; 
+            } catch(_){ }
             renderListsSummary(); renderProductSelect(); renderRawPriceTable();
 
-            // ===== 2. Cache locally (non-authoritative) =====
+            // ===== 2. Cache locally (non-authoritative) - use WINDOW globals =====
             try {
                 // لا تكتب finished الفارغ فوق نسخة محلية تحتوي بيانات
                 try {
-                    if (Array.isArray(costFinished) && costFinished.length > 0) {
-                        localStorage.setItem(LS_FIN, JSON.stringify(costFinished));
+                    if (Array.isArray(window.costFinished) && window.costFinished.length > 0) {
+                        localStorage.setItem(LS_FIN, JSON.stringify(window.costFinished));
                     } else {
                         const existingFin = JSON.parse(localStorage.getItem(LS_FIN) || '[]');
                         if (Array.isArray(existingFin) && existingFin.length > 0) {
                             // احتفظ بالنسخة الموجودة ولا تكتب صفر
                         } else {
-                            localStorage.setItem(LS_FIN, JSON.stringify(costFinished));
+                            localStorage.setItem(LS_FIN, JSON.stringify(window.costFinished));
                         }
                     }
-                } catch(_){ localStorage.setItem(LS_FIN, JSON.stringify(costFinished)); }
-                localStorage.setItem(LS_RAW, JSON.stringify(costRaw));
-                localStorage.setItem(LS_PACK, JSON.stringify(costPack));
-                localStorage.setItem(LS_OPS, JSON.stringify(costOps));
+                } catch(_){ localStorage.setItem(LS_FIN, JSON.stringify(window.costFinished)); }
+                localStorage.setItem(LS_RAW, JSON.stringify(window.costRaw));
+                localStorage.setItem(LS_PACK, JSON.stringify(window.costPack));
+                localStorage.setItem(LS_OPS, JSON.stringify(window.costOps));
                 const timestamp = new Date().toISOString();
                 // Do not mark local cache as authoritative timestamp here. Only cache payload.
-                console.log('💾 saveLists: cached locally (cache only)', { finished: costFinished.length, raw: costRaw.length, pack: costPack.length, ops: costOps.length, timestamp });
+                console.log('💾 saveLists: cached locally (cache only)', { finished: (window.costFinished||[]).length, raw: (window.costRaw||[]).length, pack: (window.costPack||[]).length, ops: (window.costOps||[]).length, timestamp });
             } catch(e){ console.warn('⚠️ saveLists: failed to write local cache', e); }
 
             // ===== 3. Cloud-first write: push immediately to Firestore (include grid states)
@@ -21763,14 +21768,14 @@
                 try {
                     // ensure window.costLists reflects current arrays
                     window.costLists = window.costLists || {};
-                    window.costLists.costRaw = costRaw;
-                    window.costLists.costPack = costPack;
-                    window.costLists.costFinished = costFinished;
+                    window.costLists.costRaw = window.costRaw;
+                    window.costLists.costPack = window.costPack;
+                    window.costLists.costFinished = window.costFinished;
                     // delegate to centralized cloud writer which includes grid states
                     if (typeof window.saveCostListsToFirebase === 'function') {
                         window.saveCostListsToFirebase(true).then(ok => {
                             if (ok) {
-                                document.dispatchEvent(new CustomEvent('costListsSavedToCloud', { detail: { raw: costRaw.length, pack: costPack.length, finished: costFinished.length } }));
+                                document.dispatchEvent(new CustomEvent('costListsSavedToCloud', { detail: { raw: (window.costRaw||[]).length, pack: (window.costPack||[]).length, finished: (window.costFinished||[]).length } }));
                             }
                         }).catch(e => console.warn('⚠️ saveLists: saveCostListsToFirebase failed', e));
                     } else {
