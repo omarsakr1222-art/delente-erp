@@ -377,7 +377,20 @@ async function performBluetoothPrint(sale) {
     // Use html2canvas to render the receipt as an image
     let canvas;
     try {
-        canvas = await html2canvas(receiptDiv, { scale: 1, backgroundColor: '#fff', width: 576 });
+        // Wait for fonts to load before rendering
+        if (document.fonts && document.fonts.ready) {
+            await document.fonts.ready;
+        }
+        canvas = await html2canvas(receiptDiv, { 
+            scale: 1.5, 
+            backgroundColor: '#ffffff', 
+            width: 576, 
+            useCORS: true,
+            allowTaint: false,
+            logging: false,
+            imageTimeout: 0,
+            removeContainer: true
+        });
     } catch (e) {
         alert('فشل تحويل الإيصال إلى صورة: ' + e.message);
         try { server.disconnect(); } catch (_) {}
@@ -403,7 +416,8 @@ async function performBluetoothPrint(sale) {
                         const idx = (y * width + x) * 4;
                         const r = imgData[idx], g = imgData[idx + 1], b = imgData[idx + 2];
                         const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
-                        if (luminance < 180) byte |= (1 << (7 - bit));
+                        // عتبة 200 بدلاً من 180 لوضوح أفضل للنص العربي
+                        if (luminance < 200) byte |= (1 << (7 - bit));
                     }
                 }
                 escpos.push(byte);
@@ -415,11 +429,16 @@ async function performBluetoothPrint(sale) {
 
     const escposData = canvasToEscPos(canvas);
 
-    // 4. Stability Fixes (Chunking and Delay)
-    async function sendChunks(data, chunkSize = 200, delayMs = 50) {
+    // 4. Stability Fixes (Chunking and Delay) - optimized for XP-P323B
+    async function sendChunks(data, chunkSize = 512, delayMs = 50) {
         for (let i = 0; i < data.length; i += chunkSize) {
             const chunk = data.slice(i, i + chunkSize);
-            await characteristic.writeValue(chunk);
+            try {
+                await characteristic.writeValue(chunk);
+            } catch (writeErr) {
+                console.warn('Write chunk failed:', writeErr);
+                throw writeErr;
+            }
             await new Promise(res => setTimeout(res, delayMs));
         }
     }
@@ -481,6 +500,52 @@ async function fetchSalesTargetFromCloud() {
     }
 }
 window.fetchSalesTargetFromCloud = fetchSalesTargetFromCloud;
+
+// ===== USB/Direct Print Function (Best for Thermal Printers) =====
+async function printViaUSB(sale) {
+    try {
+        // Check if buildReceiptHtml58mm exists
+        if (typeof buildReceiptHtml58mm !== 'function') {
+            alert('دالة بناء الفاتورة غير متوفرة');
+            return;
+        }
+
+        // Generate receipt HTML
+        const receiptHtml = buildReceiptHtml58mm(sale);
+        
+        // Create a new window for printing
+        const printWindow = window.open('', '', 'width=800,height=600');
+        if (!printWindow) {
+            alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+            return;
+        }
+
+        // Write the HTML to the new window
+        printWindow.document.write(receiptHtml);
+        printWindow.document.close();
+
+        // Wait a bit for the content to render
+        printWindow.onload = function() {
+            // Set up print settings
+            printWindow.focus();
+            
+            // Trigger print dialog
+            setTimeout(() => {
+                printWindow.print();
+                
+                // Close the window after printing
+                setTimeout(() => {
+                    printWindow.close();
+                }, 500);
+            }, 100);
+        };
+    } catch(e) {
+        console.error('USB print error:', e);
+        alert('خطأ في الطباعة عبر USB: ' + (e && e.message ? e.message : e));
+    }
+}
+
+window.printViaUSB = printViaUSB;
 
 // جلب الهدف الشهري عند تحميل الصفحة الرئيسية
 window.addEventListener('load', function() {

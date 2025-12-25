@@ -9364,6 +9364,7 @@ ${itemsHtml}
             const deleteBtn = e.target.closest('.delete-sale-btn');
             const printBtn = e.target.closest('.print-sale-btn');
             const shareImageBtn = e.target.closest('.share-sale-image-btn');
+            const usbPrintBtn = e.target.closest('.usb-print-sale-btn');
             const etaUploadBtn = e.target.closest('.eta-upload-btn');
             const approveBtn = e.target.closest('.review-sale-btn');
             const reviewOpenBtn = e.target.closest('.review-open-btn');
@@ -9461,6 +9462,19 @@ ${itemsHtml}
             if (shareImageBtn) {
                 const saleId = shareImageBtn.getAttribute('data-id');
                 try { await window.shareSaleReceiptImage(saleId); } catch(e){ console.warn('shareSaleReceiptImage failed', e); }
+                return;
+            }
+
+            if (usbPrintBtn) {
+                const saleId = usbPrintBtn.getAttribute('data-id');
+                try {
+                    const sale = (state.sales||[]).find(s => s.id === saleId);
+                    if (sale && typeof window.printViaUSB === 'function') {
+                        await window.printViaUSB(sale);
+                    } else {
+                        alert('دالة الطباعة عبر USB غير متوفرة');
+                    }
+                } catch(e){ console.warn('USB print failed', e); alert('خطأ في الطباعة عبر USB: ' + (e && e.message)); }
                 return;
             }
 
@@ -9662,6 +9676,13 @@ ${itemsHtml}
                         shareBtnEl.className = 'share-sale-image-btn mb-2 bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
                         shareBtnEl.innerHTML = '<i data-lucide="share-2" class="w-4 h-4"></i> صورة';
                         sideCol.insertBefore(shareBtnEl, sideCol.firstChild.nextSibling); // after print
+
+                        // USB/Direct Print button
+                        const usbPrintBtnEl = document.createElement('button');
+                        usbPrintBtnEl.setAttribute('data-id', sale.id);
+                        usbPrintBtnEl.className = 'usb-print-sale-btn mb-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+                        usbPrintBtnEl.innerHTML = '<i data-lucide="printer" class="w-4 h-4"></i> USB';
+                        sideCol.insertBefore(usbPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling); // after share
 
                         // تمت إزالة زر الإرسال للضرائب الخارجي؛ يبقى فقط داخل المودال
                     }
@@ -14268,11 +14289,26 @@ ${itemsHtml}
 
                                 return `<!doctype html><html lang="ar" dir="rtl"><head>
                     <meta charset="utf-8" />
+                    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
                     <title>طباعة فاتورة</title>
                     <style>
                         @page { size: 58mm auto; margin: 2mm; }
-                        body { font-family: 'Cairo', sans-serif; direction: rtl; margin:0; padding:0; }
-                        .r { width: 58mm; max-width: 58mm; position: relative; padding: 2mm 0; }
+                        body { 
+                            font-family: 'Cairo', sans-serif; 
+                            direction: rtl; 
+                            margin:0; 
+                            padding:0;
+                            -webkit-font-smoothing: antialiased;
+                            -moz-osx-font-smoothing: grayscale;
+                            text-rendering: optimizeLegibility;
+                        }
+                        .r { 
+                            width: 58mm; 
+                            max-width: 58mm; 
+                            position: relative; 
+                            padding: 2mm 0;
+                            font-family: 'Cairo', sans-serif;
+                        }
                         .center { text-align:center }
                         .h1 { font-weight:800; font-size:14px; }
                         .h2 { font-weight:700; font-size:12px; }

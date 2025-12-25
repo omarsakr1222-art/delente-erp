@@ -707,6 +707,52 @@ async function fetchSalesTargetFromCloud() {
 }
 window.fetchSalesTargetFromCloud = fetchSalesTargetFromCloud;
 
+// ===== USB/Direct Print Function (Best for Thermal Printers) =====
+async function printViaUSB(sale) {
+    try {
+        // Check if buildReceiptHtml58mm exists
+        if (typeof buildReceiptHtml58mm !== 'function') {
+            alert('دالة بناء الفاتورة غير متوفرة');
+            return;
+        }
+
+        // Generate receipt HTML
+        const receiptHtml = buildReceiptHtml58mm(sale);
+        
+        // Create a new window for printing
+        const printWindow = window.open('', '', 'width=800,height=600');
+        if (!printWindow) {
+            alert('يرجى السماح بالنوافذ المنبثقة للطباعة');
+            return;
+        }
+
+        // Write the HTML to the new window
+        printWindow.document.write(receiptHtml);
+        printWindow.document.close();
+
+        // Wait a bit for the content to render
+        printWindow.onload = function() {
+            // Set up print settings
+            printWindow.focus();
+            
+            // Trigger print dialog
+            setTimeout(() => {
+                printWindow.print();
+                
+                // Close the window after printing
+                setTimeout(() => {
+                    printWindow.close();
+                }, 500);
+            }, 100);
+        };
+    } catch(e) {
+        console.error('USB print error:', e);
+        alert('خطأ في الطباعة عبر USB: ' + (e && e.message ? e.message : e));
+    }
+}
+
+window.printViaUSB = printViaUSB;
+
 // جلب الهدف الشهري عند تحميل الصفحة الرئيسية
 window.addEventListener('load', function() {
     fetchSalesTargetFromCloud();

@@ -13820,19 +13820,26 @@
                         shareBtnEl.innerHTML = '<i data-lucide="share-2" class="w-4 h-4"></i> صورة';
                         sideCol.insertBefore(shareBtnEl, sideCol.firstChild.nextSibling); // after print
 
-                        // Bluetooth print button (third button)
+                        // USB/Direct Print button (third button)
+                        const usbPrintBtnEl = document.createElement('button');
+                        usbPrintBtnEl.setAttribute('data-id', sale.id);
+                        usbPrintBtnEl.className = 'usb-print-sale-btn mb-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+                        usbPrintBtnEl.innerHTML = '<i data-lucide="printer" class="w-4 h-4"></i> USB';
+                        sideCol.insertBefore(usbPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling); // after share
+
+                        // Bluetooth print button (fourth button)
                         const btPrintBtnEl = document.createElement('button');
                         btPrintBtnEl.setAttribute('data-id', sale.id);
                         btPrintBtnEl.className = 'bt-print-sale-btn mb-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
                         btPrintBtnEl.innerHTML = '<i class="bi bi-bluetooth"></i> بلوتوث';
-                        sideCol.insertBefore(btPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling); // after share
+                        sideCol.insertBefore(btPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling); // after USB
 
-                        // RawBT Android Direct Print button (fourth button)
+                        // RawBT Android Direct Print button (fifth button)
                         const rawbtPrintBtnEl = document.createElement('button');
                         rawbtPrintBtnEl.setAttribute('data-id', sale.id);
                         rawbtPrintBtnEl.className = 'rawbt-print-sale-btn mb-2 bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
                         rawbtPrintBtnEl.innerHTML = '<i class="bi bi-phone-vibrate"></i> هاتف';
-                        sideCol.insertBefore(rawbtPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling); // after bluetooth
+                        sideCol.insertBefore(rawbtPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling.nextSibling); // after bluetooth
 
                         // تمت إزالة زر الإرسال للضرائب الخارجي؛ يبقى فقط داخل المودال
                     }
@@ -13893,6 +13900,23 @@
                         });
                         const shareBtn = el.querySelector('.share-sale-image-btn');
                         if (shareBtn) shareBtn.addEventListener('click', async (evt) => { evt.preventDefault(); try { await window.exportSaleImageById(sale.id); } catch(e){ console.warn('exportSaleImageById error', e);} });
+                        
+                        // USB/Direct Print button
+                        const usbBtn = el.querySelector('.usb-print-sale-btn');
+                        if (usbBtn) usbBtn.addEventListener('click', async (evt) => {
+                            evt.preventDefault();
+                            try {
+                                if (typeof printViaUSB === 'function') {
+                                    await printViaUSB(sale);
+                                } else {
+                                    alert('دالة الطباعة عبر USB غير متوفرة');
+                                }
+                            } catch(e) {
+                                console.warn('USB print error', e);
+                                alert('خطأ في الطباعة عبر USB: ' + (e && e.message));
+                            }
+                        });
+                        
                         const btBtn = el.querySelector('.bt-print-sale-btn');
                         if (btBtn) btBtn.addEventListener('click', async (evt) => { 
                             evt.preventDefault(); 
