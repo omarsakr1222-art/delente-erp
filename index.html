@@ -73,7 +73,7 @@
             }
         });
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
+        <script src="https://cdn.tailwindcss.com"></script>
     <!-- html2canvas for converting receipts to images for thermal printers -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
@@ -99,6 +99,8 @@
                 });
             };
         })();
+
+        
     </script>
     <script>
         // Global safe guards to prevent early crashes
@@ -3578,8 +3580,15 @@
                         try { if (data.rawMaterials) { window._rawGridState = data.rawMaterials; localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState||{})); } } catch(e){ console.warn('apply raw failed', e); }
                         try { if (data.packaging) { window._packGridState = data.packaging; localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState||{})); } } catch(e){ console.warn('apply pack failed', e); }
                         try { if (data.finishedProducts) { window._finishedGridState = data.finishedProducts; localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState||{})); } } catch(e){ console.warn('apply finished failed', e); }
-                        // FIXED: Restore stock_entries from cloud
-                        try { if (data.stockEntries && window.state) { window.state.stockEntries = data.stockEntries; localStorage.setItem('stock_entries', JSON.stringify(data.stockEntries||{})); } } catch(e){ console.warn('apply stockEntries failed', e); }
+                        // FIXED: Restore stock_entries from cloud (avoid wiping local when cloud empty)
+                        try {
+                            if (data.stockEntries && typeof data.stockEntries === 'object' && Object.keys(data.stockEntries||{}).length > 0 && window.state) {
+                                window.state.stockEntries = data.stockEntries;
+                                try { localStorage.setItem('stock_entries', JSON.stringify(data.stockEntries||{})); } catch(_){ }
+                            } else {
+                                console.log('⏭️ costLists RT: skipped stockEntries overlay (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply stockEntries failed', e); }
                         try { if (data.costRaw) { window.costLists = window.costLists || {}; window.costLists.costRaw = data.costRaw; } } catch(e){ console.warn('apply costRaw failed', e); }
                         try { if (data.costPack) { window.costLists = window.costLists || {}; window.costLists.costPack = data.costPack; } } catch(e){ console.warn('apply costPack failed', e); }
                         try { if (data.costFinished) { window.costLists = window.costLists || {}; window.costLists.costFinished = data.costFinished; } } catch(e){ console.warn('apply costFinished failed', e); }
@@ -8569,158 +8578,139 @@
             <!-- removed separate sub-pages; their markup is embedded as subviews inside stock-control -->
 
             <div id="page-stock-control" class="page">
-                <h2 class="text-xl font-bold mb-4">التحكم في المخزون</h2>
+                <style>
+                    .inv-tab-btn { transition: all 0.3s ease; border-bottom: 2px solid transparent; cursor: pointer; }
+                    .inv-tab-btn.active { background-color: #ebf8ff; color: #2563eb; border-bottom-color: #2563eb; }
+                    .fade-in { animation: fadeIn 0.3s ease-in-out; }
+                    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+                    
+                    /* Item Card Modal */
+                    #itemCardModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
+                    .modal-content-inv { margin: 5% auto; background: white; border-radius: 12px; overflow: hidden; animation: slideDown 0.3s ease-out; max-width: 600px; }
+                    @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+                </style>
 
-                <!-- Stock Control Categories Icons (Top Section) -->
-                <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-                    <!-- Finished Products Icon -->
-                    <div id="stock-subbtn-finished-products" class="bg-purple-100 p-4 rounded-lg shadow hover:shadow-lg cursor-pointer transition-shadow" onclick="showStockSubview('finished-products')">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm text-purple-800 font-semibold">الإنتاج التام</h3>
-                                <p id="stock-finished-products-count" class="text-2xl font-bold text-purple-900 mt-1">0</p>
-                            </div>
-                            <i data-lucide="package-check" class="w-12 h-12 text-purple-600 opacity-80"></i>
-                        </div>
+                <div id="warehouse-section" class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100 mb-8">
+                    <!-- Header -->
+                    <div class="p-4 border-b flex justify-between items-center bg-gray-50">
+                        <h2 class="text-xl font-bold text-gray-800">🏭 إدارة المخازن (Cloud Synced)</h2>
+                        <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700">+ صنف جديد</button>
                     </div>
 
-                    <!-- Raw Materials Icon -->
-                    <div id="stock-subbtn-raw-materials" class="bg-blue-100 p-4 rounded-lg shadow hover:shadow-lg cursor-pointer transition-shadow" onclick="showStockSubview('raw-materials')">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm text-blue-800 font-semibold">الخامات</h3>
-                                <p id="stock-raw-materials-count" class="text-2xl font-bold text-blue-900 mt-1">0</p>
-                            </div>
-                            <i data-lucide="boxes" class="w-12 h-12 text-blue-600 opacity-80"></i>
-                        </div>
+                    <!-- Tabs -->
+                    <div class="flex border-b border-gray-200">
+                        <div onclick="switchInvTab('finished')" id="btn-finished" class="inv-tab-btn active flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">📦 منتج تام</div>
+                        <div onclick="switchInvTab('raw')" id="btn-raw" class="inv-tab-btn flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">🥛 خامات</div>
+                        <div onclick="switchInvTab('packing')" id="btn-packing" class="inv-tab-btn flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">🥡 تغليف</div>
                     </div>
 
-                    <!-- Packaging Materials Icon -->
-                    <div id="stock-subbtn-packaging" class="bg-orange-100 p-4 rounded-lg shadow hover:shadow-lg cursor-pointer transition-shadow" onclick="showStockSubview('packaging')">
-                        <div class="flex items-center justify-between">
-                            <div>
-                                <h3 class="text-sm text-orange-800 font-semibold">مواد التعبئة والتغليف</h3>
-                                <p id="stock-packaging-count" class="text-2xl font-bold text-orange-900 mt-1">0</p>
-                            </div>
-                            <i data-lucide="package" class="w-12 h-12 text-orange-600 opacity-80"></i>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Internal subviews for Stock Control -->
-                <div id="stock-subviews" class="space-y-4 mb-6">
-                    <!-- Finished Products Subview -->
-                    <div id="subpage-finished-products" class="stock-subpage hidden">
-                        <div class="flex justify-between items-center mb-2">
-                            <h3 class="text-lg font-semibold">الإنتاج التام</h3>
-                            <button id="add-finished-product-btn" data-bs-toggle="modal" data-bs-target="#modal-add-finished-product" onclick="document.getElementById('modal-add-finished-product').classList.remove('hidden')" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><i data-lucide="plus" class="w-4 h-4"></i> إضافة صنف</button>
-                        </div>
-                        <div class="mb-4">
-                            <label for="finished-products-date" class="block text-sm font-medium text-gray-700">عرض المخزون لتاريخ:</label>
-                            <input type="date" id="finished-products-date" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
-                        </div>
-                        <div class="overflow-x-auto bg-white rounded-lg shadow">
-                            <table id="finished-products-table" class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الصنف</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-initial">رصيد مبدئي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-production">الإنتاج</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-production-input">إدخال الإنتاج</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-dispatched">إرسالات (Dispatched)</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-good-returns">مرجعات جيدة (Good Returns)</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-book">رصيد دفتري</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-actual">رصيد فعلي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-diff">الفرق</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider stock-col-diff-text">عجز / زيادة</th>
-                                    </tr>
+                    <!-- Tables Container -->
+                    <div class="p-4 min-h-[400px]">
+                        <div id="tab-finished-content" class="fade-in">
+                            <table class="w-full text-right border-collapse">
+                                <thead class="bg-gray-50 text-gray-600 text-sm">
+                                    <tr><th class="p-3">الصنف</th><th class="p-3">الرصيد</th><th class="p-3">الوحدة</th><th class="p-3">التكلفة</th></tr>
                                 </thead>
-                                <tbody id="finished-products-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                                <tfoot class="bg-gray-100">
-                                    <tr>
-                                        <td colspan="9" class="text-center p-2">
-                                            <button id="save-finished-products-btn" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">حفظ الرصيد الفعلي (ترحيل لليوم التالي)</button>
-                                        </td>
-                                    </tr>
-                                </tfoot>
+                                <tbody id="table-finished" class="divide-y text-gray-700"></tbody>
                             </table>
                         </div>
-                    </div>
-
-                    <!-- Raw Materials Subview -->
-                    <div id="subpage-raw-materials" class="stock-subpage hidden">
-                        <div class="flex justify-between items-center mb-2">
-                            <h3 class="text-lg font-semibold">الخامات</h3>
-                            <button id="add-raw-material-btn" onclick="document.getElementById('modal-add-raw-material').classList.remove('hidden')" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><i data-lucide="plus" class="w-4 h-4"></i> إضافة صنف</button>
-                        </div>
-                        <div class="mb-4">
-                            <label for="raw-materials-date" class="block text-sm font-medium text-gray-700">عرض الخامات لتاريخ:</label>
-                            <input type="date" id="raw-materials-date" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
-                        </div>
-                        <div class="overflow-x-auto bg-white rounded-lg shadow">
-                            <table id="raw-materials-table" class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الصنف</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">سعر الوحدة</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">رصيد مبدئي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">الوارد</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">المستخدم في الإنتاج</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">الرصيد الدفتري</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-blue-50">الرصيد الفعلي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">الفرق</th>
-                                    </tr>
+                        <div id="tab-raw-content" class="hidden fade-in">
+                            <table class="w-full text-right border-collapse">
+                                <thead class="bg-gray-50 text-gray-600 text-sm">
+                                    <tr><th class="p-3">الصنف</th><th class="p-3">الرصيد</th><th class="p-3">الوحدة</th><th class="p-3">التكلفة</th></tr>
                                 </thead>
-                                <tbody id="raw-materials-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                                <tfoot class="bg-gray-100">
-                                    <tr>
-                                        <td colspan="8" class="text-center p-2">
-                                            <button id="save-raw-materials-btn" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">حفظ الخامات</button>
-                                        </td>
-                                    </tr>
-                                </tfoot>
+                                <tbody id="table-raw" class="divide-y text-gray-700"></tbody>
                             </table>
                         </div>
-                    </div>
-
-                    <!-- Packaging Subview -->
-                    <div id="subpage-packaging" class="stock-subpage hidden">
-                        <div class="flex justify-between items-center mb-2">
-                            <h3 class="text-lg font-semibold">مواد التعبئة والتغليف</h3>
-                            <button id="add-packaging-item-btn" onclick="document.getElementById('modal-add-packaging').classList.remove('hidden')" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center gap-2 text-sm"><i data-lucide="plus" class="w-4 h-4"></i> إضافة صنف</button>
-                        </div>
-                        <div class="mb-4">
-                            <label for="packaging-date" class="block text-sm font-medium text-gray-700">عرض مواد التعبئة لتاريخ:</label>
-                            <input type="date" id="packaging-date" class="mt-1 block w-full p-2 border border-gray-300 rounded-md">
-                        </div>
-                        <div class="overflow-x-auto bg-white rounded-lg shadow">
-                            <table id="packaging-table" class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-2 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">الصنف</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">سعر الوحدة</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">رصيد مبدئي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">الوارد</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">المستخدم</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">الرصيد الدفتري</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider bg-orange-50">الرصيد الفعلي</th>
-                                        <th class="px-2 py-3 text-center text-xs font-medium text-gray-500 uppercase tracking-wider">الفرق</th>
-                                    </tr>
+                        <div id="tab-packing-content" class="hidden fade-in">
+                            <table class="w-full text-right border-collapse">
+                                <thead class="bg-gray-50 text-gray-600 text-sm">
+                                    <tr><th class="p-3">الصنف</th><th class="p-3">الرصيد</th><th class="p-3">الوحدة</th><th class="p-3">التكلفة</th></tr>
                                 </thead>
-                                <tbody id="packaging-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                                <tfoot class="bg-gray-100">
-                                    <tr>
-                                        <td colspan="8" class="text-center p-2">
-                                            <button id="save-packaging-btn" class="bg-green-600 text-white px-4 py-2 rounded-lg hover:bg-green-700">حفظ مواد التعبئة</button>
-                                        </td>
-                                    </tr>
-                                </tfoot>
+                                <tbody id="table-packing" class="divide-y text-gray-700"></tbody>
                             </table>
                         </div>
                     </div>
                 </div>
-                <!-- Divider -->
-                <div class="border-b-2 border-gray-300 mb-6"></div>
+
+                <!-- Item Modal -->
+                <div id="itemCardModal">
+                    <div class="modal-content-inv w-11/12 md:w-1/2">
+                        <div class="bg-gray-800 text-white p-4 flex justify-between items-center">
+                            <h3 id="modal-title" class="text-lg font-bold">تفاصيل</h3>
+                            <button onclick="document.getElementById('itemCardModal').style.display='none'" class="text-2xl hover:text-red-400">&times;</button>
+                        </div>
+                        <div class="p-6 text-center">
+                            <div class="mb-2 text-sm text-gray-500">الرصيد الحالي</div>
+                            <h2 id="modal-stock" class="text-4xl font-bold text-blue-600 mb-4">0</h2>
+                            <div class="mb-4 text-sm text-gray-500">متوسط التكلفة: <span id="modal-cost" class="font-bold text-gray-700">0</span> ج.م</div>
+                            <div class="flex gap-2">
+                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('add')" class="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700">إضافة (+)</button>
+                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('subtract')" class="flex-1 bg-red-600 text-white py-2 rounded hover:bg-red-700">صرف (-)</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Add Item Modal -->
+                <div id="addItemModal" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); overflow: auto;">
+                    <div class="modal-content-inv w-11/12 md:w-1/2 mt-10">
+                        <div class="bg-blue-600 text-white p-4 flex justify-between items-center">
+                            <h3 class="text-lg font-bold">➕ إضافة صنف جديد</h3>
+                            <button onclick="document.getElementById('addItemModal').style.display='none'" class="text-2xl hover:text-red-400">&times;</button>
+                        </div>
+                        <div class="p-6 bg-white">
+                            <div class="mb-4">
+                                <label class="block text-sm font-semibold mb-2">اسم المنتج *</label>
+                                <input type="text" id="addItemName" placeholder="مثال: حليب مجفف" class="w-full border border-gray-300 rounded-md p-2 text-right" dir="rtl">
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">الرصيد الابتدائي</label>
+                                    <input type="number" id="addItemStock" value="0" class="w-full border border-gray-300 rounded-md p-2">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">السعر (ج.م)</label>
+                                    <input type="number" id="addItemCost" value="0" step="0.01" class="w-full border border-gray-300 rounded-md p-2">
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 gap-4 mb-4">
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">الوحدة</label>
+                                    <input type="text" id="addItemUnit" value="قطعة" class="w-full border border-gray-300 rounded-md p-2 text-right" dir="rtl">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-semibold mb-2">الفئة</label>
+                                    <select id="addItemCategory" class="w-full border border-gray-300 rounded-md p-2 text-right" dir="rtl">
+                                        <option value="finished">📦 منتج تام</option>
+                                        <option value="raw">🥛 خامات</option>
+                                        <option value="packing">🥡 تغليف</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="flex gap-2">
+                                <button onclick="if(window.inventorySystem) window.inventorySystem.saveNewItem()" class="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700 font-semibold">✅ حفظ</button>
+                                <button onclick="document.getElementById('addItemModal').style.display='none'" class="flex-1 bg-gray-400 text-white py-2 rounded hover:bg-gray-500 font-semibold">❌ إلغاء</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <script>
+                    function switchInvTab(tab) {
+                        ['finished', 'raw', 'packing'].forEach(t => {
+                            document.getElementById('btn-'+t).classList.remove('active', 'bg-blue-50', 'text-blue-600');
+                            document.getElementById('tab-'+t+'-content').classList.add('hidden');
+                        });
+                        document.getElementById('btn-'+tab).classList.add('active', 'bg-blue-50', 'text-blue-600');
+                        document.getElementById('tab-'+tab+'-content').classList.remove('hidden');
+                        
+                        // Load data when switching tabs
+                        if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
+                            window.inventorySystem.loadInventoryData(tab);
+                        }
+                    }
+                </script>
             </div>
 
             <!-- PAGE: PRODUCTION RUNS / التشغيلات -->
@@ -12259,7 +12249,11 @@
             } else if (pageId === 'total-bills'){
                 initTotalBillsPage();
             } else if (pageId === 'stock-control') {
-                try { renderStockLedger(); } catch(e){ console.warn('renderStockLedger failed', e); }
+                try { 
+                    if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
+                        window.inventorySystem.loadInventoryData('raw');
+                    }
+                } catch(e){ console.warn('loadInventoryData failed', e); }
             } else if (pageId === 'finished-products') {
                 try { renderStockLedgerForFinishedProducts(); } catch(e){ console.warn('renderFinishedProducts failed', e); }
             } else if (pageId === 'dispatch') {
@@ -12880,9 +12874,84 @@
                     saveFinishedProductsDebounced();
                 }
             } catch(e){ console.warn('Cloud sync failed', e); }
+
+            // Enterprise-grade: persist this day's entries to a dedicated collection (stockEntries/{YYYY-MM-DD})
+            try { if (typeof window.saveStockEntriesToCloud === 'function') window.saveStockEntriesToCloud(String(date)); } catch(e){ console.warn('saveStockEntriesToCloud failed', e); }
             customDialog({ title: 'تم الحفظ', message: `تم حفظ الرصيد الفعلي والإنتاج لليوم التالي بتاريخ ${formatArabicDate(date)}.` });
             updateStockControlIcons();
         }
+
+        // ===== Enterprise-grade Stock Persistence: per-day Firestore documents =====
+        // Writes authoritative stock entries to collection stockEntries/{date}
+        (function(){
+            // Guard install once
+            if (window.__stockEntriesHelpersInstalled) return;
+            window.__stockEntriesHelpersInstalled = true;
+
+            window.__stockEntriesUnsub = null;
+            window.__stockEntriesDocId = null;
+
+            window.installStockEntriesListenerForDate = function(date){
+                try {
+                    const dayId = getISODateString(date || new Date());
+                    if (!dayId || !window.db) return;
+                    if (window.__stockEntriesDocId === dayId && typeof window.__stockEntriesUnsub === 'function') return; // already subscribed
+                    try { if (typeof window.__stockEntriesUnsub === 'function') { window.__stockEntriesUnsub(); } } catch(_){ }
+                    window.__stockEntriesUnsub = null; window.__stockEntriesDocId = null;
+                    const ref = db.collection('stockEntries').doc(String(dayId));
+                    window.__stockEntriesUnsub = ref.onSnapshot(function(snap){
+                        try {
+                            if (!snap || !snap.exists) return;
+                            if (snap.metadata && snap.metadata.hasPendingWrites) return; // ignore local echo
+                            const d = snap.data() || {};
+                            const entries = (d && d.entries && typeof d.entries === 'object') ? d.entries : {};
+                            // Merge into state for this day only
+                            try {
+                                if (!window.state) window.state = {};
+                                if (!window.state.stockEntries) window.state.stockEntries = {};
+                                window.state.stockEntries[dayId] = entries;
+                                // Mirror to localStorage snapshot (all dates)
+                                try { localStorage.setItem('stock_entries', JSON.stringify(window.state.stockEntries || {})); } catch(_){ }
+                            } catch(e){ console.warn('apply stockEntries/day failed', e); }
+                            // If finished-products view is visible for this day, re-render
+                            try {
+                                const cur = document.getElementById('finished-products-date');
+                                const curDay = getISODateString(cur && cur.value ? cur.value : new Date());
+                                if (curDay === dayId && typeof renderStockLedgerForFinishedProducts === 'function') {
+                                    renderStockLedgerForFinishedProducts();
+                                }
+                            } catch(_){ }
+                        } catch(e){ console.warn('stockEntries onSnapshot failed', e); }
+                    }, function(err){ console.warn('stockEntries listener error', err); });
+                    window.__stockEntriesDocId = dayId;
+                } catch(e){ console.warn('installStockEntriesListenerForDate failed', e); }
+            };
+
+            window.saveStockEntriesToCloud = async function(date){
+                try {
+                    const dayId = getISODateString(date || new Date());
+                    if (!dayId) return false;
+                    // Build payload from authoritative in-memory state for that day
+                    const entries = (window.state && window.state.stockEntries && window.state.stockEntries[dayId]) ? window.state.stockEntries[dayId] : {};
+                    // Always mirror to local first
+                    try { localStorage.setItem('stock_entries', JSON.stringify(window.state && window.state.stockEntries || {})); } catch(_){ }
+                    if (!window.db) { console.warn('saveStockEntriesToCloud: db not ready'); return false; }
+                    const meta = { updatedAt: serverTs() };
+                    try {
+                        const user = (window.auth && auth.currentUser) ? auth.currentUser : null;
+                        if (user) { meta.updatedBy = (user.email||user.uid||'user'); }
+                    } catch(_){ }
+                    // Write per-day doc
+                    await db.collection('stockEntries').doc(String(dayId)).set({ date: String(dayId), entries: entries || {}, ...meta }, { merge: true });
+                    // Best-effort: keep legacy aggregated snapshot in settings/costLists for backward-compat
+                    try {
+                        await db.collection('settings').doc('costLists').set({ stockEntries: (window.state && window.state.stockEntries) || {}, updatedAt: serverTs() }, { merge: true });
+                    } catch(_){ }
+                    console.log('✅ stockEntries saved to cloud (stockEntries/'+dayId+')', { products: Object.keys(entries||{}).length });
+                    return true;
+                } catch(e){ console.warn('saveStockEntriesToCloud failed', e); return false; }
+            };
+        })();
 
         function renderRawMaterials() {
             // Always rehydrate latest grid snapshot from localStorage (in case a debounced save just flushed)
@@ -20388,9 +20457,11 @@
             const finishedProductsDateEl = document.getElementById('finished-products-date');
             if (finishedProductsDateEl) {
                 finishedProductsDateEl.addEventListener('change', () => {
+                    try { if (typeof window.installStockEntriesListenerForDate === 'function') window.installStockEntriesListenerForDate(finishedProductsDateEl.value); } catch(_){}
                     renderStockLedgerForFinishedProducts();
                 });
-                // Initial render
+                // Initial render + subscribe to this date's live doc
+                try { if (typeof window.installStockEntriesListenerForDate === 'function') window.installStockEntriesListenerForDate(finishedProductsDateEl.value); } catch(_){}
                 renderStockLedgerForFinishedProducts();
             }
             const saveFinishedProductsBtn = document.getElementById('save-finished-products-btn');
@@ -21663,7 +21734,19 @@
 
             // ===== 2. Cache locally (non-authoritative) =====
             try {
-                localStorage.setItem(LS_FIN, JSON.stringify(costFinished));
+                // لا تكتب finished الفارغ فوق نسخة محلية تحتوي بيانات
+                try {
+                    if (Array.isArray(costFinished) && costFinished.length > 0) {
+                        localStorage.setItem(LS_FIN, JSON.stringify(costFinished));
+                    } else {
+                        const existingFin = JSON.parse(localStorage.getItem(LS_FIN) || '[]');
+                        if (Array.isArray(existingFin) && existingFin.length > 0) {
+                            // احتفظ بالنسخة الموجودة ولا تكتب صفر
+                        } else {
+                            localStorage.setItem(LS_FIN, JSON.stringify(costFinished));
+                        }
+                    }
+                } catch(_){ localStorage.setItem(LS_FIN, JSON.stringify(costFinished)); }
                 localStorage.setItem(LS_RAW, JSON.stringify(costRaw));
                 localStorage.setItem(LS_PACK, JSON.stringify(costPack));
                 localStorage.setItem(LS_OPS, JSON.stringify(costOps));
@@ -21697,17 +21780,24 @@
         // Expose saveLists so other script blocks (earlier in the file) can call it
         try { window.saveLists = saveLists; } catch(_){ }
 
-        // ===== Cloud sync (Firestore) for cost lists =====
-        let __costCloudTimer = null;
+        // ===== Cloud sync (Firestore) for cost lists - SAFE WITH onSnapshot =====
+        let __costDocUnsub = null;
         function initRealtimeSync() {
             try {
-                console.log('🔌 Connecting to Real-time Data Stream...');
+                console.log('🔌 Connecting to Real-time Data Stream (onSnapshot - Safe)...');
                 if (!window.firebase || !window.firebase.firestore) {
                     console.warn('Firebase not ready for realtime sync');
                     return;
                 }
                 
-                firebase.firestore().collection('settings').doc('costLists')
+                // Only subscribe once to avoid duplicate listeners
+                if (__costDocUnsub) {
+                    console.log('ℹ️ Realtime sync already active');
+                    return;
+                }
+                
+                // Use onSnapshot for efficient, safe real-time updates (NO loops)
+                __costDocUnsub = firebase.firestore().collection('settings').doc('costLists')
                 .onSnapshot((doc) => {
                     if (!doc.exists) {
                         console.log('ℹ️ No costLists doc in cloud yet');
@@ -21729,42 +21819,20 @@
                         if (data.finished) window.costLists.costFinished = data.finished;
                         if (data.timestamp) window.costLists.timestamp = data.timestamp;
                         
-                        // 2. UPDATE GRID STATES (The missing link!)
-                        if (data.rawGridState) {
-                            window._rawGridState = data.rawGridState;
-                            localStorage.setItem('raw_materials_grid', JSON.stringify(data.rawGridState));
-                        }
-                        if (data.packGridState) {
-                            window._packGridState = data.packGridState;
-                            localStorage.setItem('packaging_grid', JSON.stringify(data.packGridState));
-                        }
-                        if (data.finishedGridState) {
-                            window._finishedGridState = data.finishedGridState;
-                            localStorage.setItem('finished_products_grid', JSON.stringify(data.finishedGridState));
-                        }
+                        // 2. SYNC TO WINDOW (for inventory system)
+                        if (Array.isArray(data.raw) && data.raw.length > 0) window.costRaw = data.raw;
+                        if (Array.isArray(data.pack) && data.pack.length > 0) window.costPack = data.pack;
+                        if (Array.isArray(data.finished) && data.finished.length > 0) window.costFinished = data.finished;
                         
-                        // 3. RE-RENDER SCREENS (Live Update) - only if visible
+                        // 3. SAVE TO LOCAL CACHE (for offline)
                         try {
-                            const rawSection = document.getElementById('raw-materials-section');
-                            const packSection = document.getElementById('packaging-section');
-                            const finishedSection = document.getElementById('finished-products-section');
-                            
-                            if (rawSection && rawSection.style.display !== 'none' && typeof renderRawMaterials === 'function') {
-                                console.log('🎨 Re-rendering Raw Materials (live update)');
-                                renderRawMaterials();
-                            }
-                            if (packSection && packSection.style.display !== 'none' && typeof renderPackaging === 'function') {
-                                console.log('🎨 Re-rendering Packaging (live update)');
-                                renderPackaging();
-                            }
-                            if (finishedSection && finishedSection.style.display !== 'none' && typeof renderStockLedgerForFinishedProducts === 'function') {
-                                console.log('🎨 Re-rendering Finished Products (live update)');
-                                renderStockLedgerForFinishedProducts();
-                            }
-                        } catch(e){ console.warn('Re-render failed:', e); }
+                            if (data.raw) localStorage.setItem('cost_raw', JSON.stringify(data.raw));
+                            if (data.pack) localStorage.setItem('cost_pack', JSON.stringify(data.pack));
+                            if (data.finished) localStorage.setItem('cost_finished', JSON.stringify(data.finished));
+                        } catch(e) { console.warn('localStorage sync failed:', e); }
                         
                         window.dataLoaded = true;
-                        console.log('✅ Real-time sync update applied');
+                        console.log('✅ Real-time sync update applied (safe, no loops)');
                     }
                 }, (error) => {
                     console.error('❌ Realtime sync error:', error);
@@ -21776,6 +21844,11 @@
                 console.error('initRealtimeSync failed:', e);
             }
         }
+
+        // Start realtime sync on Firebase initialization
+        setTimeout(() => {
+            try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.error('initRealtimeSync error:', e); }
+        }, 500);
 
         async function tryLoadCostListsFromCloud(){
             try {
@@ -21830,12 +21903,14 @@
                         localStorage.setItem('finished_products_grid', JSON.stringify(data.finishedProducts));
                         console.log("✅ Restored finishedProducts to window and localStorage:", Object.keys(data.finishedProducts).length, "products");
                     }
-                    // FIXED: Restore stock_entries
-                    if (data.stockEntries && typeof data.stockEntries === 'object') {
+                    // FIXED: Restore stock_entries (only when cloud has entries)
+                    if (data.stockEntries && typeof data.stockEntries === 'object' && Object.keys(data.stockEntries||{}).length > 0) {
                         if (!window.state) window.state = {};
                         window.state.stockEntries = data.stockEntries;
-                        localStorage.setItem('stock_entries', JSON.stringify(data.stockEntries));
+                        try { localStorage.setItem('stock_entries', JSON.stringify(data.stockEntries)); } catch(_){ }
                         console.log("✅ Restored stockEntries to window and localStorage:", Object.keys(data.stockEntries).length, "dates");
+                    } else {
+                        console.log('⏭️ Skipped restoring stockEntries (cloud empty)');
                     }
 
                     // 3. Force Re-Render to show the data
@@ -22016,246 +22091,10 @@
         };
 
         // Optional realtime overlay when other clients update the document
-        let __costDocUnsub = null;
+        // REMOVED: Duplicate listener - using initRealtimeSync() instead
         function installCostListsListener(){
-            try {
-                if (!db || __costDocUnsub) return;
-                __costDocUnsub = db.collection('settings').doc('costLists').onSnapshot(function(snap){
-                    try {
-                                if (!snap.exists) return;
-                                const d = snap.data() || {};
-
-                                // Always apply finishedProducts/stockEntries even if arrays didn't change
-                                try {
-                                    if (d.finishedProducts && typeof d.finishedProducts === 'object') {
-                                        window._finishedGridState = d.finishedProducts;
-                                        localStorage.setItem('finished_products_grid', JSON.stringify(d.finishedProducts));
-                                        console.log('🔁 RT apply: finishedProducts', Object.keys(d.finishedProducts).length);
-                                    }
-                                } catch(e){ console.warn('RT apply finishedProducts failed', e); }
-                                try {
-                                    if (d.stockEntries && typeof d.stockEntries === 'object') {
-                                        if (!window.state) window.state = {};
-                                        window.state.stockEntries = d.stockEntries;
-                                        localStorage.setItem('stock_entries', JSON.stringify(d.stockEntries));
-                                        console.log('🔁 RT apply: stockEntries', Object.keys(d.stockEntries).length);
-                                    }
-                                } catch(e){ console.warn('RT apply stockEntries failed', e); }
-
-                                // If there are pending local writes, only apply the cloud overlay
-                                // when the cloud document is demonstrably newer than our local copy.
-                                // This prevents write-loops while allowing server-origin updates
-                                // to propagate to other browsers when they are the authoritative source.
-                                if (snap.metadata && snap.metadata.hasPendingWrites) {
-                                    try {
-                                        const cloudTs = d && (d.timestamp || (d.updatedAt ? (d.updatedAt.toDate ? d.updatedAt.toDate().toISOString() : (new Date(d.updatedAt).toISOString())) : null));
-                                        const localTs = localStorage.getItem('costLists_local_ts') || null;
-                                        if (cloudTs && localTs) {
-                                            if (new Date(cloudTs) <= new Date(localTs)) {
-                                                console.log('🔄 installCostListsListener: ignoring pending write (local) — cloud not newer', {cloudTs, localTs});
-                                                return;
-                                            } else {
-                                                console.log('🔄 installCostListsListener: pendingWrites but cloud newer — applying overlay', {cloudTs, localTs});
-                                            }
-                                        } else {
-                                            console.log('🔄 installCostListsListener: ignoring pending write (local) — missing timestamps', {cloudTs, localTs});
-                                            return;
-                                        }
-                                    } catch(_) {
-                                        console.log('🔄 installCostListsListener: ignoring pending write (local) — timestamp compare failed');
-                                        return;
-                                    }
-                                }
-
-                        // Strict comparison: serialize incoming and current state to JSON
-                        const incomingState = {
-                            finished: Array.isArray(d.finished) ? d.finished : [],
-                            raw: Array.isArray(d.raw) ? d.raw : [],
-                            pack: Array.isArray(d.pack) ? d.pack : [],
-                            ops: Array.isArray(d.ops) ? d.ops : []
-                        };
-                        const currentState = {
-                            finished: costFinished || [],
-                            raw: costRaw || [],
-                            pack: costPack || [],
-                            ops: costOps || []
-                        };
-                        
-                        const incomingJSON = JSON.stringify(incomingState);
-                        const currentJSON = JSON.stringify(currentState);
-                        if (incomingJSON === currentJSON) {
-                            console.log('✓ Data matches (arrays), finishedProducts/stockEntries applied above, skipping re-render');
-                            return;
-                        }
-
-                        // Do not blindly apply cloud snapshot if it's older than our local save.
-                        // Compare cloud updatedAt (if provided) against local timestamp saved at last local save.
-                        try {
-                            const localTs = localStorage.getItem('costLists_local_ts') || null;
-                            const cloudUpdated = d && d.updatedAt ? (d.updatedAt.toDate ? d.updatedAt.toDate().toISOString() : (new Date(d.updatedAt).toISOString())) : null;
-                            if (cloudUpdated && localTs) {
-                                try {
-                                    if (new Date(cloudUpdated) <= new Date(localTs)) {
-                                        console.log('⏱️ installCostListsListener: cloud doc not newer than local (skipping overlay)', { cloudUpdated, localTs });
-                                        return;
-                                    }
-                                } catch(_){ }
-                            }
-                        }catch(_){ }
-
-                        // Defensive merge: don't replace local lists with empty cloud arrays.
-                        const incomingFinished = incomingState.finished;
-                        const incomingRaw = incomingState.raw;
-                        const incomingPack = incomingState.pack;
-                        const incomingOps = incomingState.ops;
-
-                        if (incomingFinished && incomingFinished.length > 0) {
-                            costFinished = incomingFinished;
-                        } else if (incomingFinished && incomingFinished.length === 0) {
-                            if (!Array.isArray(costFinished) || costFinished.length === 0) costFinished = incomingFinished;
-                        }
-
-                        if (incomingRaw && incomingRaw.length > 0) {
-                            console.log('🔍 installCostListsListener: replacing costRaw', { before: (costRaw||[]).length, after: incomingRaw.length, newData: incomingRaw });
-                            costRaw = incomingRaw;
-                        } else if (incomingRaw && incomingRaw.length === 0) {
-                            if (!Array.isArray(costRaw) || costRaw.length === 0) costRaw = incomingRaw;
-                        }
-
-                        if (incomingPack && incomingPack.length > 0) {
-                            costPack = incomingPack;
-                        } else if (incomingPack && incomingPack.length === 0) {
-                            if (!Array.isArray(costPack) || costPack.length === 0) costPack = incomingPack;
-                        }
-
-                        if (incomingOps && incomingOps.length > 0) {
-                            costOps = incomingOps;
-                        } else if (incomingOps && incomingOps.length === 0) {
-                            if (!Array.isArray(costOps) || costOps.length === 0) costOps = incomingOps;
-                        }
-
-                        // Manual sync: update window globals and localStorage directly WITHOUT calling saveLists()
-                        try {
-                            window.costFinished = costFinished;
-                            window.costRaw = costRaw;
-                            window.costPack = costPack;
-                            window.costOps = costOps;
-                            
-                            localStorage.setItem(LS_FIN, JSON.stringify(costFinished || []));
-                            localStorage.setItem(LS_RAW, JSON.stringify(costRaw || []));
-                            localStorage.setItem(LS_PACK, JSON.stringify(costPack || []));
-                            localStorage.setItem(LS_OPS, JSON.stringify(costOps || []));
-                            localStorage.setItem('costLists_local_ts', new Date().toISOString());
-                            console.log('🔍 installCostListsListener: wrote to localStorage', { rawCount: (costRaw||[]).length, updated: new Date().toISOString() });
-                            
-                            // FIXED: Sync finishedProducts grid state
-                            if (d.finishedProducts && typeof d.finishedProducts === 'object') {
-                                window._finishedGridState = d.finishedProducts;
-                                localStorage.setItem('finished_products_grid', JSON.stringify(d.finishedProducts));
-                                console.log('🔍 installCostListsListener: synced finishedProducts', Object.keys(d.finishedProducts).length, 'products');
-                            }
-                            
-                            // FIXED: Sync stock_entries
-                            if (d.stockEntries && typeof d.stockEntries === 'object') {
-                                if (!window.state) window.state = {};
-                                window.state.stockEntries = d.stockEntries;
-                                localStorage.setItem('stock_entries', JSON.stringify(d.stockEntries));
-                                console.log('🔍 installCostListsListener: synced stockEntries', Object.keys(d.stockEntries).length, 'dates');
-                            }
-                        } catch(e) {
-                            console.warn('installCostListsListener: localStorage update failed', e);
-                        }
-
-                        // Render summary and manager (safe, no focus issues)
-                        try {
-                            if (typeof renderListsSummary === 'function') renderListsSummary();
-                            if (typeof renderProductSelect === 'function') renderProductSelect();
-                            // renderPriceManager removed - feature deleted
-                        } catch(e) {
-                            console.warn('installCostListsListener: safe render failed', e);
-                        }
-
-                        // Smart grid re-render: ONLY if no price input is currently focused
-                        // This prevents cursor jump or reset while typing. Check common input classes.
-                        const hasFocusedInput = !!document.querySelector('.unified-new-price:focus, .unified-current-price:focus, .unified-code:focus, .raw-price-input:focus, .pack-price-input:focus, .finished-price-input:focus');
-                        if (!hasFocusedInput) {
-                            try {
-                                if (typeof renderUnifiedPriceGrid === 'function') renderUnifiedPriceGrid();
-                                console.log('🎨 Rendered unified grid (no focused input)');
-                            } catch(e) {
-                                console.warn('installCostListsListener: grid render failed', e);
-                            }
-                        } else {
-                            console.log('⏸️ Skipped grid re-render (user typing in input)');
-                        }
-
-                        console.log('🔌 installCostListsListener: silent update applied (cloud → local + smart render)');
-                    } catch(e){
-                        console.warn('installCostListsListener: snapshot handler failed', e);
-                    }
-                }, function(err){
-                    console.warn('installCostListsListener: listener error', err);
-                });
-
-                // Also: per-day daily_cost_lists listener to restore dynamic finished product rows
-                try {
-                    function installDailyListenerForDate(){
-                        try {
-                            const dateEl = document.getElementById('finished-products-date');
-                            const dateId = (dateEl && dateEl.value) ? String(dateEl.value) : (new Date().toISOString().split('T')[0]);
-                            if (!db) return;
-                            // If already subscribed to this date, no-op
-                            if (window.__dailyDocId === dateId && window.__dailyDocUnsub) return;
-                            // Unsubscribe previous
-                            try { if (window.__dailyDocUnsub) { window.__dailyDocUnsub(); } } catch(_){ }
-                            window.__dailyDocUnsub = null;
-                            window.__dailyDocId = null;
-                            // Subscribe to the new date document
-                            try {
-                                const dailyRef = db.collection('daily_cost_lists').doc(String(dateId));
-                                window.__dailyDocUnsub = dailyRef.onSnapshot(function(ds){
-                                    try {
-                                        if (!ds || !ds.exists) return;
-                                        const dd = ds.data() || {};
-                                        if (dd.finished_products && Array.isArray(dd.finished_products)) {
-                                            window.isUpdatingFromCloud = true;
-                                            try {
-                                                window._finishedGridState = window._finishedGridState || {};
-                                                dd.finished_products.forEach(item => {
-                                                    try {
-                                                        if (!item || !item.id) return;
-                                                        window._finishedGridState[item.id] = window._finishedGridState[item.id] || {};
-                                                        if (item.name) window._finishedGridState[item.id].name = item.name;
-                                                        if (item.count != null) window._finishedGridState[item.id].actual = item.count;
-                                                        if (item.updatedAt) window._finishedGridState[item.id].updatedAt = item.updatedAt;
-                                                    } catch(_){ }
-                                                });
-                                                try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState||{})); } catch(e){ console.warn('save finished_products_grid local failed', e); }
-                                            } catch(e){ console.warn('apply daily finished failed', e); }
-                                            finally { setTimeout(()=> { window.isUpdatingFromCloud = false; }, 60); }
-                                            try { if (typeof renderStockLedgerForFinishedProducts === 'function') renderStockLedgerForFinishedProducts(); } catch(e){}
-                                        }
-                                    } catch(e){ console.warn('daily_cost_lists snapshot handler failed', e); }
-                                }, function(err){ console.warn('daily_cost_lists listener error', err); });
-                                window.__dailyDocId = dateId;
-                            } catch(e){ console.warn('installDaily listener failed', e); }
-                        } catch(e){ console.warn('installDailyListenerForDate failed', e); }
-                    }
-
-                    // Install initially
-                    installDailyListenerForDate();
-                    // Rebind when the finished-products date control changes
-                    try {
-                        const dateControl = document.getElementById('finished-products-date');
-                        if (dateControl && !dateControl.__dailyListenerBound) {
-                            dateControl.addEventListener('change', installDailyListenerForDate);
-                            dateControl.__dailyListenerBound = true;
-                        }
-                    } catch(_){ }
-                } catch(e){ console.warn('installCostListsListener: daily listener setup failed', e); }
-            } catch(e){
-                console.warn('installCostListsListener: setup failed', e);
-            }
+            console.log('⚠️ installCostListsListener deprecated - use initRealtimeSync()');
+            return;
         }
 
         // Debug helper: force fetching the cloud doc and print summary alongside local timestamp
@@ -25711,5 +25550,845 @@
             } else {
                 console.warn('⚠️ sales-bt-test-btn not found in DOM');
             }
+        });
+
+        // ==================== INVENTORY SYSTEM (Cloud-First) ====================
+        window.inventorySystem = {
+            currentTab: 'raw',
+            currentItem: null,
+            
+            // Load inventory data from Firestore
+            async loadInventoryData(category) {
+                try {
+                    this.currentTab = category || 'raw';
+                    const tbody = document.getElementById(`table-${this.currentTab}`);
+                    if (!tbody) {
+                        console.warn(`⚠️ Table not found: table-${this.currentTab}`);
+                        return;
+                    }
+                    
+                    // First, try to load from local window arrays (faster, offline-capable)
+                    let items = [];
+                    
+                    if (this.currentTab === 'raw') {
+                        if (window.costRaw && Array.isArray(window.costRaw)) {
+                            items = window.costRaw;
+                            console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from window.costRaw`);
+                        }
+                        if (items.length === 0) {
+                            try {
+                                const ls = localStorage.getItem('cost_raw');
+                                if (ls) {
+                                    items = JSON.parse(ls) || [];
+                                    window.costRaw = items;
+                                    console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from localStorage.cost_raw`);
+                                }
+                            } catch(_){}
+                        }
+                    } else if (this.currentTab === 'packing') {
+                        if (window.costPack && Array.isArray(window.costPack)) {
+                            items = window.costPack;
+                            console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from window.costPack`);
+                        }
+                        if (items.length === 0) {
+                            try {
+                                const ls = localStorage.getItem('cost_pack');
+                                if (ls) {
+                                    items = JSON.parse(ls) || [];
+                                    window.costPack = items;
+                                    console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from localStorage.cost_pack`);
+                                }
+                            } catch(_){}
+                        }
+                    } else if (this.currentTab === 'finished') {
+                        if (window.costFinished && Array.isArray(window.costFinished)) {
+                            items = window.costFinished;
+                            window.finishedProducts = window.costFinished; // Keep in sync
+                            console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from window.costFinished`);
+                        }
+                        // Fallback to legacy finishedProducts array
+                        if (items.length === 0 && window.finishedProducts && Array.isArray(window.finishedProducts)) {
+                            items = window.finishedProducts;
+                            console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from window.finishedProducts`);
+                        }
+                        // Fallback to localStorage key
+                        if (items.length === 0) {
+                            try {
+                                const ls = localStorage.getItem('cost_finished');
+                                if (ls) {
+                                    items = JSON.parse(ls) || [];
+                                    window.costFinished = items;
+                                    window.finishedProducts = items;
+                                    console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from localStorage.cost_finished`);
+                                }
+                            } catch(_){}
+                        }
+                        // Fallback to finished grid state object (derived to array)
+                        if (items.length === 0) {
+                            try {
+                                const gridObj = (window._finishedGridState && typeof window._finishedGridState === 'object')
+                                    ? window._finishedGridState
+                                    : (function(){ try { return JSON.parse(localStorage.getItem('finished_products_grid')||'{}'); } catch(_) { return {}; } })();
+                                const keys = Object.keys(gridObj||{});
+                                if (keys.length > 0) {
+                                    items = keys.map(id => {
+                                        const it = gridObj[id]||{};
+                                        return {
+                                            id,
+                                            name: it.name || id,
+                                            stock: (it.actual != null ? it.actual : (it.opening != null ? it.opening : 0)),
+                                            unit: 'قطعة',
+                                            cost: Number(it.cost||0)
+                                        };
+                                    });
+                                    console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from finished_products_grid`);
+                                }
+                            } catch(e){ console.warn('derive finished from grid failed', e); }
+                        }
+                        // Fallback to DEFAULT_PRODUCTS (seed) if still empty
+                        if (items.length === 0 && Array.isArray(window.DEFAULT_PRODUCTS) && window.DEFAULT_PRODUCTS.length > 0) {
+                            try {
+                                items = window.DEFAULT_PRODUCTS.map(p => ({ id: p.id || p.code || ('prod-'+Math.random().toString(36).slice(2,8)), name: p.name || p.title || 'منتج', unit: p.unit || 'قطعة', stock: 0, cost: Number(p.price||p.sellPrice||0) }));
+                                window.costFinished = items;
+                                window.finishedProducts = items;
+                                try { localStorage.setItem('cost_finished', JSON.stringify(items)); } catch(_){}
+                                console.log(`📦 Seeded ${items.length} finished items from DEFAULT_PRODUCTS`);
+                            } catch(e){ console.warn('seed finished from DEFAULT_PRODUCTS failed', e); }
+                        }
+                    }
+                    
+                    // If local arrays are empty, try Firestore (last resort)
+                    // Avoid slow retries when offline - DISABLED to prevent hang
+                    if (false && items.length === 0 && window.db && navigator.onLine) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">جاري التحميل من السحابة...</td></tr>';
+                        try {
+                            const snapshot = await db.collection('inventory_items').where('category', '==', this.currentTab).get();
+                            snapshot.forEach(doc => items.push({ id: doc.id, ...doc.data() }));
+                            console.log(`📦 Loaded ${items.length} items for category: ${this.currentTab} from Firestore`);
+                        } catch(e) {
+                            console.warn(`⚠️ Failed to load from Firestore: ${e.message}`);
+                        }
+                    }
+                    
+                    // Display items or empty message
+                    if (items.length === 0) {
+                        tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4"><div class="text-gray-500 text-sm">لا توجد أصناف في هذه الفئة</div><div class="text-xs text-gray-400 mt-2">اضغط "+" لإضافة صنف جديد</div></td></tr>';
+                        return;
+                    }
+                    
+                    tbody.innerHTML = items.map(item => {
+                        const itemName = item.name || 'غير محدد';
+                        const itemStock = item.stock !== undefined ? item.stock : 0;
+                        const itemPrice = item.price !== undefined ? item.price : (item.cost || item.avgCost || 0);
+                        const itemUnit = item.unit || 'وحدة';
+                        const itemId = item.id || item.name || 'N/A';
+                        
+                        return `
+                            <tr onclick="window.inventorySystem.openItemModal('${itemId}')" class="hover:bg-blue-50 cursor-pointer transition">
+                                <td class="p-3 font-bold">${itemName}</td>
+                                <td class="p-3"><span class="bg-blue-100 text-blue-800 px-2 py-1 rounded font-bold">${itemStock}</span></td>
+                                <td class="p-3 text-sm text-gray-500">${itemUnit}</td>
+                                <td class="p-3 text-sm">${parseFloat(itemPrice || 0).toFixed(2)} ج.م</td>
+                            </tr>
+                        `;
+                    }).join('');
+                    
+                    console.log(`✅ Rendered ${items.length} items for category: ${this.currentTab}`);
+                } catch (err) {
+                    console.error('❌ Load inventory failed:', err);
+                    const tbody = document.getElementById(`table-${this.currentTab}`);
+                    if (tbody) tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-red-500">❌ خطأ في التحميل: ' + err.message + '</td></tr>';
+                }
+            },
+            
+            // Open item detail modal
+            async openItemModal(itemId) {
+                try {
+                    let item = null;
+                    let docId = itemId;
+                    
+                    // STRATEGY 1: Try to find item in local window arrays first
+                    // This handles items loaded from localStorage that may not be in Firestore yet
+                    const currentArray = 
+                        this.currentTab === 'raw' ? window.costRaw :
+                        this.currentTab === 'packing' ? window.costPack :
+                        window.costFinished;
+                    
+                    if (Array.isArray(currentArray)) {
+                        // Try to find by ID first
+                        item = currentArray.find(i => i && (i.id === itemId || i.id === docId));
+                        
+                        // If not found, try by name (user might have clicked a name-based row)
+                        if (!item) {
+                            item = currentArray.find(i => i && i.name === itemId);
+                            if (item) docId = item.id || itemId;
+                        }
+                    }
+                    
+                    // STRATEGY 2: If not in local array, try Firestore
+                    if (!item && window.db) {
+                        const doc = await db.collection('inventory_items').doc(itemId).get();
+                        if (doc.exists) {
+                            item = doc.data();
+                            docId = doc.id;
+                        }
+                    }
+                    
+                    // If still not found, show error
+                    if (!item) {
+                        console.warn(`❌ Item not found: ${itemId}. Current array:`, currentArray);
+                        alert('الصنف غير موجود');
+                        return;
+                    }
+                    
+                    // Store current item for editing
+                    this.currentItem = { id: docId, ...item };
+                    
+                    // Update modal display
+                    document.getElementById('modal-title').textContent = item.name || 'تفاصيل الصنف';
+                    document.getElementById('modal-stock').textContent = item.stock || 0;
+                    document.getElementById('modal-cost').textContent = (item.avgCost || item.cost || 0).toFixed(2);
+                    document.getElementById('itemCardModal').style.display = 'block';
+                    
+                    console.log(`✅ Opened item modal: ${item.name} (from ${item.id ? 'Firebase' : 'Local'})`);
+                } catch (err) {
+                    console.error('❌ Open modal failed:', err);
+                    alert('خطأ في فتح التفاصيل');
+                }
+            },
+            
+            // Adjust stock (add/subtract)
+            async adjustStock(action) {
+                if (!this.currentItem) {
+                    alert('❌ لم يتم تحديد صنف');
+                    return;
+                }
+                const qty = prompt(action === 'add' ? 'كم الكمية المُضافة؟' : 'كم الكمية المصروفة؟', '0');
+                if (!qty || isNaN(qty) || Number(qty) <= 0) return;
+                
+                try {
+                    const newStock = (this.currentItem.stock || 0) + (action === 'add' ? Number(qty) : -Number(qty));
+                    if (newStock < 0) { alert('الرصيد لا يمكن أن يكون سالب'); return; }
+                    
+                    // Try to update in Firestore if DB is available (create-or-update)
+                    if (window.db && this.currentItem.id && navigator.onLine) {
+                        try {
+                            await db.collection('inventory_items').doc(this.currentItem.id).set({ 
+                                stock: newStock, 
+                                updatedAt: firebase.firestore.FieldValue.serverTimestamp(),
+                                name: this.currentItem.name || '',
+                                unit: this.currentItem.unit || 'قطعة',
+                                category: this.currentTab || 'packing'
+                            }, { merge: true });
+                            console.log(`✅ Stock saved to Firestore: ${this.currentItem.name} → ${newStock}`);
+                        } catch(dbErr) {
+                            console.warn(`⚠️ Could not save to Firestore (offline or missing doc): ${dbErr.message}`);
+                            try { if (typeof window.addPendingInventoryUpdate === 'function') window.addPendingInventoryUpdate({ id: this.currentItem.id, category: this.currentTab, stock: newStock, name: this.currentItem.name }); } catch(_){ }
+                        }
+                    } else {
+                        try { if (typeof window.addPendingInventoryUpdate === 'function') window.addPendingInventoryUpdate({ id: this.currentItem.id, category: this.currentTab, stock: newStock, name: this.currentItem.name }); } catch(_){ }
+                    }
+                    
+                    // Update in memory and local arrays
+                    this.currentItem.stock = newStock;
+                    
+                    // Also update in the appropriate window array
+                    const array = this.currentTab === 'raw' ? window.costRaw :
+                                  this.currentTab === 'packing' ? window.costPack :
+                                  window.costFinished;
+                    
+                    if (Array.isArray(array)) {
+                        const idx = array.findIndex(i => i && (i.id === this.currentItem.id || i.name === this.currentItem.name));
+                        if (idx >= 0) {
+                            array[idx].stock = newStock;
+                        }
+                    }
+                    
+                    // Save to localStorage
+                    if (this.currentTab === 'raw') localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                    else if (this.currentTab === 'packing') localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                    else localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                    
+                    // Update modal display
+                    document.getElementById('modal-stock').textContent = newStock;
+                    this.loadInventoryData(this.currentTab); // Refresh table
+                    
+                    console.log(`✅ Stock adjusted: ${this.currentItem.name} → ${newStock}`);
+                } catch (err) {
+                    console.error('❌ Adjust stock failed:', err);
+                    alert('خطأ في تعديل الرصيد');
+                }
+            },
+            
+            showAddItemModal() {
+                // Show the add item modal for current category
+                const currentCategory = this.currentTab || 'finished';
+                
+                // Reset form
+                document.getElementById('addItemName').value = '';
+                document.getElementById('addItemStock').value = '0';
+                document.getElementById('addItemCost').value = '0';
+                document.getElementById('addItemCategory').value = currentCategory;
+                
+                const unitMap = {
+                    'raw': 'كجم',
+                    'packing': 'قطعة',
+                    'finished': 'قطعة'
+                };
+                document.getElementById('addItemUnit').value = unitMap[currentCategory] || 'قطعة';
+                
+                // Show modal
+                const modal = document.getElementById('addItemModal');
+                if (modal) {
+                    modal.style.display = 'block';
+                    console.log(`➕ Add Item Modal opened for category: ${currentCategory}`);
+                } else {
+                    console.error('❌ addItemModal not found in DOM');
+                }
+            },
+            
+            async saveNewItem() {
+                try {
+                    const name = document.getElementById('addItemName').value.trim();
+                    const stock = parseFloat(document.getElementById('addItemStock').value) || 0;
+                    const cost = parseFloat(document.getElementById('addItemCost').value) || 0;
+                    const unit = document.getElementById('addItemUnit').value || 'قطعة';
+                    const category = document.getElementById('addItemCategory').value || 'finished';
+                    
+                    if (!name) {
+                        alert('❌ الرجاء إدخال اسم المنتج');
+                        return;
+                    }
+                    
+                    if (!window.db) {
+                        alert('❌ قاعدة البيانات غير متصلة');
+                        return;
+                    }
+                    
+                    const newItem = {
+                        name,
+                        code: name, // Use name as code
+                        stock,
+                        cost,
+                        avgCost: cost,
+                        unit,
+                        price: cost, // Also set price field for compatibility
+                        category,
+                        createdAt: firebase.firestore.FieldValue.serverTimestamp(),
+                        updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    };
+                    
+                    await db.collection('inventory_items').add(newItem);
+                    
+                    console.log(`✅ New item added to Firestore: ${name}`);
+                    
+                    // Also add to window arrays for immediate display
+                    if (category === 'raw') {
+                        if (!window.costRaw) window.costRaw = [];
+                        window.costRaw.push(newItem);
+                    } else if (category === 'packing') {
+                        if (!window.costPack) window.costPack = [];
+                        window.costPack.push(newItem);
+                    } else if (category === 'finished') {
+                        if (!window.costFinished) window.costFinished = [];
+                        window.finishedProducts = window.costFinished;
+                        window.costFinished.push(newItem);
+                    }
+                    
+                    // Save to localStorage immediately
+                    try {
+                        if (category === 'raw') {
+                            localStorage.setItem('cost_raw', JSON.stringify(window.costRaw || []));
+                        } else if (category === 'packing') {
+                            localStorage.setItem('cost_pack', JSON.stringify(window.costPack || []));
+                        } else if (category === 'finished') {
+                            localStorage.setItem('cost_finished', JSON.stringify(window.costFinished || []));
+                        }
+                        console.log(`💾 Saved to localStorage: ${name}`);
+                    } catch(e) {
+                        console.warn('⚠️ Failed to save to localStorage:', e);
+                    }
+                    
+                    // Save to cloud via saveLists
+                    if (typeof window.saveLists === 'function') {
+                        window.saveLists(false).catch(e => console.warn('⚠️ Failed to sync to cloud:', e));
+                    }
+                    
+                    alert(`✅ تمت إضافة "${name}" بنجاح`);
+                    
+                    // Close modal and refresh
+                    document.getElementById('addItemModal').style.display = 'none';
+                    window.inventorySystem.loadInventoryData(category);
+                } catch(err) {
+                    console.error('❌ saveNewItem failed:', err);
+                    alert(`❌ خطأ: ${err.message}`);
+                }
+            }
+        };
+
+        // ===== Offline Queue for Inventory Updates =====
+        (function(){
+            const LS_INV_QUEUE = 'pending_inventory_updates';
+            function readQueue(){ try { return JSON.parse(localStorage.getItem(LS_INV_QUEUE) || '[]'); } catch(_) { return []; } }
+            function writeQueue(arr){ try { localStorage.setItem(LS_INV_QUEUE, JSON.stringify(arr||[])); } catch(_){} }
+            window.addPendingInventoryUpdate = function(op){
+                try {
+                    const q = readQueue();
+                    q.push({ id: op.id, category: op.category, stock: op.stock, name: op.name, ts: new Date().toISOString() });
+                    writeQueue(q);
+                    console.log('🕒 queued inventory update', op);
+                } catch(e){ console.warn('queue add failed', e); }
+            };
+            window.flushPendingInventoryUpdates = async function(){
+                if (!navigator.onLine || !window.db) return false;
+                let q = readQueue(); if (!Array.isArray(q) || q.length===0) return true;
+                const remaining = [];
+                for (const op of q){
+                    try {
+                        if (!op.id) { remaining.push(op); continue; }
+                        await db.collection('inventory_items').doc(op.id).set({ stock: op.stock, updatedAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge: true });
+                        console.log('☁️ flushed inventory update', op);
+                    } catch(e){ console.warn('flush failed for', op, e); remaining.push(op); }
+                }
+                writeQueue(remaining);
+                return remaining.length===0;
+            };
+            window.addEventListener('online', function(){ 
+                // Re-enabled: Safe auto-flush when back online
+                console.log('🌐 Back online! Auto-flushing pending updates...');
+                try { 
+                    setTimeout(() => window.flushPendingInventoryUpdates(), 500);
+                } catch(e){ console.warn('Auto-flush on online failed:', e); } 
+            });
+            // Try flushing shortly after page load
+            // Disabled: was polling aggressively
+            // setTimeout(()=>{ try { window.flushPendingInventoryUpdates(); } catch(_){ } }, 3000);
+        })();
+
+        // ==================== DATA MIGRATION (Auto-Run on First Load) ====================
+        window.migrateInventoryToCloud = async function() {
+            try {
+                if (!window.db) { 
+                    console.warn('⚠️ Firestore not ready yet, will retry...');
+                    return false; 
+                }
+                
+                // Ensure arrays are loaded
+                if (!window.costRaw) window.costRaw = [];
+                if (!window.costPack) window.costPack = [];
+                if (!window.finishedProducts) window.finishedProducts = [];
+                
+                const migrated = { raw: 0, packing: 0, finished: 0 };
+                
+                // Helper function to get server timestamp
+                const getTimestamp = () => {
+                    try {
+                        return firebase.firestore.FieldValue.serverTimestamp();
+                    } catch(e) {
+                        return new Date();
+                    }
+                };
+                
+                // Migrate window.costRaw (raw materials)
+                if (Array.isArray(window.costRaw) && window.costRaw.length > 0) {
+                    console.log(`🔄 Migrating ${window.costRaw.length} raw materials...`);
+                    for (const item of window.costRaw) {
+                        try {
+                            if (!item || !item.name) continue;
+                            
+                            const docId = item.id || item.code || `raw_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+                            const docRef = db.collection('inventory_items').doc(docId);
+                            const existing = await docRef.get();
+                            
+                            if (!existing.exists) {
+                                await docRef.set({
+                                    name: item.name || '',
+                                    code: item.code || '',
+                                    unit: item.unit || 'كجم',
+                                    category: 'raw',
+                                    stock: 0,
+                                    cost: parseFloat(item.cost) || parseFloat(item.lastPrice) || 0,
+                                    avgCost: parseFloat(item.cost) || parseFloat(item.lastPrice) || 0,
+                                    priceHistory: Array.isArray(item.priceHistory) ? item.priceHistory : [],
+                                    lastInvoiceNumber: item.lastInvoiceNumber || '',
+                                    lastVendorTaxId: item.lastVendorTaxId || '',
+                                    createdAt: getTimestamp(),
+                                    updatedAt: getTimestamp()
+                                });
+                                migrated.raw++;
+                            }
+                        } catch(itemErr) {
+                            console.warn(`⚠️ Failed to migrate raw item: ${item?.name}`, itemErr);
+                        }
+                    }
+                    console.log(`✅ Migrated ${migrated.raw} raw materials`);
+                }
+                
+                // Migrate window.costPack (packaging)
+                if (Array.isArray(window.costPack) && window.costPack.length > 0) {
+                    console.log(`🔄 Migrating ${window.costPack.length} packaging items...`);
+                    for (const item of window.costPack) {
+                        try {
+                            if (!item || !item.name) continue;
+                            
+                            const docId = item.id || item.code || `pack_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+                            const docRef = db.collection('inventory_items').doc(docId);
+                            const existing = await docRef.get();
+                            
+                            if (!existing.exists) {
+                                await docRef.set({
+                                    name: item.name || '',
+                                    code: item.code || '',
+                                    unit: item.unit || 'قطعة',
+                                    category: 'packing',
+                                    stock: 0,
+                                    cost: parseFloat(item.cost) || parseFloat(item.lastPrice) || 0,
+                                    avgCost: parseFloat(item.cost) || parseFloat(item.lastPrice) || 0,
+                                    priceHistory: Array.isArray(item.priceHistory) ? item.priceHistory : [],
+                                    createdAt: getTimestamp(),
+                                    updatedAt: getTimestamp()
+                                });
+                                migrated.packing++;
+                            }
+                        } catch(itemErr) {
+                            console.warn(`⚠️ Failed to migrate packing item: ${item?.name}`, itemErr);
+                        }
+                    }
+                    console.log(`✅ Migrated ${migrated.packing} packaging items`);
+                }
+
+                // Migrate window.finishedProducts if exists
+                if (Array.isArray(window.finishedProducts) && window.finishedProducts.length > 0) {
+                    console.log(`🔄 Migrating ${window.finishedProducts.length} finished products...`);
+                    for (const item of window.finishedProducts) {
+                        try {
+                            if (!item || !item.name) continue;
+                            
+                            const docId = item.id || `finished_${Date.now()}_${Math.random().toString(36).substr(2,9)}`;
+                            const docRef = db.collection('inventory_items').doc(docId);
+                            const existing = await docRef.get();
+                            
+                            if (!existing.exists) {
+                                await docRef.set({
+                                    name: item.name || '',
+                                    code: item.code || '',
+                                    unit: item.unit || 'قطعة',
+                                    category: 'finished',
+                                    stock: 0,
+                                    cost: parseFloat(item.cost) || 0,
+                                    avgCost: parseFloat(item.cost) || 0,
+                                    createdAt: getTimestamp(),
+                                    updatedAt: getTimestamp()
+                                });
+                                migrated.finished++;
+                            }
+                        } catch(itemErr) {
+                            console.warn(`⚠️ Failed to migrate finished product: ${item?.name}`, itemErr);
+                        }
+                    }
+                    console.log(`✅ Migrated ${migrated.finished} finished products`);
+                }
+                
+                const total = migrated.raw + migrated.packing + migrated.finished;
+                if (total > 0) {
+                    console.log(`🎉 Migration completed! Total: ${total} items`);
+                    
+                    // Show success message to user
+                    try {
+                        await customDialog({ 
+                            title: '✅ تم نقل البيانات', 
+                            message: `تم رفع ${total} صنف إلى السحابة بنجاح!\n\n• خامات: ${migrated.raw}\n• تغليف: ${migrated.packing}\n• منتجات تامة: ${migrated.finished}` 
+                        });
+                    } catch(e) { 
+                        console.warn('Dialog failed:', e);
+                    }
+                    
+                    // Auto-refresh inventory view if on stock-control page
+                    if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
+                        setTimeout(() => window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab || 'raw'), 500);
+                    }
+                } else {
+                    console.log('ℹ️ No new items to migrate');
+                }
+                
+                return true;
+            } catch (err) {
+                console.error('❌ Migration failed:', err);
+                try {
+                    await customDialog({ title: '❌ خطأ', message: 'فشل نقل البيانات:\n' + (err.message || JSON.stringify(err)) });
+                } catch(e) { 
+                    console.error('Error dialog failed:', e);
+                }
+                return false;
+            }
+        };
+
+        // AUTO-RUN MIGRATION: Check if inventory is empty, then migrate
+        window.autoMigrateIfNeeded = async function() {
+            try {
+                if (!window.db) {
+                    console.log('⏳ Waiting for Firestore...');
+                    setTimeout(window.autoMigrateIfNeeded, 1000);
+                    return;
+                }
+                // لا تُشغّل التهجير عندما يكون الاتصال غير متاح أو تمّت المحاولة سابقًا
+                if (window.__migrationAttempted) { console.log('⏭️ Migration already attempted, skipping.'); return; }
+                if (!navigator.onLine) { console.log('⏭️ Offline: skipping auto-migration'); window.__migrationAttempted = true; return; }
+                
+                // Ensure costRaw and costPack are loaded from localStorage if not in window
+                if (!window.costRaw || window.costRaw.length === 0) {
+                    try {
+                        const rawFromLS = localStorage.getItem('cost_raw');
+                        if (rawFromLS) {
+                            window.costRaw = JSON.parse(rawFromLS);
+                            console.log(`📦 Loaded ${window.costRaw.length} items from localStorage (cost_raw)`);
+                        }
+                    } catch(e) {
+                        console.warn('Failed to load cost_raw from localStorage:', e);
+                    }
+                }
+                
+                if (!window.costPack || window.costPack.length === 0) {
+                    try {
+                        const packFromLS = localStorage.getItem('cost_pack');
+                        if (packFromLS) {
+                            window.costPack = JSON.parse(packFromLS);
+                            console.log(`📦 Loaded ${window.costPack.length} items from localStorage (cost_pack)`);
+                        }
+                    } catch(e) {
+                        console.warn('Failed to load cost_pack from localStorage:', e);
+                    }
+                }
+                
+                // Check if inventory_items collection is empty
+                const snapshot = await db.collection('inventory_items').limit(1).get();
+                
+                if (snapshot.empty) {
+                    console.log('📦 Inventory is empty. Starting auto-migration...');
+                    window.__migrationAttempted = true;
+                    
+                    // Show loading message
+                    const loadingDiv = document.createElement('div');
+                    loadingDiv.id = 'migration-loading';
+                    loadingDiv.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:white;padding:30px;border-radius:12px;box-shadow:0 4px 20px rgba(0,0,0,0.3);z-index:99999;text-align:center;';
+                    loadingDiv.innerHTML = '<div style="font-size:20px;font-weight:bold;color:#2563eb;margin-bottom:10px;">🔄 جاري نقل البيانات...</div><div style="font-size:14px;color:#666;">الرجاء الانتظار...</div>';
+                    document.body.appendChild(loadingDiv);
+                    
+                    await window.migrateInventoryToCloud();
+                    
+                    // Remove loading message
+                    try { document.getElementById('migration-loading').remove(); } catch(e) {}
+                    
+                } else {
+                    console.log('✅ Inventory already has data. Skipping migration.');
+                    window.__migrationAttempted = true;
+                }
+            } catch (err) {
+                console.error('❌ Auto-migration check failed:', err);
+            }
+        };
+
+        // Auto-load inventory when stock-control page is opened
+        document.addEventListener('DOMContentLoaded', function() {
+            // Wait for Firebase to initialize, then check migration
+            setTimeout(() => {
+                window.autoMigrateIfNeeded();
+            }, 2000);
+            
+            // Load inventory data if stock page is active
+            setTimeout(() => {
+                const stockPage = document.getElementById('page-stock-control');
+                if (stockPage && stockPage.classList.contains('active')) {
+                    if (window.inventorySystem) window.inventorySystem.loadInventoryData('raw');
+                }
+            }, 3000);
+        });
+
+        // ==================== BRIDGE OLD RENDER FUNCTIONS TO NEW UI ====================
+        // Override old functions to work with new tabbed interface
+        
+        // Fix Counters - Update tab headers with correct item counts
+        function updateCounters() {
+            try {
+                // Update Raw Materials counter
+                if (window.costRaw && Array.isArray(window.costRaw)) {
+                    const btnRaw = document.getElementById('btn-raw');
+                    if (btnRaw) {
+                        btnRaw.innerHTML = `🥛 خامات <span class="bg-yellow-100 text-yellow-800 text-xs px-2 rounded-full">${window.costRaw.length}</span>`;
+                    }
+                }
+                
+                // Update Packaging counter
+                if (window.costPack && Array.isArray(window.costPack)) {
+                    const btnPack = document.getElementById('btn-packing');
+                    if (btnPack) {
+                        btnPack.innerHTML = `🥡 تغليف <span class="bg-purple-100 text-purple-800 text-xs px-2 rounded-full">${window.costPack.length}</span>`;
+                    }
+                }
+                
+                // Fix Finished Products: count from costFinished, finishedProducts, or derived grid state
+                let finishedCount = 0;
+                if (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) {
+                    window.finishedProducts = window.costFinished;
+                    finishedCount = window.costFinished.length;
+                    console.log(`📦 Loaded finishedProducts from window.costFinished: ${finishedCount} items`);
+                    renderFinishedProducts();
+                } else if (window.finishedProducts && Array.isArray(window.finishedProducts) && window.finishedProducts.length > 0) {
+                    finishedCount = window.finishedProducts.length;
+                } else {
+                    try {
+                        const derived = (typeof __getFinishedFromGrid === 'function') ? __getFinishedFromGrid() : [];
+                        finishedCount = Array.isArray(derived) ? derived.length : 0;
+                        if (finishedCount > 0) {
+                            // keep UI consistent by rendering immediately
+                            renderFinishedProducts();
+                            console.log(`📦 Finished count from grid state: ${finishedCount}`);
+                        }
+                    } catch(_) { finishedCount = 0; }
+                }
+                
+                const btnFinished = document.getElementById('btn-finished');
+                if (btnFinished) {
+                    btnFinished.innerHTML = `📦 منتج تام <span class="bg-blue-100 text-blue-800 text-xs px-2 rounded-full">${finishedCount}</span>`;
+                }
+                
+                console.log(`✅ updateCounters: Raw=${window.costRaw?.length || 0}, Pack=${window.costPack?.length || 0}, Finished=${finishedCount}`);
+                
+                // Save finished products to localStorage and Cloud
+                if (window.finishedProducts && window.finishedProducts.length > 0) {
+                    try {
+                        localStorage.setItem('cost_finished', JSON.stringify(window.finishedProducts));
+                        console.log(`💾 Saved ${finishedCount} finished products to localStorage`);
+                        
+                        // Also save to Firestore via saveCostListsToFirebase if available
+                        if (navigator.onLine && typeof window.saveCostListsToFirebase === 'function') {
+                            window.saveCostListsToFirebase(true).catch(e => console.warn('⚠️ Failed to save finished products to cloud:', e));
+                        }
+                    } catch(e) {
+                        console.warn('⚠️ Failed to save finished products:', e);
+                    }
+                }
+            } catch(e) {
+                console.error('❌ updateCounters failed:', e);
+            }
+        }
+        
+        function renderRawMaterials() {
+            try {
+                const tbody = document.getElementById('table-raw');
+                if (!tbody) {
+                    console.warn('⚠️ table-raw not found');
+                    return;
+                }
+                if (!window.costRaw || !Array.isArray(window.costRaw) || window.costRaw.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد خامات</td></tr>';
+                    return;
+                }
+                
+                tbody.innerHTML = window.costRaw.map((item, idx) => `
+                    <tr onclick="window.inventorySystem.openItemModal('${item.id || item.name || 'raw_' + idx}')" class="hover:bg-blue-50 cursor-pointer border-b">
+                        <td class="p-3 font-bold">${item.name || 'غير محدد'}</td>
+                        <td class="p-3 text-blue-700 font-bold text-center">${item.stock || 0}</td>
+                        <td class="p-3 text-sm text-gray-500 text-center">${item.unit || 'كجم'}</td>
+                        <td class="p-3 text-sm text-center">${parseFloat(item.cost || item.avgCost || 0).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+                
+                console.log(`✅ renderRawMaterials: rendered ${window.costRaw.length} items`);
+                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+            } catch(e) {
+                console.error('❌ renderRawMaterials failed:', e);
+            }
+        }
+
+        function renderPackaging() {
+            try {
+                const tbody = document.getElementById('table-packing');
+                if (!tbody) {
+                    console.warn('⚠️ table-packing not found');
+                    return;
+                }
+                if (!window.costPack || !Array.isArray(window.costPack) || window.costPack.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد مواد تغليف</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = window.costPack.map((item, idx) => `
+                    <tr onclick="window.inventorySystem.openItemModal('${item.id || item.name || 'pack_' + idx}')" class="hover:bg-blue-50 cursor-pointer border-b">
+                        <td class="p-3 font-bold">${item.name || 'غير محدد'}</td>
+                        <td class="p-3 text-purple-700 font-bold text-center">${item.stock || 0}</td>
+                        <td class="p-3 text-sm text-gray-500 text-center">${item.unit || 'قطعة'}</td>
+                        <td class="p-3 text-sm text-center">${parseFloat(item.cost || item.avgCost || 0).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+
+                console.log(`✅ renderPackaging: rendered ${window.costPack.length} items`);
+                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+            } catch(e) {
+                console.error('❌ renderPackaging failed:', e);
+            }
+        }
+
+        // Helper: build finished products array from grid state
+        function __getFinishedFromGrid(){
+            try {
+                const src = (window._finishedGridState && typeof window._finishedGridState === 'object') ? window._finishedGridState : (function(){ try { return JSON.parse(localStorage.getItem('finished_products_grid')||'{}'); } catch(_) { return {}; }})();
+                const arr = []; const keys = Object.keys(src||{});
+                keys.forEach(id => { const it = src[id]||{}; arr.push({ id, name: it.name || id, stock: (it.actual != null ? it.actual : (it.opening != null ? it.opening : 0)), unit: 'قطعة', cost: Number(it.cost||0) }); });
+                return arr;
+            } catch(_) { return []; }
+        }
+
+        function renderFinishedProducts() {
+            try {
+                const tbody = document.getElementById('table-finished');
+                if (!tbody) {
+                    console.warn('⚠️ table-finished not found');
+                    return;
+                }
+                
+                // Use costFinished (newer) or finishedProducts (legacy) - whichever has data; else derive from grid state
+                let products = (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) ? window.costFinished :
+                                ((window.finishedProducts && Array.isArray(window.finishedProducts) && window.finishedProducts.length > 0) ? window.finishedProducts : __getFinishedFromGrid());
+                
+                if (!products || !Array.isArray(products) || products.length === 0) {
+                    tbody.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد منتجات تامة. اضغط "+" لإضافة منتج.</td></tr>';
+                    return;
+                }
+
+                tbody.innerHTML = products.map((item, idx) => {
+                    // Handle both old format (id, name, unit, price) and new format (name, stock, cost)
+                    const itemName = item.name || 'غير محدد';
+                    const itemStock = item.stock !== undefined ? item.stock : 0;
+                    const itemPrice = item.price !== undefined ? item.price : (item.cost || 0);
+                    const itemUnit = item.unit || 'قطعة';
+                    
+                    return `
+                        <tr onclick="window.inventorySystem.openItemModal('${item.id || item.name || 'finished_' + idx}')" class="hover:bg-blue-50 cursor-pointer border-b">
+                            <td class="p-3 font-bold">${itemName}</td>
+                            <td class="p-3 text-green-700 font-bold text-center">${itemStock}</td>
+                            <td class="p-3 text-sm text-gray-500 text-center">${itemUnit}</td>
+                            <td class="p-3 text-sm text-center">${parseFloat(itemPrice || 0).toFixed(2)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                console.log(`✅ renderFinishedProducts: rendered ${products.length} items`);
+                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+            } catch(e) {
+                console.error('❌ renderFinishedProducts failed:', e);
+            }
+        }
+
+        // Auto-refresh views after page load
+        document.addEventListener('DOMContentLoaded', function() {
+            // Disabled: was causing excessive polling and hang
+            // setTimeout(() => {
+            //     console.log('🔄 Auto-refreshing inventory views...');
+            //     updateCounters();
+            //     renderRawMaterials();
+            //     renderPackaging();
+            //     renderFinishedProducts();
+            // }, 4000);
         });
     </script>
