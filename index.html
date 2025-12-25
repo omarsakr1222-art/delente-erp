@@ -8594,7 +8594,10 @@
                     <!-- Header -->
                     <div class="p-4 border-b flex justify-between items-center bg-gray-50">
                         <h2 class="text-xl font-bold text-gray-800">🏭 إدارة المخازن (Cloud Synced)</h2>
-                        <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700">+ صنف جديد</button>
+                        <div class="flex gap-2">
+                            <button onclick="if(window.migrateInventoryToCloud) window.migrateInventoryToCloud()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-bold shadow hover:bg-purple-700">☁️ رفع البيانات</button>
+                            <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700">+ صنف جديد</button>
+                        </div>
                     </div>
 
                     <!-- Tabs -->
@@ -25566,6 +25569,21 @@
                         console.warn(`⚠️ Table not found: table-${this.currentTab}`);
                         return;
                     }
+                    
+                    // 🔧 CRITICAL: Always refresh from localStorage FIRST to get latest edits
+                    // This ensures that if user edited stock and switched tabs, they see the latest version
+                    try {
+                        if (this.currentTab === 'raw') {
+                            const lsRaw = localStorage.getItem('cost_raw');
+                            if (lsRaw) window.costRaw = JSON.parse(lsRaw);
+                        } else if (this.currentTab === 'packing') {
+                            const lsPack = localStorage.getItem('cost_pack');
+                            if (lsPack) window.costPack = JSON.parse(lsPack);
+                        } else if (this.currentTab === 'finished') {
+                            const lsFin = localStorage.getItem('cost_finished');
+                            if (lsFin) window.costFinished = JSON.parse(lsFin);
+                        }
+                    } catch(e){ console.warn('Failed to refresh from localStorage:', e); }
                     
                     // First, try to load from local window arrays (faster, offline-capable)
                     let items = [];
