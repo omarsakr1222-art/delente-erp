@@ -21822,10 +21822,10 @@
                         if (data.finished) window.costLists.costFinished = data.finished;
                         if (data.timestamp) window.costLists.timestamp = data.timestamp;
                         
-                        // 2. SYNC TO WINDOW (for inventory system)
-                        if (Array.isArray(data.raw) && data.raw.length > 0) window.costRaw = data.raw;
-                        if (Array.isArray(data.pack) && data.pack.length > 0) window.costPack = data.pack;
-                        if (Array.isArray(data.finished) && data.finished.length > 0) window.costFinished = data.finished;
+                        // 2. SYNC TO WINDOW (for inventory system) - ALWAYS update, even if empty (cloud is authoritative)
+                        if (Array.isArray(data.raw)) window.costRaw = data.raw;
+                        if (Array.isArray(data.pack)) window.costPack = data.pack;
+                        if (Array.isArray(data.finished)) window.costFinished = data.finished;
                         
                         // 3. SAVE TO LOCAL CACHE (for offline)
                         try {
