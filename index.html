@@ -21827,24 +21827,19 @@
                         if (data.finished) window.costLists.costFinished = data.finished;
                         if (data.timestamp) window.costLists.timestamp = data.timestamp;
                         
-                        // 2. SYNC TO WINDOW (for inventory system) - BUT PRESERVE NEWER LOCAL DATA
-                        // Only update if cloud has data AND it's newer than local (by merge, not replace)
+                        // 2. SYNC TO WINDOW (for inventory system) - ALWAYS UPDATE FROM CLOUD
+                        // ✅ FIXED: Always merge cloud data to ensure fresh stock values show in UI
                         if (Array.isArray(data.raw) && data.raw.length > 0) {
-                            // Cloud has data - merge intelligently
-                            if (!window.costRaw || window.costRaw.length === 0) {
-                                window.costRaw = data.raw;  // Cloud is authoritative if local empty
-                            }
-                            // Otherwise keep local (user may be editing)
+                            window.costRaw = data.raw;  // Cloud is authoritative
+                            console.log(`✅ Updated window.costRaw with ${data.raw.length} items from cloud`);
                         }
                         if (Array.isArray(data.pack) && data.pack.length > 0) {
-                            if (!window.costPack || window.costPack.length === 0) {
-                                window.costPack = data.pack;
-                            }
+                            window.costPack = data.pack;
+                            console.log(`✅ Updated window.costPack with ${data.pack.length} items from cloud`);
                         }
                         if (Array.isArray(data.finished) && data.finished.length > 0) {
-                            if (!window.costFinished || window.costFinished.length === 0) {
-                                window.costFinished = data.finished;
-                            }
+                            window.costFinished = data.finished;
+                            console.log(`✅ Updated window.costFinished with ${data.finished.length} items from cloud`);
                         }
                         
                         // 3. SAVE TO LOCAL CACHE (for offline)
@@ -21853,6 +21848,16 @@
                             if (data.pack) localStorage.setItem('cost_pack', JSON.stringify(data.pack));
                             if (data.finished) localStorage.setItem('cost_finished', JSON.stringify(data.finished));
                         } catch(e) { console.warn('localStorage sync failed:', e); }
+                        
+                        // 4. ✅ FORCE UI REFRESH with fresh cloud data
+                        try {
+                            if (window.inventorySystem && window.inventorySystem.currentTab) {
+                                console.log(`🔄 Cloud data arrived, refreshing ${window.inventorySystem.currentTab} tab UI...`);
+                                setTimeout(() => {
+                                    window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab);
+                                }, 50);
+                            }
+                        } catch(e) { console.warn('UI refresh failed:', e); }
                         
                         window.dataLoaded = true;
                         console.log('✅ Real-time sync update applied (safe, no loops)');
