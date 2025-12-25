@@ -11469,12 +11469,22 @@ ${itemsHtml}
             // Otherwise attempt network fetch but gracefully fall back to local state on any failure
             try {
                 const response = await fetch('/api/representatives', { cache: 'no-store' });
-                if (!response.ok) throw new Error('HTTP ' + response.status);
+                if (!response.ok) {
+                    // Silently fall back for 404 (API endpoint doesn't exist)
+                    if (response.status === 404) {
+                        console.debug('API /api/representatives not available (404), using local state');
+                    } else {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    const reps = Array.isArray(state.reps) ? state.reps : [];
+                    fallbackPopulate(reps);
+                    return reps;
+                }
                 const reps = await response.json();
                 fallbackPopulate(Array.isArray(reps) ? reps : []);
                 return reps;
             } catch (error) {
-                console.warn('Error loading representatives from network, falling back to local state:', error);
+                console.debug('Network request failed, falling back to local state:', error.message);
                 const reps = Array.isArray(state.reps) ? state.reps : [];
                 fallbackPopulate(reps);
                 return reps;

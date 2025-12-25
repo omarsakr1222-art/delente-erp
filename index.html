@@ -74,6 +74,18 @@
         });
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Suppress Tailwind CDN warning for production -->
+    <script>
+        (function() {
+            const originalWarn = console.warn;
+            console.warn = function(...args) {
+                if (args[0] && args[0].includes && args[0].includes('cdn.tailwindcss.com')) {
+                    return; // Suppress Tailwind CDN warning
+                }
+                originalWarn.apply(console, args);
+            };
+        })();
+    </script>
     <!-- html2canvas for converting receipts to images for thermal printers -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
     <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700&display=swap" rel="stylesheet">
@@ -13634,7 +13646,8 @@
         });
 
         function renderAllSales(textFilter = '', dateFilter = '', taxStatusFilter = 'all', reviewFilterArg = null) {
-             const salesList = document.getElementById('sales-list'); 
+             const salesList = document.getElementById('sales-list');
+             if (!salesList) return; // Guard: ensure salesList exists
              salesList.innerHTML = '';
              // Defensive guards & debug to diagnose empty-sales regression
              try {
@@ -13677,7 +13690,7 @@
                  } else if (dateFilter) {
                      // Fallback to legacy daily filter only when no activePeriod enforced
                      const dailyFilteredSales = filteredSales.filter(sale => new Date(sale.date).toLocaleDateString('en-CA') === dateFilter);
-                     const dailyTotal = dailyFilteredSales.reduce((sum, s) => sum + s.total, 0);
+                     const dailyTotal = dailyFilteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
                      try {
                           document.getElementById('daily-total-amount').textContent = formatCurrency(dailyTotal);
                           document.getElementById('daily-total-container').classList.remove('hidden');
@@ -13690,11 +13703,13 @@
              if (textFilter) { 
                 const lowerCaseFilter = textFilter.toLowerCase(); 
                 filteredSales = filteredSales.filter(sale => { 
-                    const customer = findCustomer(sale.customerId); 
-                    const customerNameMatch = customer && customer.name.toLowerCase().includes(lowerCaseFilter); 
-                    const invoiceNumberMatch = sale.invoiceNumber.toString().includes(lowerCaseFilter); 
-                    const totalMatch = sale.total.toString().includes(lowerCaseFilter) || formatCurrency(sale.total).includes(lowerCaseFilter); 
-                    return customerNameMatch || invoiceNumberMatch || totalMatch; 
+                    try {
+                        const customer = findCustomer(sale.customerId); 
+                        const customerNameMatch = customer && customer.name.toLowerCase().includes(lowerCaseFilter); 
+                        const invoiceNumberMatch = sale.invoiceNumber && sale.invoiceNumber.toString().includes(lowerCaseFilter); 
+                        const totalMatch = sale.total && (sale.total.toString().includes(lowerCaseFilter) || formatCurrency(sale.total).includes(lowerCaseFilter)); 
+                        return customerNameMatch || invoiceNumberMatch || totalMatch;
+                    } catch(e) { return false; }
                 }); 
             }
 
@@ -13707,28 +13722,34 @@
              
              if (taxStatusFilter === 'filed') {
                 filteredSales = filteredSales.filter(sale => {
-                    const customer = findCustomer(sale.customerId);
-                    if (!customer || !customer.requiresTaxFiling) return false;
-                    return sale.taxFilingStatus && sale.taxFilingStatus.trim().toLowerCase() === 'تم';
+                    try {
+                        const customer = findCustomer(sale.customerId);
+                        if (!customer || !customer.requiresTaxFiling) return false;
+                        return sale.taxFilingStatus && sale.taxFilingStatus.trim().toLowerCase() === 'تم';
+                    } catch(e) { return false; }
                 });
             } else if (taxStatusFilter === 'not-filed') {
                 filteredSales = filteredSales.filter(sale => {
-                    const customer = findCustomer(sale.customerId);
-                    if (!customer || !customer.requiresTaxFiling) return false;
-                    return !sale.taxFilingStatus || sale.taxFilingStatus.trim().toLowerCase() !== 'تم';
+                    try {
+                        const customer = findCustomer(sale.customerId);
+                        if (!customer || !customer.requiresTaxFiling) return false;
+                        return !sale.taxFilingStatus || sale.taxFilingStatus.trim().toLowerCase() !== 'تم';
+                    } catch(e) { return false; }
                 });
             }
 
             // --- NEW: Calculate and display total of what's being shown ---
-            const filteredTotal = filteredSales.reduce((sum, s) => sum + s.total, 0);
-            const filteredTotalAmountEl = document.getElementById('filtered-total-amount');
-            if (filteredTotalAmountEl) {
-                filteredTotalAmountEl.textContent = formatCurrency(filteredTotal);
-            }
-            const filteredCountEl = document.getElementById('filtered-total-count');
-            if (filteredCountEl) {
-                filteredCountEl.textContent = String(filteredSales.length);
-            }
+            try {
+                const filteredTotal = filteredSales.reduce((sum, s) => sum + (s.total || 0), 0);
+                const filteredTotalAmountEl = document.getElementById('filtered-total-amount');
+                if (filteredTotalAmountEl) {
+                    filteredTotalAmountEl.textContent = formatCurrency(filteredTotal);
+                }
+                const filteredCountEl = document.getElementById('filtered-total-count');
+                if (filteredCountEl) {
+                    filteredCountEl.textContent = String(filteredSales.length);
+                }
+            } catch(e) { console.warn('Error calculating filtered total:', e); }
             // --- END NEW ---
 
              // ترتيب تصاعدي: الأقدم أولاً والأحدث في الأسفل
@@ -13743,8 +13764,9 @@
              if (filteredSales.length === 0) { salesList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد فواتير تطابق بحثك.</p>'; return; }
              
              const reviewState = loadReviewState();
-             filteredSales.forEach((sale, index) => { 
-                const customer = findCustomer(sale.customerId); 
+             filteredSales.forEach((sale, index) => {
+                try {
+                    const customer = findCustomer(sale.customerId); 
                 
                 // NEW: Return Detection and Styling
                 const isReturn = sale.total < 0;
@@ -15774,12 +15796,22 @@
             // Otherwise attempt network fetch but gracefully fall back to local state on any failure
             try {
                 const response = await fetch('/api/representatives', { cache: 'no-store' });
-                if (!response.ok) throw new Error('HTTP ' + response.status);
+                if (!response.ok) {
+                    // Silently fall back for 404 (API endpoint doesn't exist)
+                    if (response.status === 404) {
+                        console.debug('API /api/representatives not available (404), using local state');
+                    } else {
+                        throw new Error('HTTP ' + response.status);
+                    }
+                    const reps = Array.isArray(state.reps) ? state.reps : [];
+                    fallbackPopulate(reps);
+                    return reps;
+                }
                 const reps = await response.json();
                 fallbackPopulate(Array.isArray(reps) ? reps : []);
                 return reps;
             } catch (error) {
-                console.warn('Error loading representatives from network, falling back to local state:', error);
+                console.debug('Network request failed, falling back to local state:', error.message);
                 const reps = Array.isArray(state.reps) ? state.reps : [];
                 fallbackPopulate(reps);
                 return reps;
@@ -25399,7 +25431,18 @@
             }
         })();
     </script>
-    <script src="./taxes.js"></script>
+    <!-- taxes.js - optional file, load with fallback -->
+    <script>
+        // Load taxes.js with fallback to prevent 404 errors
+        (function() {
+            const script = document.createElement('script');
+            script.src = './taxes.js';
+            script.onerror = function() {
+                console.warn('taxes.js not found (optional file)');
+            };
+            document.head.appendChild(script);
+        })();
+    </script>
     <script>
         async function fixChocolateVatOneTime(silent=false){
             const chocoRe = /chocolate|شوكولاتة|شيكولاتة/i;
