@@ -3527,6 +3527,7 @@
                         try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(e){ console.warn('localStorage finished save failed', e); }
                         try { localStorage.setItem('stock_entries', JSON.stringify(window.state?.stockEntries || {})); } catch(e){ console.warn('localStorage stock_entries save failed', e); }
                         var payload = { 
+                            finished: window.costFinished || [], // CRITICAL: Save finished products array with stock data
                             finishedProducts: sanitizeForSave(window._finishedGridState || {}),
                             stockEntries: sanitizeForSave(window.state?.stockEntries || {}),
                             timestamp: new Date().toISOString() 
@@ -26062,12 +26063,15 @@
                     // CRITICAL: Save updated array to localStorage immediately
                     if (this.currentTab === 'raw') {
                         localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                        window.__rawTouched = true; // Mark as modified for cloud save
                     } else if (this.currentTab === 'packing') {
                         localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                        window.__packTouched = true; // Mark as modified for cloud save
                     } else if (this.currentTab === 'finished') {
                         localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
                         // Also sync to legacy alias
                         window.finishedProducts = window.costFinished;
+                        window.__finishedTouched = true; // Mark as modified for cloud save
                     }
                     
                     // Update modal display
