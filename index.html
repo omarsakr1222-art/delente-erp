@@ -21790,6 +21790,53 @@
 
         // ===== Cloud sync (Firestore) for cost lists - SAFE WITH onSnapshot =====
         let __costDocUnsub = null;
+        // ===== CRITICAL FIX: Sync Cloud Stock Numbers to UI =====
+        window.syncCloudDataToUI = function(cloudData) {
+            console.log("🔄 Syncing Cloud Numbers to UI...");
+
+            // Helper: Update local array with cloud stock numbers
+            const updateStock = (localList, cloudList) => {
+                if (!localList || !cloudList) return;
+                localList.forEach(item => {
+                    // Find the item in cloud data by Name or ID
+                    const cloudItem = cloudList.find(c => c.name === item.name || (c.id && c.id === item.id));
+                    if (cloudItem) {
+                        item.stock = Number(cloudItem.stock) || 0; // Update Stock
+                        item.avgCost = Number(cloudItem.avgCost || cloudItem.cost) || 0; // Update Cost
+                        item.cost = Number(cloudItem.cost || cloudItem.avgCost) || 0; // Sync both cost fields
+                    }
+                });
+            };
+
+            // 1. Update Raw Materials with cloud stock numbers
+            if (window.costRaw && cloudData.raw) {
+                updateStock(window.costRaw, cloudData.raw);
+                console.log(`✅ Updated ${window.costRaw.length} raw materials with cloud stock`);
+            }
+
+            // 2. Update Packaging with cloud stock numbers
+            if (window.costPack && cloudData.pack) {
+                updateStock(window.costPack, cloudData.pack);
+                console.log(`✅ Updated ${window.costPack.length} packaging items with cloud stock`);
+            }
+
+            // 3. Update Finished Products with cloud stock numbers
+            if (window.costFinished && cloudData.finished) {
+                updateStock(window.costFinished, cloudData.finished);
+                console.log(`✅ Updated ${window.costFinished.length} finished products with cloud stock`);
+            }
+
+            // 4. Re-Draw the Tables with REAL numbers
+            try {
+                if (typeof renderRawMaterials === 'function') renderRawMaterials();
+                if (typeof renderPackaging === 'function') renderPackaging();
+                if (typeof renderFinishedProducts === 'function') renderFinishedProducts();
+                console.log("✅ UI Updated with REAL numbers from Cloud");
+            } catch(e) {
+                console.warn('UI re-render failed:', e);
+            }
+        };
+
         function initRealtimeSync() {
             try {
                 console.log('🔌 Connecting to Real-time Data Stream (onSnapshot - Safe)...');
@@ -21849,8 +21896,14 @@
                             if (data.finished) localStorage.setItem('cost_finished', JSON.stringify(data.finished));
                         } catch(e) { console.warn('localStorage sync failed:', e); }
                         
-                        // 4. ✅ FORCE UI REFRESH with fresh cloud data
+                        // 4. ✅ FORCE UI REFRESH with REAL CLOUD STOCK NUMBERS
                         try {
+                            // Call the sync function to merge cloud stock numbers into UI
+                            if (typeof window.syncCloudDataToUI === 'function') {
+                                window.syncCloudDataToUI(data);
+                            }
+                            
+                            // Also refresh inventory tab if open
                             if (window.inventorySystem && window.inventorySystem.currentTab) {
                                 console.log(`🔄 Cloud data arrived, refreshing ${window.inventorySystem.currentTab} tab UI...`);
                                 setTimeout(() => {
