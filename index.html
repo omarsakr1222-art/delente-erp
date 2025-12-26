@@ -22745,6 +22745,18 @@
         }
 
         document.addEventListener('DOMContentLoaded', function(){ 
+            // CLEANUP: Remove corrupted localStorage values that cause JSON.parse errors
+            try {
+                const keysToClean = ['cost_raw', 'cost_pack', 'cost_finished', 'cost_ops'];
+                keysToClean.forEach(key => {
+                    const val = localStorage.getItem(key);
+                    if (val === 'undefined' || val === 'null') {
+                        console.log(`🧹 Cleaned corrupted localStorage key: ${key} (was: ${val})`);
+                        localStorage.removeItem(key);
+                    }
+                });
+            } catch(e){ console.warn('localStorage cleanup failed', e); }
+            
             // Cloud-first initialization: attach realtime listener immediately so the app
             // receives authoritative data from Firestore (settings/costLists). LocalStorage
             // is kept only as a cache/fallback, not the source of truth.
