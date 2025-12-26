@@ -8600,6 +8600,17 @@
                         </div>
                     </div>
 
+                    <!-- Search & Total Value -->
+                    <div class="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b flex justify-between items-center">
+                        <div class="flex-1 max-w-md">
+                            <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="🔍 بحث في المخزون..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" dir="rtl">
+                        </div>
+                        <div class="text-left ml-4">
+                            <div class="text-sm text-gray-600 mb-1">إجمالي قيمة المخزون</div>
+                            <div id="total-inventory-value" class="text-2xl font-bold text-green-700">0 ج.م</div>
+                        </div>
+                    </div>
+
                     <!-- Tabs -->
                     <div class="flex border-b border-gray-200">
                         <div onclick="switchInvTab('finished')" id="btn-finished" class="inv-tab-btn active flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">📦 منتج تام</div>
@@ -21828,6 +21839,9 @@
                     
                     // 3. Update counters ONCE after all renders complete
                     if (typeof updateCounters === 'function') updateCounters();
+                    
+                    // 4. Update total inventory value
+                    if (typeof updateTotalValue === 'function') updateTotalValue();
                 } catch(e) {
                     console.warn('UI re-render failed:', e);
                 } finally {
@@ -22210,8 +22224,8 @@
                     await db.collection('settings').doc('costLists').set(payload, { merge: true });
                     const rawCount = Array.isArray(payload.raw) ? payload.raw.length : 0;
                     const packCount = Array.isArray(payload.pack) ? payload.pack.length : 0;
-                    // FIXED: Count finishedProducts object keys instead of finished array
-                    const finishedCount = payload.finishedProducts ? Object.keys(payload.finishedProducts).length : 0;
+                    // FIXED: Count from payload.finished array (not finishedProducts object)
+                    const finishedCount = Array.isArray(payload.finished) ? payload.finished.length : 0;
                     const stockEntriesCount = payload.stockEntries ? Object.keys(payload.stockEntries).length : 0;
                     console.log('✅ Cost lists saved to Firebase', { raw: rawCount, pack: packCount, finished: finishedCount, stockEntries: stockEntriesCount });
                     // Update local cache timestamp and grid snapshots only after cloud ack
@@ -26020,7 +26034,7 @@
                     // Update in memory and local arrays
                     this.currentItem.stock = newStock;
                     
-                    // Also update in the appropriate window array
+                    // CRITICAL: Also update in the appropriate window array so it persists
                     const array = this.currentTab === 'raw' ? window.costRaw :
                                   this.currentTab === 'packing' ? window.costPack :
                                   window.costFinished;
@@ -26029,13 +26043,32 @@
                         const idx = array.findIndex(i => i && (i.id === this.currentItem.id || i.name === this.currentItem.name));
                         if (idx >= 0) {
                             array[idx].stock = newStock;
+                            console.log(`📝 Updated array[${idx}].stock = ${newStock} for ${this.currentItem.name}`);
+                        } else {
+                            // Item not in array - add it
+                            const newItem = {
+                                id: this.currentItem.id,
+                                name: this.currentItem.name,
+                                stock: newStock,
+                                unit: this.currentItem.unit || 'قطعة',
+                                cost: this.currentItem.cost || this.currentItem.price || 0,
+                                category: this.currentTab
+                            };
+                            array.push(newItem);
+                            console.log(`➕ Added new item to array: ${this.currentItem.name} with stock ${newStock}`);
                         }
                     }
                     
-                    // Save to localStorage
-                    if (this.currentTab === 'raw') localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
-                    else if (this.currentTab === 'packing') localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
-                    else localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                    // CRITICAL: Save updated array to localStorage immediately
+                    if (this.currentTab === 'raw') {
+                        localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                    } else if (this.currentTab === 'packing') {
+                        localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                    } else if (this.currentTab === 'finished') {
+                        localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                        // Also sync to legacy alias
+                        window.finishedProducts = window.costFinished;
+                    }
                     
                     // Update modal display
                     document.getElementById('modal-stock').textContent = newStock;
@@ -26046,6 +26079,11 @@
                         try { if (typeof window.debouncedFinishedSave === 'function') window.debouncedFinishedSave(); } catch(_){ }
                     } else {
                         try { if (typeof window.saveLists === 'function') window.saveLists(); } catch(_){ }
+                    }
+                    
+                    // Update total inventory value display
+                    if (typeof window.updateTotalValue === 'function') {
+                        setTimeout(() => window.updateTotalValue(), 300);
                     }
                     
                     console.log(`✅ Stock adjusted: ${this.currentItem.name} → ${newStock}`);
@@ -26612,4 +26650,69 @@
             //     renderFinishedProducts();
             // }, 4000);
         });
+
+        // ========== WAREHOUSE SEARCH FILTER ==========
+        window.filterInventory = function() {
+            try {
+                const query = document.getElementById('inventorySearch')?.value?.toLowerCase() || '';
+                
+                // Filter all three tables
+                const tables = ['table-finished', 'table-raw', 'table-packing'];
+                tables.forEach(tableId => {
+                    const tbody = document.getElementById(tableId);
+                    if (!tbody) return;
+                    
+                    const rows = tbody.querySelectorAll('tr');
+                    rows.forEach(row => {
+                        const text = row.innerText.toLowerCase();
+                        row.style.display = text.includes(query) ? '' : 'none';
+                    });
+                });
+            } catch(e) {
+                console.error('filterInventory error:', e);
+            }
+        };
+
+        // ========== TOTAL INVENTORY VALUE CALCULATOR ==========
+        window.updateTotalValue = function() {
+            try {
+                let total = 0;
+                
+                // Calculate from Raw Materials
+                if (window.costRaw && Array.isArray(window.costRaw)) {
+                    window.costRaw.forEach(item => {
+                        const stock = Number(item.stock) || 0;
+                        const cost = Number(item.avgCost || item.cost || 0);
+                        total += stock * cost;
+                    });
+                }
+                
+                // Calculate from Packing Materials
+                if (window.costPack && Array.isArray(window.costPack)) {
+                    window.costPack.forEach(item => {
+                        const stock = Number(item.stock) || 0;
+                        const cost = Number(item.avgCost || item.cost || 0);
+                        total += stock * cost;
+                    });
+                }
+                
+                // Calculate from Finished Products
+                if (window.costFinished && Array.isArray(window.costFinished)) {
+                    window.costFinished.forEach(item => {
+                        const stock = Number(item.stock) || 0;
+                        const cost = Number(item.price || item.cost || 0);
+                        total += stock * cost;
+                    });
+                }
+                
+                const el = document.getElementById('total-inventory-value');
+                if (el) {
+                    el.textContent = total.toLocaleString('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ج.م';
+                }
+                
+                console.log('💰 Total inventory value calculated:', total);
+            } catch(e) {
+                console.error('updateTotalValue error:', e);
+            }
+        };
     </script>
