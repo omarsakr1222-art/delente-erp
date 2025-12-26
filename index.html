@@ -22029,6 +22029,11 @@
                     if (data.finished && Array.isArray(data.finished) && data.finished.length > 0) {
                         window.costLists = window.costLists || {};
                         window.costLists.costFinished = data.finished;
+                        // CRITICAL: Also sync to window.costFinished for inventory system
+                        window.costFinished = data.finished;
+                        window.finishedProducts = data.finished; // Keep legacy alias in sync
+                        // Save to localStorage for offline
+                        try { localStorage.setItem('cost_finished', JSON.stringify(data.finished)); } catch(_){}
                         console.log("✅ Restored costFinished:", data.finished.length, "items");
                     }
                     if (data.timestamp) {
@@ -22153,24 +22158,29 @@
             // Only include arrays that have been touched or are non-empty to avoid overwriting server arrays with empty arrays
             const includeRaw = !!window.__rawTouched || ((window.costLists && Array.isArray(window.costLists.costRaw) && window.costLists.costRaw.length>0));
             const includePack = !!window.__packTouched || ((window.costLists && Array.isArray(window.costLists.costPack) && window.costLists.costPack.length>0));
-            // FIXED: Check finishedGridState object instead of costFinished array
-            const includeFinished = !!window.__finishedTouched || (window._finishedGridState && Object.keys(window._finishedGridState).length > 0);
+            // FIXED: Include finished if costFinished array OR finishedGridState object has data
+            const includeFinished = !!window.__finishedTouched || 
+                (window.costLists && Array.isArray(window.costLists.costFinished) && window.costLists.costFinished.length > 0) ||
+                (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) ||
+                (window._finishedGridState && Object.keys(window._finishedGridState).length > 0);
 
             const payload = {
                 ops: window.costLists?.costOps || [],
                 rawGridState: window._rawGridState || {},
                 packGridState: window._packGridState || {},
-                // FIXED: Use finishedProducts (matches cloud listener field name)
+                // Save finishedProducts grid state (object)
                 finishedProducts: window._finishedGridState || {},
-                // FIXED: Add stock_entries to cloud payload
+                // CRITICAL: Also save stock_entries
                 stockEntries: window.state?.stockEntries || {},
                 timestamp: new Date().toISOString(),
                 updatedAt: serverTs()
             };
             if (includeRaw) payload.raw = window.costLists?.costRaw || [];
             if (includePack) payload.pack = window.costLists?.costPack || [];
-            // FIXED: No longer save costFinished array (using finishedProducts object instead)
-            // if (includeFinished) payload.finished = window.costLists?.costFinished || [];
+            // CRITICAL FIX: Save finished array to cloud (was commented out causing data loss!)
+            if (includeFinished) {
+                payload.finished = window.costLists?.costFinished || window.costFinished || [];
+            }
 
             // Attempt immediate write with token refresh + retries
             let attempts = 0; const MAX_ATTEMPTS = 3; const BASE_DELAY = 800;
