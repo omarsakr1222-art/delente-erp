@@ -22352,16 +22352,17 @@
                         
                         // 2. SYNC TO WINDOW (for inventory system) - ALWAYS UPDATE FROM CLOUD
                         // ✅ FIXED: Always merge cloud data to ensure fresh stock values show in UI
-                        if (Array.isArray(data.raw) && data.raw.length > 0) {
-                            window.costRaw = data.raw;  // Cloud is authoritative
+                        if (Array.isArray(data.raw)) {
+                            window.costRaw = data.raw;  // Cloud is authoritative (even if empty)
                             console.log(`✅ Updated window.costRaw with ${data.raw.length} items from cloud`);
                         }
-                        if (Array.isArray(data.pack) && data.pack.length > 0) {
+                        if (Array.isArray(data.pack)) {
                             window.costPack = data.pack;
                             console.log(`✅ Updated window.costPack with ${data.pack.length} items from cloud`);
                         }
-                        if (Array.isArray(data.finished) && data.finished.length > 0) {
-                            window.costFinished = data.finished;
+                        if (Array.isArray(data.finished)) {
+                            window.costFinished = data.finished;  // Cloud is authoritative (even if empty)
+                            window.finishedProducts = data.finished; // Keep legacy alias in sync
                             console.log(`✅ Updated window.costFinished with ${data.finished.length} items from cloud`);
                         }
                         
@@ -22442,11 +22443,11 @@
                         window.costLists.costPack = data.pack;
                         console.log("✅ Restored costPack:", data.pack.length, "items");
                     }
-                    if (data.finished && Array.isArray(data.finished) && data.finished.length > 0) {
+                    if (data.finished && Array.isArray(data.finished)) {
                         window.costLists = window.costLists || {};
                         window.costLists.costFinished = data.finished;
                         // CRITICAL: Also sync to window.costFinished for inventory system
-                        window.costFinished = data.finished;
+                        window.costFinished = data.finished;  // Update even if empty - cloud is authoritative
                         window.finishedProducts = data.finished; // Keep legacy alias in sync
                         // Save to localStorage for offline
                         try { localStorage.setItem('cost_finished', JSON.stringify(data.finished)); } catch(_){}
@@ -26289,16 +26290,9 @@
                                 }
                             } catch(e){ console.warn('derive finished from grid failed', e); }
                         }
-                        // Fallback to DEFAULT_PRODUCTS (seed) if still empty
-                        if (items.length === 0 && Array.isArray(window.DEFAULT_PRODUCTS) && window.DEFAULT_PRODUCTS.length > 0) {
-                            try {
-                                items = window.DEFAULT_PRODUCTS.map(p => ({ id: p.id || p.code || ('prod-'+Math.random().toString(36).slice(2,8)), name: p.name || p.title || 'منتج', unit: p.unit || 'قطعة', stock: 0, cost: Number(p.price||p.sellPrice||0) }));
-                                window.costFinished = items;
-                                window.finishedProducts = items;
-                                try { localStorage.setItem('cost_finished', JSON.stringify(items)); } catch(_){}
-                                console.log(`📦 Seeded ${items.length} finished items from DEFAULT_PRODUCTS`);
-                            } catch(e){ console.warn('seed finished from DEFAULT_PRODUCTS failed', e); }
-                        }
+                        // ⛔ DO NOT FALLBACK TO DEFAULT_PRODUCTS - Cloud is authoritative
+                        // If finished products are empty in cloud, they should be empty here too
+                        // Fallback to seed data would cause data loss on refresh
                     }
                     
                     // If local arrays are empty, try Firestore (last resort)
