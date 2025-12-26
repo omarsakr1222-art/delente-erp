@@ -22150,6 +22150,14 @@
                 try { await waitForDbReady(5000); } catch(e) { console.warn('⚠️ saveCostListsToFirebase: DB wait timed out', e); }
                 if (!window.db) { console.warn('⚠️ saveCostListsToFirebase: Firebase still not ready'); return false; }
             }
+            
+            // CRITICAL: Sync window.costLists with window arrays BEFORE checking conditions
+            window.costLists = window.costLists || {};
+            if (window.costRaw) window.costLists.costRaw = window.costRaw;
+            if (window.costPack) window.costLists.costPack = window.costPack;
+            if (window.costFinished) window.costLists.costFinished = window.costFinished;
+            if (window.costOps) window.costLists.costOps = window.costOps;
+            
             const statusEl = document.getElementById('sync-status');
             const setStatus = (txt, visible=true) => {
                 try { if (statusEl) { statusEl.textContent = txt; statusEl.classList.toggle('hidden', !visible); } } catch(_){}
@@ -22163,6 +22171,15 @@
                 (window.costLists && Array.isArray(window.costLists.costFinished) && window.costLists.costFinished.length > 0) ||
                 (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) ||
                 (window._finishedGridState && Object.keys(window._finishedGridState).length > 0);
+            
+            // DEBUG: Log what we're about to save
+            console.log('🔍 saveCostListsToFirebase DEBUG:', {
+                includeFinished,
+                'window.costFinished length': (window.costFinished||[]).length,
+                'window.costLists.costFinished length': (window.costLists?.costFinished||[]).length,
+                'window._finishedGridState keys': Object.keys(window._finishedGridState||{}).length,
+                '__finishedTouched': !!window.__finishedTouched
+            });
 
             const payload = {
                 ops: window.costLists?.costOps || [],
