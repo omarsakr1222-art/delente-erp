@@ -8847,6 +8847,47 @@
                     </div>
                 </div>
 
+                <!-- Edit/Adjust Stock Modal -->
+                <div id="editItemModal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
+                    <div class="bg-white w-11/12 md:w-96 mx-auto mt-32 rounded-2xl shadow-2xl overflow-hidden animate-slideDown">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-5 text-center">
+                            <h3 class="text-xl font-bold mb-1">تعديل الرصيد</h3>
+                            <p id="edit-item-name" class="text-sm text-slate-300">اسم الصنف</p>
+                        </div>
+
+                        <!-- Body -->
+                        <div class="p-6">
+                            <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-6 text-center">
+                                <div class="text-sm text-blue-600 mb-2">الرصيد الحالي</div>
+                                <div id="edit-current-stock" class="text-4xl font-bold text-blue-700">0</div>
+                                <div id="edit-unit" class="text-xs text-blue-500 mt-1">قطعة</div>
+                            </div>
+
+                            <div class="grid grid-cols-2 gap-3">
+                                <!-- Add Stock Button -->
+                                <button onclick="performStockAdjust('add')" class="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all">
+                                    <div class="text-3xl mb-1">➕</div>
+                                    <div class="text-sm">إضافة رصيد</div>
+                                </button>
+
+                                <!-- Subtract Stock Button -->
+                                <button onclick="performStockAdjust('subtract')" class="bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all">
+                                    <div class="text-3xl mb-1">➖</div>
+                                    <div class="text-sm">صرف من الرصيد</div>
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="p-4 bg-gray-50 border-t text-center">
+                            <button onclick="closeEditModal()" class="px-8 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">
+                                إلغاء
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <script>
                     function switchInvTab(tab) {
                         ['finished', 'raw', 'packing'].forEach(t => {
@@ -26438,24 +26479,38 @@
             }
         };
         
-        // ===== EDIT ITEM MODAL (opens add/subtract modal) =====
+        // ===== EDIT ITEM MODAL (Clear Add/Subtract Buttons) =====
         window.openEditItemModal = function() {
-            // For now, close the details modal and show add/subtract options
-            // This can be enhanced later with a full edit form
             if (!window.inventorySystem || !window.inventorySystem.currentItem) {
                 alert('❌ لم يتم تحديد صنف');
                 return;
             }
             
             const item = window.inventorySystem.currentItem;
-            const action = confirm(`تعديل الرصيد لـ: ${item.name}\n\nإضافة رصيد؟ اضغط OK\nصرف من الرصيد؟ اضغط Cancel`);
             
-            if (action) {
-                // User wants to add
-                window.inventorySystem.adjustStock('add');
-            } else {
-                // User wants to subtract
-                window.inventorySystem.adjustStock('subtract');
+            // Populate modal
+            document.getElementById('edit-item-name').textContent = item.name || 'صنف';
+            document.getElementById('edit-current-stock').textContent = item.stock || 0;
+            document.getElementById('edit-unit').textContent = item.unit || 'قطعة';
+            
+            // Close details modal and show edit modal
+            document.getElementById('itemCardModal').style.display = 'none';
+            document.getElementById('editItemModal').style.display = 'block';
+        };
+        
+        window.closeEditModal = function() {
+            document.getElementById('editItemModal').style.display = 'none';
+            // Re-open item details modal
+            document.getElementById('itemCardModal').style.display = 'block';
+        };
+        
+        window.performStockAdjust = function(action) {
+            // Close edit modal
+            document.getElementById('editItemModal').style.display = 'none';
+            
+            // Call the adjust function
+            if (window.inventorySystem && typeof window.inventorySystem.adjustStock === 'function') {
+                window.inventorySystem.adjustStock(action);
             }
         };
 
