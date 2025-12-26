@@ -27263,31 +27263,44 @@
             try {
                 let total = 0;
                 
+                // Helper function to calculate cost from any item
+                const getCost = (item) => {
+                    // Try avgCost first (for raw/packing), then price (for finished), then cost
+                    return Number(item.avgCost) || Number(item.price) || Number(item.cost) || 0;
+                };
+                
                 // Calculate from Raw Materials
                 if (window.costRaw && Array.isArray(window.costRaw)) {
                     window.costRaw.forEach(item => {
                         const stock = Number(item.stock) || 0;
-                        const cost = Number(item.avgCost || item.cost || 0);
+                        const cost = getCost(item);
                         total += stock * cost;
                     });
+                    console.log(`📊 Raw Materials: ${window.costRaw.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
                 }
                 
                 // Calculate from Packing Materials
                 if (window.costPack && Array.isArray(window.costPack)) {
                     window.costPack.forEach(item => {
                         const stock = Number(item.stock) || 0;
-                        const cost = Number(item.avgCost || item.cost || 0);
+                        const cost = getCost(item);
                         total += stock * cost;
                     });
+                    console.log(`📊 Packing Materials: ${window.costPack.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
                 }
                 
                 // Calculate from Finished Products
                 if (window.costFinished && Array.isArray(window.costFinished)) {
                     window.costFinished.forEach(item => {
                         const stock = Number(item.stock) || 0;
-                        const cost = Number(item.price || item.cost || 0);
-                        total += stock * cost;
+                        const cost = getCost(item);
+                        const itemTotal = stock * cost;
+                        if (itemTotal > 0) {
+                            console.log(`  - ${item.name}: ${stock} × ${cost} = ${itemTotal}`);
+                        }
+                        total += itemTotal;
                     });
+                    console.log(`📊 Finished Products: ${window.costFinished.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
                 }
                 
                 const el = document.getElementById('total-inventory-value');
@@ -27295,7 +27308,7 @@
                     el.textContent = total.toLocaleString('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ج.م';
                 }
                 
-                console.log('💰 Total inventory value calculated:', total);
+                console.log(`💰 TOTAL INVENTORY VALUE: ${total.toLocaleString('en-EG')} ج.م`);
             } catch(e) {
                 console.error('updateTotalValue error:', e);
             }
