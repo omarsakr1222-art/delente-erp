@@ -8775,7 +8775,10 @@
                                     إغلاق
                                 </button>
                                 <button onclick="openEditItemModal()" class="bg-gray-400 hover:bg-gray-500 text-white py-3 px-6 rounded-lg font-bold shadow transition">
-                                    تعديل البيانات
+                                    تعديل الرصيد
+                                </button>
+                                <button onclick="openEditPriceModal()" class="bg-amber-500 hover:bg-amber-600 text-white py-3 px-6 rounded-lg font-bold shadow transition">
+                                    تعديل السعر
                                 </button>
                             </div>
                         </div>
@@ -8888,7 +8891,214 @@
                     </div>
                 </div>
 
+                <!-- Edit Price Modal - NEW -->
+                <div id="editPriceModal" style="display:none; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
+                    <div class="bg-white w-11/12 md:w-96 mx-auto mt-32 rounded-2xl shadow-2xl overflow-hidden animate-slideDown">
+                        <!-- Header -->
+                        <div class="bg-gradient-to-r from-amber-600 to-amber-700 text-white p-5 text-center">
+                            <h3 class="text-xl font-bold mb-1">💰 تعديل السعر/التكلفة</h3>
+                            <p id="price-item-name" class="text-sm text-amber-200">اسم الصنف</p>
+                        </div>
+
+                        <!-- Body -->
+                        <div class="p-6 space-y-4">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2">السعر/التكلفة الحالية (ج.م)</label>
+                                <div class="flex items-center gap-2">
+                                    <input type="number" id="editPriceInput" placeholder="0" class="flex-1 border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent">
+                                    <span class="text-2xl font-bold text-amber-600">ج.م</span>
+                                </div>
+                                <p id="price-old-value" class="text-xs text-gray-500 mt-2">السعر القديم: 0</p>
+                            </div>
+
+                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
+                                <p class="text-sm text-amber-700">
+                                    <strong>ملاحظة:</strong> هذا السعر سيُستخدم لحساب القيمة الإجمالية (الرصيد × السعر)
+                                </p>
+                            </div>
+                        </div>
+
+                        <!-- Footer -->
+                        <div class="p-4 bg-gray-50 border-t flex gap-3">
+                            <button onclick="closeEditPriceModal()" class="flex-1 px-4 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">
+                                إلغاء
+                            </button>
+                            <button onclick="saveEditedPrice()" class="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow transition">
+                                💾 حفظ
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <script>
+                    // PRICE EDIT FUNCTIONS
+                    window.openEditPriceModal = function() {
+                        if (!window.inventoryModal) return;
+                        const item = window.inventoryModal.currentItem;
+                        const cost = item.cost || item.price || 0;
+                        
+                        document.getElementById('price-item-name').textContent = item.name || 'صنف';
+                        document.getElementById('price-old-value').textContent = `السعر القديم: ${cost} ج.م`;
+                        document.getElementById('editPriceInput').value = cost;
+                        document.getElementById('editPriceModal').style.display = 'block';
+                        
+                        setTimeout(() => document.getElementById('editPriceInput').focus(), 100);
+                    };
+
+                    window.closeEditPriceModal = function() {
+                        document.getElementById('editPriceModal').style.display = 'none';
+                    };
+
+                    window.saveEditedPrice = async function() {
+                        if (!window.inventoryModal || !window.inventoryModal.currentItem) {
+                            return alert('❌ خطأ: لم يتم تحديد الصنف');
+                        }
+
+                        const newPrice = Number(document.getElementById('editPriceInput').value);
+                        if (isNaN(newPrice) || newPrice < 0) {
+                            return alert('⚠️ أدخل سعراً صحيحاً');
+                        }
+
+                        try {
+                            const item = window.inventoryModal.currentItem;
+                            const tab = window.inventoryModal.currentTab;
+
+                            // 1. Update Firestore immediately
+                            await db.collection('inventory_items').doc(item.id).set({
+                                cost: newPrice,
+                                price: newPrice,
+                                avgCost: newPrice,
+                                updatedAt: serverTs()
+                            }, { merge: true });
+                            
+                            console.log(`✅ سعر محدث في السحابة: ${item.name} → ${newPrice}`);
+
+                            // 2. Update array immediately
+                            const array = tab === 'raw' ? window.costRaw :
+                                          tab === 'packing' ? window.costPack :
+                                          window.costFinished;
+                            
+                            if (Array.isArray(array)) {
+                                const idx = array.findIndex(i => i && (i.id === item.id || i.name === item.name));
+                                if (idx >= 0) {
+                                    array[idx].cost = newPrice;
+                                    array[idx].price = newPrice;
+                                    localStorage.setItem(
+                                        tab === 'raw' ? 'cost_raw' : tab === 'packing' ? 'cost_pack' : 'cost_finished',
+                                        JSON.stringify(array)
+                                    );
+                                }
+                            }
+
+                            // 3. Save to costLists immediately (same as stock update)
+                            const payload = {};
+                            if (tab === 'raw') {
+                                payload.raw = window.costRaw;
+                            } else if (tab === 'packing') {
+                                payload.pack = window.costPack;
+                            } else if (tab === 'finished') {
+                                payload.finished = window.costFinished;
+                            }
+                            payload.updatedAt = serverTs();
+                            await db.collection('settings').doc('costLists').set(payload, { merge: true });
+
+                            // 4. Close modal and refresh UI
+                            closeEditPriceModal();
+                            window.inventoryModal.currentItem.cost = newPrice;
+                            window.inventoryModal.currentItem.price = newPrice;
+                            
+                            // Update modal display
+                            document.getElementById('modal-cost').textContent = newPrice;
+                            window.inventoryModal.loadInventoryData(tab);
+                            
+                            if (typeof window.updateTotalValue === 'function') {
+                                setTimeout(() => window.updateTotalValue(), 300);
+                            }
+
+                            alert(`✅ تم تحديث السعر بنجاح!\n${item.name}: ${newPrice} ج.م`);
+
+                        } catch(e) {
+                            console.error('Error saving price:', e);
+                            alert(`❌ خطأ في الحفظ: ${e.message}`);
+                        }
+                    };
+
+                    // MOVEMENT HISTORY FUNCTIONS
+                    window.logMovement = async function(itemId, itemName, qty, type, tab) {
+                        try {
+                            if (!window.db || !navigator.onLine) return;
+                            
+                            const movementData = {
+                                itemId: itemId,
+                                itemName: itemName,
+                                quantity: Math.abs(qty),
+                                type: type, // 'add' or 'subtract'
+                                category: tab, // raw, packing, finished
+                                timestamp: serverTs(),
+                                date: new Date().toISOString(),
+                                user: 'نظام' // Can be enhanced with actual user
+                            };
+
+                            // Save to movements subcollection
+                            await db.collection('inventory_items').doc(itemId).collection('movements').add(movementData);
+                            console.log(`📝 حركة مسجلة: ${itemName} → ${qty} (${type})`);
+                        } catch(e) {
+                            console.warn('Could not log movement:', e.message);
+                        }
+                    };
+
+                    window.loadMovementHistory = async function(itemId) {
+                        try {
+                            if (!window.db || !navigator.onLine) {
+                                console.log('Offline - cannot load movements');
+                                return [];
+                            }
+
+                            const snapshot = await db.collection('inventory_items')
+                                .doc(itemId)
+                                .collection('movements')
+                                .orderBy('timestamp', 'desc')
+                                .limit(5)
+                                .get();
+
+                            const movements = [];
+                            snapshot.forEach(doc => {
+                                movements.push(doc.data());
+                            });
+
+                            return movements;
+                        } catch(e) {
+                            console.warn('Error loading movements:', e.message);
+                            return [];
+                        }
+                    };
+
+                    window.displayMovementHistory = function(movements) {
+                        const tbody = document.getElementById('modal-movements');
+                        if (!tbody) return;
+
+                        if (!movements || movements.length === 0) {
+                            tbody.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة</td></tr>';
+                            return;
+                        }
+
+                        tbody.innerHTML = movements.map(m => {
+                            const date = m.timestamp ? new Date(m.timestamp.toDate()).toLocaleDateString('ar-EG', {
+                                year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit'
+                            }) : m.date;
+                            const typeLabel = m.type === 'add' ? '➕ إضافة' : '➖ صرف';
+                            
+                            return `
+                                <tr class="hover:bg-gray-50">
+                                    <td class="px-4 py-3 text-right text-sm text-gray-600">${date}</td>
+                                    <td class="px-4 py-3 text-center text-sm font-semibold">${m.quantity}</td>
+                                    <td class="px-4 py-3 text-center text-sm">${typeLabel}</td>
+                                    <td class="px-4 py-3 text-right text-sm text-gray-500">${m.user || 'نظام'}</td>
+                                </tr>
+                            `;
+                        }).join('');
+                    };
+
                     function switchInvTab(tab) {
                         ['finished', 'raw', 'packing'].forEach(t => {
                             const btn = document.getElementById('btn-'+t);
@@ -26252,7 +26462,22 @@
                     // For now, show empty state
                     const movementsTable = document.getElementById('modal-movements');
                     if (movementsTable) {
-                        movementsTable.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة حالياً</td></tr>';
+                        // Load movements if online and have itemId
+                        if (navigator.onLine && docId && window.loadMovementHistory) {
+                            try {
+                                const movements = await window.loadMovementHistory(docId);
+                                if (movements && movements.length > 0) {
+                                    window.displayMovementHistory(movements);
+                                } else {
+                                    movementsTable.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة حالياً</td></tr>';
+                                }
+                            } catch(e) {
+                                console.warn('Could not load movements:', e);
+                                movementsTable.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة حالياً</td></tr>';
+                            }
+                        } else {
+                            movementsTable.innerHTML = '<tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة حالياً</td></tr>';
+                        }
                     }
                     
                     document.getElementById('itemCardModal').style.display = 'block';
@@ -26280,6 +26505,7 @@
                     // Try to update in Firestore if DB is available (create-or-update)
                     if (window.db && this.currentItem.id && navigator.onLine) {
                         try {
+                            // 1. Save to inventory_items
                             await db.collection('inventory_items').doc(this.currentItem.id).set({ 
                                 stock: newStock, 
                                 updatedAt: serverTs(),
@@ -26288,6 +26514,36 @@
                                 category: this.currentTab || 'packing'
                             }, { merge: true });
                             console.log(`✅ Stock saved to Firestore: ${this.currentItem.name} → ${newStock}`);
+                            
+                            // 2. CRITICAL: Update array in costLists document IMMEDIATELY to prevent onSnapshot overwrite
+                            const array = this.currentTab === 'raw' ? window.costRaw :
+                                          this.currentTab === 'packing' ? window.costPack :
+                                          window.costFinished;
+                            
+                            if (Array.isArray(array)) {
+                                const idx = array.findIndex(i => i && (i.id === this.currentItem.id || i.name === this.currentItem.name));
+                                if (idx >= 0) {
+                                    array[idx].stock = newStock;
+                                }
+                                
+                                // Save to cloud immediately
+                                const payload = {};
+                                if (this.currentTab === 'raw') {
+                                    payload.raw = array;
+                                    window.__rawTouched = true;
+                                } else if (this.currentTab === 'packing') {
+                                    payload.pack = array;
+                                    window.__packTouched = true;
+                                } else if (this.currentTab === 'finished') {
+                                    payload.finished = array;
+                                    window.__finishedTouched = true;
+                                }
+                                payload.timestamp = new Date().toISOString();
+                                payload.updatedAt = serverTs();
+                                
+                                await db.collection('settings').doc('costLists').set(payload, { merge: true });
+                                console.log(`🔥 Immediately updated costLists.${this.currentTab} in cloud to prevent overwrite`);
+                            }
                         } catch(dbErr) {
                             console.warn(`⚠️ Could not save to Firestore (offline or missing doc): ${dbErr.message}`);
                             try { if (typeof window.addPendingInventoryUpdate === 'function') window.addPendingInventoryUpdate({ id: this.currentItem.id, category: this.currentTab, stock: newStock, name: this.currentItem.name }); } catch(_){ }
@@ -26342,12 +26598,16 @@
                     document.getElementById('modal-stock').textContent = newStock;
                     this.loadInventoryData(this.currentTab); // Refresh table
                     
-                    // Auto-save to cloud if available (with debounce)
-                    if (this.currentTab === 'finished') {
-                        try { if (typeof window.debouncedFinishedSave === 'function') window.debouncedFinishedSave(); } catch(_){ }
-                    } else {
-                        try { if (typeof window.saveLists === 'function') window.saveLists(); } catch(_){ }
+                    // LOG MOVEMENT TO FIRESTORE
+                    if (typeof window.logMovement === 'function') {
+                        try {
+                            await window.logMovement(this.currentItem.id, this.currentItem.name, Number(qty), action, this.currentTab);
+                        } catch(e) {
+                            console.warn('Could not log movement:', e.message);
+                        }
                     }
+                    
+                    // Note: Already saved to cloud immediately after Firestore save above
                     
                     // Update total inventory value display
                     if (typeof window.updateTotalValue === 'function') {
@@ -26451,6 +26711,26 @@
                     window.__finishedTouched = true;
                 }
                 
+                // 🔥 CRITICAL: Save IMMEDIATELY to costLists to prevent cloud overwrite
+                if (window.db && navigator.onLine) {
+                    try {
+                        const payload = {};
+                        if (cat === 'raw') {
+                            payload.raw = window.costRaw;
+                        } else if (cat === 'packing') {
+                            payload.pack = window.costPack;
+                        } else if (cat === 'finished') {
+                            payload.finished = window.costFinished;
+                        }
+                        payload.updatedAt = serverTs();
+                        
+                        await db.collection('settings').doc('costLists').set(payload, { merge: true });
+                        console.log(`🔥 Immediately saved new item to costLists.${cat}`);
+                    } catch(dbErr) {
+                        console.warn('Cloud costLists save failed:', dbErr.message);
+                    }
+                }
+                
                 // Switch to the category tab and refresh UI
                 if (typeof window.switchInvTab === 'function') {
                     window.switchInvTab(cat);
@@ -26464,11 +26744,6 @@
                 // Update total value
                 if (typeof updateTotalValue === 'function') {
                     setTimeout(() => updateTotalValue(), 300);
-                }
-                
-                // Save to cloud
-                if (typeof window.saveLists === 'function') {
-                    window.saveLists(false).catch(e => console.warn('Cloud save failed:', e));
                 }
                 
                 alert(`✅ تم حفظ الصنف: ${name}`);
