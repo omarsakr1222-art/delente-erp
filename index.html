@@ -8933,9 +8933,11 @@
                 <script>
                     // PRICE EDIT FUNCTIONS
                     window.openEditPriceModal = function() {
-                        if (!window.inventoryModal) return;
-                        const item = window.inventoryModal.currentItem;
-                        const cost = item.cost || item.price || 0;
+                        if (!window.inventorySystem || !window.inventorySystem.currentItem) {
+                            return alert('❌ لم يتم تحديد صنف');
+                        }
+                        const item = window.inventorySystem.currentItem;
+                        const cost = item.cost || item.price || item.avgCost || 0;
                         
                         document.getElementById('price-item-name').textContent = item.name || 'صنف';
                         document.getElementById('price-old-value').textContent = `السعر القديم: ${cost} ج.م`;
@@ -8950,7 +8952,7 @@
                     };
 
                     window.saveEditedPrice = async function() {
-                        if (!window.inventoryModal || !window.inventoryModal.currentItem) {
+                        if (!window.inventorySystem || !window.inventorySystem.currentItem) {
                             return alert('❌ خطأ: لم يتم تحديد الصنف');
                         }
 
@@ -8960,8 +8962,8 @@
                         }
 
                         try {
-                            const item = window.inventoryModal.currentItem;
-                            const tab = window.inventoryModal.currentTab;
+                            const item = window.inventorySystem.currentItem;
+                            const tab = window.inventorySystem.currentTab;
 
                             // 1. Update Firestore immediately
                             await db.collection('inventory_items').doc(item.id).set({
@@ -9004,12 +9006,15 @@
 
                             // 4. Close modal and refresh UI
                             closeEditPriceModal();
-                            window.inventoryModal.currentItem.cost = newPrice;
-                            window.inventoryModal.currentItem.price = newPrice;
+                            window.inventorySystem.currentItem.cost = newPrice;
+                            window.inventorySystem.currentItem.price = newPrice;
+                            window.inventorySystem.currentItem.avgCost = newPrice;
                             
                             // Update modal display
                             document.getElementById('modal-cost').textContent = newPrice;
-                            window.inventoryModal.loadInventoryData(tab);
+                            if (typeof window.inventorySystem.loadInventoryData === 'function') {
+                                window.inventorySystem.loadInventoryData(tab);
+                            }
                             
                             if (typeof window.updateTotalValue === 'function') {
                                 setTimeout(() => window.updateTotalValue(), 300);
@@ -27293,6 +27298,126 @@
                 console.log('💰 Total inventory value calculated:', total);
             } catch(e) {
                 console.error('updateTotalValue error:', e);
+            }
+        };
+
+        // ========== EDIT ITEM PRICE (Simple Prompt + Cloud Save) ==========
+        window.editItemPrice = async function(itemName) {
+            try {
+                // 1. Find the item in any of the arrays
+                let item = null;
+                let category = '';
+                
+                if (window.costRaw && Array.isArray(window.costRaw)) {
+                    item = window.costRaw.find(i => i && i.name === itemName);
+                    if (item) category = 'raw';
+                }
+                
+                if (!item && window.costPack && Array.isArray(window.costPack)) {
+                    item = window.costPack.find(i => i && i.name === itemName);
+                    if (item) category = 'packing';
+                }
+                
+                if (!item && window.costFinished && Array.isArray(window.costFinished)) {
+                    item = window.costFinished.find(i => i && i.name === itemName);
+                    if (item) category = 'finished';
+                }
+                
+                if (!item) {
+                    return alert("❌ الصنف غير موجود");
+                }
+
+                // 2. Show prompt for new price
+                const currentPrice = item.avgCost || item.price || item.cost || 0;
+                const newPrice = prompt(
+                    `تعديل سعر: ${itemName}\n\nالسعر الحالي: ${currentPrice} ج.م`,
+                    currentPrice
+                );
+                
+                if (newPrice === null) return; // User cancelled
+                
+                const priceVal = Number(newPrice);
+                if (isNaN(priceVal) || priceVal < 0) {
+                    return alert("❌ أرقام موجبة فقط!");
+                }
+
+                // 3. Update Cloud immediately
+                if (window.db && navigator.onLine) {
+                    try {
+                        // Save to inventory_items
+                        await db.collection('inventory_items').doc(itemName).set({
+                            avgCost: priceVal,
+                            price: priceVal,
+                            cost: priceVal,
+                            updatedAt: serverTs()
+                        }, { merge: true });
+                        console.log(`✅ سعر محفوظ في السحابة: ${itemName} → ${priceVal}`);
+
+                        // Update costLists immediately
+                        const array = category === 'raw' ? window.costRaw :
+                                      category === 'packing' ? window.costPack :
+                                      window.costFinished;
+                        
+                        if (Array.isArray(array)) {
+                            const idx = array.findIndex(i => i && i.name === itemName);
+                            if (idx >= 0) {
+                                array[idx].avgCost = priceVal;
+                                array[idx].price = priceVal;
+                                array[idx].cost = priceVal;
+                            }
+
+                            // Save to costLists
+                            const payload = {};
+                            if (category === 'raw') {
+                                payload.raw = window.costRaw;
+                            } else if (category === 'packing') {
+                                payload.pack = window.costPack;
+                            } else {
+                                payload.finished = window.costFinished;
+                            }
+                            payload.updatedAt = serverTs();
+
+                            await db.collection('settings').doc('costLists').set(payload, { merge: true });
+                            console.log(`🔥 تم تحديث costLists مباشرة`);
+                        }
+                    } catch(dbErr) {
+                        console.warn('خطأ في حفظ السحابة:', dbErr.message);
+                    }
+                }
+
+                // 4. Update local display
+                item.avgCost = priceVal;
+                item.price = priceVal;
+                item.cost = priceVal;
+                
+                // Save to localStorage
+                try {
+                    if (category === 'raw') {
+                        localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                    } else if (category === 'packing') {
+                        localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                    } else {
+                        localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                    }
+                } catch(e) {
+                    console.warn('خطأ في حفظ localStorage:', e);
+                }
+
+                // 5. Refresh UI
+                if (typeof window.updateTotalValue === 'function') {
+                    setTimeout(() => window.updateTotalValue(), 100);
+                }
+
+                // Refresh table if inventory system is open
+                if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
+                    window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab || 'raw');
+                }
+
+                alert(`✅ تم تعديل السعر وحفظه:\n${itemName}: ${priceVal} ج.م`);
+
+            } catch(e) {
+                console.error('❌ خطأ في تعديل السعر:', e);
+                alert("❌ فشل التعديل: " + e.message);
             }
         };
     </script>
