@@ -8730,28 +8730,29 @@
                     </div>
                 </div>
 
-                <!-- Add Item Modal -->
-                <div id="addItemModal" style="display: none; position: fixed; z-index: 10000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.6); backdrop-filter: blur(3px); overflow: auto;">
-                    <div class="bg-white w-11/12 md:w-1/2 mx-auto mt-10 rounded-xl shadow-2xl overflow-hidden">
+                <!-- Add Item Modal - NEW RICH DESIGN -->
+                <div id="addItemModal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); backdrop-filter:blur(3px);">
+                    <div class="bg-white w-11/12 md:w-1/2 mx-auto mt-10 rounded-xl shadow-2xl overflow-hidden animate-slideDown" style="max-width:600px;">
+                        
                         <!-- Header -->
-                        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-5 flex justify-between items-center">
-                            <h2 class="text-xl font-bold">➕ إضافة صنف جديد للمخزن</h2>
-                            <button onclick="document.getElementById('addItemModal').style.display='none'" class="text-3xl hover:text-red-200 transition">&times;</button>
+                        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex justify-between items-center">
+                            <h2 class="text-xl font-bold flex items-center gap-2">✨ إضافة صنف جديد</h2>
+                            <button onclick="closeAddModal()" class="text-2xl hover:text-red-200 transition">&times;</button>
                         </div>
 
-                        <!-- Body (Form Inputs) -->
-                        <div class="p-6 bg-white">
+                        <!-- Body -->
+                        <div class="p-6 grid gap-5">
                             <!-- Name -->
-                            <div class="mb-5">
-                                <label class="block text-gray-700 font-bold mb-2 text-sm">اسم الصنف *</label>
-                                <input type="text" id="addItemName" placeholder="مثال: لبن، جردل، جبنة..." class="w-full border-2 border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" dir="rtl">
+                            <div>
+                                <label class="block text-gray-700 font-bold mb-2 text-sm">اسم الصنف</label>
+                                <input type="text" id="newItemName" placeholder="مثال: لبن، جردل، جبنة..." class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none transition" dir="rtl">
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4 mb-5">
+                            <div class="grid grid-cols-2 gap-4">
                                 <!-- Category -->
                                 <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">القسم *</label>
-                                    <select id="addItemCategory" class="w-full border-2 border-gray-300 p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" dir="rtl">
+                                    <label class="block text-gray-700 font-bold mb-2 text-sm">القسم</label>
+                                    <select id="newItemCat" class="w-full border-2 border-gray-200 p-3 rounded-lg bg-gray-50 focus:border-blue-500 focus:outline-none" dir="rtl">
                                         <option value="raw">🥛 خامات</option>
                                         <option value="packing">🥡 تغليف</option>
                                         <option value="finished">📦 منتج تام</option>
@@ -8759,42 +8760,37 @@
                                 </div>
                                 <!-- Unit -->
                                 <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">الوحدة *</label>
-                                    <select id="addItemUnit" class="w-full border-2 border-gray-300 p-3 rounded-lg bg-gray-50 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition" dir="rtl">
-                                        <option value="كيلو">كيلو (كجم)</option>
+                                    <label class="block text-gray-700 font-bold mb-2 text-sm">الوحدة</label>
+                                    <select id="newItemUnit" class="w-full border-2 border-gray-200 p-3 rounded-lg bg-gray-50 focus:border-blue-500 focus:outline-none" dir="rtl">
+                                        <option value="كيلو">كيلو</option>
                                         <option value="قطعة" selected>قطعة</option>
                                         <option value="لتر">لتر</option>
                                         <option value="شيكارة">شيكارة</option>
                                         <option value="كرتونة">كرتونة</option>
                                         <option value="صفيحة">صفيحة</option>
-                                        <option value="كيس">كيس</option>
                                         <option value="علبة">علبة</option>
                                     </select>
                                 </div>
                             </div>
 
-                            <div class="grid grid-cols-2 gap-4 mb-5">
+                            <div class="grid grid-cols-2 gap-4">
                                 <!-- Opening Stock -->
                                 <div>
                                     <label class="block text-gray-700 font-bold mb-2 text-sm">رصيد أول المدة</label>
-                                    <input type="number" id="addItemStock" value="0" step="0.01" class="w-full border-2 border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                                    <input type="number" id="newItemStock" value="0" step="0.01" class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none">
                                 </div>
-                                <!-- Cost/Price -->
+                                <!-- Cost -->
                                 <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">متوسط التكلفة / السعر (ج.م)</label>
-                                    <input type="number" id="addItemCost" value="0" step="0.01" class="w-full border-2 border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition">
+                                    <label class="block text-gray-700 font-bold mb-2 text-sm">التكلفة / السعر (ج.م)</label>
+                                    <input type="number" id="newItemCost" value="0" step="0.01" class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none">
                                 </div>
                             </div>
                         </div>
 
-                        <!-- Footer (Save Button) -->
-                        <div class="p-5 bg-gray-50 border-t-2 border-gray-200 flex gap-3">
-                            <button onclick="if(window.inventorySystem) window.inventorySystem.saveNewItem()" class="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white px-6 py-3 rounded-lg font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all">
-                                💾 حفظ الصنف
-                            </button>
-                            <button onclick="document.getElementById('addItemModal').style.display='none'" class="bg-gray-400 text-white px-6 py-3 rounded-lg font-bold shadow hover:bg-gray-500 transition">
-                                ❌ إلغاء
-                            </button>
+                        <!-- Footer Buttons -->
+                        <div class="p-4 bg-gray-50 border-t flex justify-end gap-3">
+                            <button onclick="closeAddModal()" class="px-6 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">إلغاء ❌</button>
+                            <button onclick="saveNewItemAction()" class="px-8 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-lg transform hover:scale-105 transition">حفظ ✅</button>
                         </div>
                     </div>
                 </div>
@@ -26259,120 +26255,120 @@
             },
             
             showAddItemModal() {
-                // Show the add item modal for current category
-                const currentCategory = this.currentTab || 'finished';
+                // Clear form fields
+                document.getElementById('newItemName').value = '';
+                document.getElementById('newItemStock').value = '0';
+                document.getElementById('newItemCost').value = '0';
                 
-                // Reset form
-                document.getElementById('addItemName').value = '';
-                document.getElementById('addItemStock').value = '0';
-                document.getElementById('addItemCost').value = '0';
-                document.getElementById('addItemCategory').value = currentCategory;
+                // Set defaults based on current tab
+                const currentCat = this.currentTab || 'finished';
+                const catSelect = document.getElementById('newItemCat');
+                if (catSelect) catSelect.value = currentCat;
                 
-                // Set default unit based on category
-                const unitMap = {
-                    'raw': 'كيلو',
-                    'packing': 'قطعة',
-                    'finished': 'قطعة'
-                };
-                const unitSelect = document.getElementById('addItemUnit');
-                if (unitSelect) {
-                    unitSelect.value = unitMap[currentCategory] || 'قطعة';
-                }
-                
-                // Show modal and focus on name field
-                const modal = document.getElementById('addItemModal');
-                if (modal) {
-                    modal.style.display = 'block';
-                    setTimeout(() => {
-                        const nameInput = document.getElementById('addItemName');
-                        if (nameInput) nameInput.focus();
-                    }, 100);
-                    console.log(`➕ Add Item Modal opened for category: ${currentCategory}`);
-                } else {
-                    console.error('❌ addItemModal not found in DOM');
-                }
+                // Show modal and focus name field
+                document.getElementById('addItemModal').style.display = 'block';
+                setTimeout(() => {
+                    const nameInput = document.getElementById('newItemName');
+                    if (nameInput) nameInput.focus();
+                }, 100);
             },
             
             async saveNewItem() {
-                try {
-                    const name = document.getElementById('addItemName').value.trim();
-                    const stock = parseFloat(document.getElementById('addItemStock').value) || 0;
-                    const cost = parseFloat(document.getElementById('addItemCost').value) || 0;
-                    const unit = document.getElementById('addItemUnit').value || 'قطعة';
-                    const category = document.getElementById('addItemCategory').value || 'finished';
-                    
-                    if (!name) {
-                        alert('❌ الرجاء إدخال اسم المنتج');
-                        return;
-                    }
-                    
-                    if (!window.db) {
-                        alert('❌ قاعدة البيانات غير متصلة');
-                        return;
-                    }
-                    
-                    const newItem = {
-                        name,
-                        code: name, // Use name as code
-                        stock,
-                        cost,
-                        avgCost: cost,
-                        unit,
-                        price: cost, // Also set price field for compatibility
-                        category,
-                        createdAt: serverTs(),
-                        updatedAt: serverTs()
-                    };
-                    
-                    const docRef = await db.collection('inventory_items').add(newItem);
-                    const newId = docRef.id;
-                    
-                    // Update the item with its new ID
-                    newItem.id = newId;
-                    await docRef.update({ id: newId });
-                    
-                    console.log(`✅ New item added to Firestore: ${name} (id: ${newId})`);
-                    
-                    // Also add to window arrays for immediate display
-                    if (category === 'raw') {
-                        if (!window.costRaw) window.costRaw = [];
-                        window.costRaw.push(newItem);
-                    } else if (category === 'packing') {
-                        if (!window.costPack) window.costPack = [];
-                        window.costPack.push(newItem);
-                    } else if (category === 'finished') {
-                        if (!window.costFinished) window.costFinished = [];
-                        window.costFinished.push(newItem);
-                    }
-                    
-                    // Save to localStorage immediately
-                    try {
-                        if (category === 'raw') {
-                            localStorage.setItem('cost_raw', JSON.stringify(window.costRaw || []));
-                        } else if (category === 'packing') {
-                            localStorage.setItem('cost_pack', JSON.stringify(window.costPack || []));
-                        } else if (category === 'finished') {
-                            localStorage.setItem('cost_finished', JSON.stringify(window.costFinished || []));
-                        }
-                        console.log(`💾 Saved to localStorage: ${name}`);
-                    } catch(e) {
-                        console.warn('⚠️ Failed to save to localStorage:', e);
-                    }
-                    
-                    // Save to cloud via saveLists
-                    if (typeof window.saveLists === 'function') {
-                        window.saveLists(false).catch(e => console.warn('⚠️ Failed to sync to cloud:', e));
-                    }
-                    
-                    alert(`✅ تمت إضافة "${name}" بنجاح`);
-                    
-                    // Close modal and refresh
-                    document.getElementById('addItemModal').style.display = 'none';
-                    window.inventorySystem.loadInventoryData(category);
-                } catch(err) {
-                    console.error('❌ saveNewItem failed:', err);
-                    alert(`❌ خطأ: ${err.message}`);
+                // This is kept for backward compatibility but now calls saveNewItemAction
+                if (typeof window.saveNewItemAction === 'function') {
+                    await window.saveNewItemAction();
                 }
+            }
+        };
+        
+        // ===== NEW MODAL HELPER FUNCTIONS =====
+        
+        window.closeAddModal = function() {
+            document.getElementById('addItemModal').style.display = 'none';
+        };
+        
+        window.saveNewItemAction = async function() {
+            try {
+                const name = document.getElementById('newItemName').value.trim();
+                const cat = document.getElementById('newItemCat').value;
+                const unit = document.getElementById('newItemUnit').value;
+                const stock = Number(document.getElementById('newItemStock').value) || 0;
+                const cost = Number(document.getElementById('newItemCost').value) || 0;
+
+                if (!name) {
+                    alert("❌ يرجى كتابة اسم الصنف");
+                    return;
+                }
+
+                // Close modal first
+                window.closeAddModal();
+
+                // Create new item object
+                const newItem = { 
+                    name, 
+                    type: cat,
+                    category: cat,
+                    unit, 
+                    stock, 
+                    avgCost: cost,
+                    cost: cost,
+                    price: cost, 
+                    isActive: true,
+                    createdAt: serverTs(),
+                    updatedAt: serverTs()
+                };
+
+                // Save to Firestore
+                if (window.db) {
+                    const docRef = await db.collection('inventory_items').add(newItem);
+                    newItem.id = docRef.id;
+                    await docRef.update({ id: docRef.id });
+                    console.log(`✅ Saved to Firestore: ${name} (${docRef.id})`);
+                }
+                
+                // Update local arrays
+                if (cat === 'raw') {
+                    if (!window.costRaw) window.costRaw = [];
+                    window.costRaw.push(newItem);
+                    localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                    window.__rawTouched = true;
+                } else if (cat === 'packing') {
+                    if (!window.costPack) window.costPack = [];
+                    window.costPack.push(newItem);
+                    localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                    window.__packTouched = true;
+                } else if (cat === 'finished') {
+                    if (!window.costFinished) window.costFinished = [];
+                    window.costFinished.push(newItem);
+                    localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                    window.__finishedTouched = true;
+                }
+                
+                // Switch to the category tab and refresh UI
+                if (typeof window.switchInvTab === 'function') {
+                    window.switchInvTab(cat);
+                }
+                
+                // Render tables
+                if (typeof renderRawMaterials === 'function') renderRawMaterials();
+                if (typeof renderPackaging === 'function') renderPackaging();
+                if (typeof renderFinishedProducts === 'function') renderFinishedProducts();
+                
+                // Update total value
+                if (typeof updateTotalValue === 'function') {
+                    setTimeout(() => updateTotalValue(), 300);
+                }
+                
+                // Save to cloud
+                if (typeof window.saveLists === 'function') {
+                    window.saveLists(false).catch(e => console.warn('Cloud save failed:', e));
+                }
+                
+                alert(`✅ تم حفظ الصنف: ${name}`);
+
+            } catch(e) {
+                console.error('saveNewItemAction error:', e);
+                alert("❌ خطأ: " + e.message);
             }
         };
 
