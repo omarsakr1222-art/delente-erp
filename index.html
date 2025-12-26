@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="ar" dir="rtl">
 <head>
     <meta charset="UTF-8">
@@ -21706,14 +21706,22 @@
         let costOps = [];
 
         function loadLists(){
-            try { costFinished = JSON.parse(localStorage.getItem(LS_FIN) || '[]'); } catch(e){ costFinished = []; }
-            try { costRaw = JSON.parse(localStorage.getItem(LS_RAW) || '[]'); } catch(e){ costRaw = []; }
-            try { costPack = JSON.parse(localStorage.getItem(LS_PACK) || '[]'); } catch(e){ costPack = []; }
-            try { costOps = JSON.parse(localStorage.getItem(LS_OPS) || '[]'); } catch(e){ costOps = []; }
-            // DEBUG: print what was loaded
+            // SAFETY: Filter out corrupted localStorage values before parsing
+            const safeGetLS = (key) => {
+                const val = localStorage.getItem(key);
+                if (!val || val === 'undefined' || val === 'null') return '[]';
+                return val;
+            };
+            
+            try { costFinished = JSON.parse(safeGetLS(LS_FIN)); } catch(e){ costFinished = []; }
+            try { costRaw = JSON.parse(safeGetLS(LS_RAW)); } catch(e){ costRaw = []; }
+            try { costPack = JSON.parse(safeGetLS(LS_PACK)); } catch(e){ costPack = []; }
+            try { costOps = JSON.parse(safeGetLS(LS_OPS)); } catch(e){ costOps = []; }
+            // DEBUG: print what was loaded (with safety check for "undefined" string)
             try {
                 const rawFromLS = localStorage.getItem(LS_RAW);
-                const rawParsed = rawFromLS ? JSON.parse(rawFromLS) : [];
+                // SAFETY: Check if the value is the string "undefined" before parsing
+                const rawParsed = (rawFromLS && rawFromLS !== 'undefined' && rawFromLS !== 'null') ? JSON.parse(rawFromLS) : [];
                 console.log('🔍 loadLists DEBUG: loaded cost_raw from localStorage', { itemCount: rawParsed.length, firstItem: rawParsed[0], timestamp: localStorage.getItem('costLists_local_ts'), rawStorageKey: LS_RAW });
             } catch(e) { console.warn('🔍 loadLists DEBUG: error reading cost_raw', e); }
             // Sync to window so simplified recipe quick lists can read them
@@ -21859,8 +21867,17 @@
             window.safeRenderUI();
         };
 
+        // Global flag to ensure initRealtimeSync runs ONLY ONCE (prevent multiple onSnapshot)
+        let __realtimeSyncInitialized = false;
+
         function initRealtimeSync() {
             try {
+                // CRITICAL: Prevent multiple calls that cause app to hang
+                if (__realtimeSyncInitialized) {
+                    console.log('ℹ️ Realtime sync ALREADY INITIALIZED - skipping duplicate call');
+                    return;
+                }
+                
                 console.log('🔌 Connecting to Real-time Data Stream (onSnapshot - Safe)...');
                 if (!window.firebase || !window.firebase.firestore) {
                     console.warn('Firebase not ready for realtime sync');
@@ -21869,9 +21886,13 @@
                 
                 // Only subscribe once to avoid duplicate listeners
                 if (__costDocUnsub) {
-                    console.log('ℹ️ Realtime sync already active');
+                    console.log('ℹ️ Realtime sync already active (unsub exists)');
+                    __realtimeSyncInitialized = true;
                     return;
                 }
+                
+                // Mark as initialized BEFORE creating listener to prevent race conditions
+                __realtimeSyncInitialized = true;
                 
                 // Use onSnapshot for efficient, safe real-time updates (NO loops)
                 __costDocUnsub = firebase.firestore().collection('settings').doc('costLists')
