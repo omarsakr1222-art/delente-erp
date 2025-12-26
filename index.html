@@ -21790,7 +21790,36 @@
 
         // ===== Cloud sync (Firestore) for cost lists - SAFE WITH onSnapshot =====
         let __costDocUnsub = null;
-        // ===== CRITICAL FIX: Sync Cloud Stock Numbers to UI =====
+        // ===== CRITICAL FIX: Debounced UI Rendering to prevent Infinite Loops =====
+        let renderDebounceTimer = null;
+        
+        window.safeRenderUI = function() {
+            clearTimeout(renderDebounceTimer);
+            renderDebounceTimer = setTimeout(() => {
+                console.log("🛑 Debounce: Executing Single Render...");
+                
+                // 1. Sync Data from localStorage first
+                try {
+                    if (window.inventorySystem && typeof window.inventorySystem._syncFromLocalStorage === 'function') {
+                        window.inventorySystem._syncFromLocalStorage();
+                    }
+                } catch(e) { console.warn('_syncFromLocalStorage failed:', e); }
+                
+                // 2. Render Tabs (WITHOUT triggering saves)
+                try {
+                    window.isUpdatingFromCloud = true; // Prevent save loops
+                    if (typeof renderRawMaterials === 'function') renderRawMaterials();
+                    if (typeof renderPackaging === 'function') renderPackaging();
+                    if (typeof renderFinishedProducts === 'function') renderFinishedProducts();
+                    console.log("✅ UI Rendered (debounced, safe)");
+                } catch(e) {
+                    console.warn('UI re-render failed:', e);
+                } finally {
+                    setTimeout(() => { window.isUpdatingFromCloud = false; }, 1000);
+                }
+            }, 500); // Wait 500ms for data to settle
+        };
+        
         window.syncCloudDataToUI = function(cloudData) {
             console.log("🔄 Syncing Cloud Numbers to UI...");
 
@@ -21826,15 +21855,8 @@
                 console.log(`✅ Updated ${window.costFinished.length} finished products with cloud stock`);
             }
 
-            // 4. Re-Draw the Tables with REAL numbers
-            try {
-                if (typeof renderRawMaterials === 'function') renderRawMaterials();
-                if (typeof renderPackaging === 'function') renderPackaging();
-                if (typeof renderFinishedProducts === 'function') renderFinishedProducts();
-                console.log("✅ UI Updated with REAL numbers from Cloud");
-            } catch(e) {
-                console.warn('UI re-render failed:', e);
-            }
+            // 4. ✅ FIXED: Use DEBOUNCED render instead of direct calls
+            window.safeRenderUI();
         };
 
         function initRealtimeSync() {
@@ -21867,6 +21889,9 @@
                     // or if we are loading for the first time.
                     if (source === "Server" || !window.dataLoaded) {
                         
+                        // 🛑 SET FLAG: Prevent save loops during cloud sync
+                        window.isUpdatingFromCloud = true;
+                        
                         // 1. UPDATE MEMORY
                         window.costLists = window.costLists || {};
                         if (data.raw) window.costLists.costRaw = data.raw;
@@ -21896,24 +21921,24 @@
                             if (data.finished) localStorage.setItem('cost_finished', JSON.stringify(data.finished));
                         } catch(e) { console.warn('localStorage sync failed:', e); }
                         
-                        // 4. ✅ FORCE UI REFRESH with REAL CLOUD STOCK NUMBERS
+                        // 4. ✅ DEBOUNCED UI REFRESH (prevents infinite loops)
                         try {
-                            // Call the sync function to merge cloud stock numbers into UI
+                            // Call the sync function to merge cloud stock numbers into UI (uses debounce)
                             if (typeof window.syncCloudDataToUI === 'function') {
                                 window.syncCloudDataToUI(data);
                             }
                             
-                            // Also refresh inventory tab if open
+                            // Also refresh inventory tab if open (with debounce)
                             if (window.inventorySystem && window.inventorySystem.currentTab) {
-                                console.log(`🔄 Cloud data arrived, refreshing ${window.inventorySystem.currentTab} tab UI...`);
-                                setTimeout(() => {
-                                    window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab);
-                                }, 50);
+                                console.log(`🔄 Cloud data arrived, will refresh ${window.inventorySystem.currentTab} tab UI after debounce...`);
                             }
                         } catch(e) { console.warn('UI refresh failed:', e); }
                         
                         window.dataLoaded = true;
                         console.log('✅ Real-time sync update applied (safe, no loops)');
+                        
+                        // 🛑 CLEAR FLAG after delay
+                        setTimeout(() => { window.isUpdatingFromCloud = false; }, 1000);
                     }
                 }, (error) => {
                     console.error('❌ Realtime sync error:', error);
