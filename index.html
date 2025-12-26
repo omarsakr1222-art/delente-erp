@@ -8712,6 +8712,11 @@
                         if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
                             window.inventorySystem.loadInventoryData(tab);
                         }
+                        
+                        // Update counters after tab switch
+                        if (typeof updateCounters === 'function') {
+                            setTimeout(() => updateCounters(), 100);
+                        }
                     }
                 </script>
             </div>
@@ -21820,6 +21825,9 @@
                     if (typeof renderPackaging === 'function') renderPackaging();
                     if (typeof renderFinishedProducts === 'function') renderFinishedProducts();
                     console.log("✅ UI Rendered (debounced, safe)");
+                    
+                    // 3. Update counters ONCE after all renders complete
+                    if (typeof updateCounters === 'function') updateCounters();
                 } catch(e) {
                     console.warn('UI re-render failed:', e);
                 } finally {
@@ -26435,19 +26443,14 @@
                 if (window.costFinished && Array.isArray(window.costFinished) && window.costFinished.length > 0) {
                     window.finishedProducts = window.costFinished;
                     finishedCount = window.costFinished.length;
-                    console.log(`📦 Loaded finishedProducts from window.costFinished: ${finishedCount} items`);
-                    renderFinishedProducts();
+                    // REMOVED: renderFinishedProducts() call here causes infinite loop with render→updateCounters→render
                 } else if (window.finishedProducts && Array.isArray(window.finishedProducts) && window.finishedProducts.length > 0) {
                     finishedCount = window.finishedProducts.length;
                 } else {
                     try {
                         const derived = (typeof __getFinishedFromGrid === 'function') ? __getFinishedFromGrid() : [];
                         finishedCount = Array.isArray(derived) ? derived.length : 0;
-                        if (finishedCount > 0) {
-                            // keep UI consistent by rendering immediately
-                            renderFinishedProducts();
-                            console.log(`📦 Finished count from grid state: ${finishedCount}`);
-                        }
+                        // REMOVED: renderFinishedProducts() call here causes infinite loop
                     } catch(_) { finishedCount = 0; }
                 }
                 
@@ -26487,7 +26490,7 @@
                 `).join('');
                 
                 console.log(`✅ renderRawMaterials: rendered ${window.costRaw.length} items`);
-                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+                // REMOVED: updateCounters() call to prevent infinite cascading
             } catch(e) {
                 console.error('❌ renderRawMaterials failed:', e);
             }
@@ -26515,7 +26518,7 @@
                 `).join('');
 
                 console.log(`✅ renderPackaging: rendered ${window.costPack.length} items`);
-                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+                // REMOVED: updateCounters() call to prevent infinite cascading
             } catch(e) {
                 console.error('❌ renderPackaging failed:', e);
             }
@@ -26565,7 +26568,7 @@
                 }).join('');
 
                 console.log(`✅ renderFinishedProducts: rendered ${products.length} items`);
-                try { if (typeof updateCounters === 'function') updateCounters(); } catch(_){ }
+                // REMOVED: updateCounters() call - THIS WAS THE INFINITE LOOP SOURCE
             } catch(e) {
                 console.error('❌ renderFinishedProducts failed:', e);
             }
