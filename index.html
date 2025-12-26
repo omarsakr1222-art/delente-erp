@@ -51,9 +51,9 @@
                     } catch(e){ window._packGridState = {}; }
                     console.debug('Loaded State:', { raw: window._rawGridState, pack: window._packGridState });
                     if (!window.saveRawGridStateNow){
-                        window.saveRawGridStateNow = async function(){ try { localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ rawMaterials: window._rawGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
+                        window.saveRawGridStateNow = async function(){ try { localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ rawGridState: window._rawGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
                         window.debouncedRawSave = function(){ clearTimeout(window._rawGridSaveTimer); window._rawGridSaveTimer = setTimeout(window.saveRawGridStateNow, 700); };
-                        window.savePackGridStateNow = async function(){ try { localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ packaging: window._packGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
+                        window.savePackGridStateNow = async function(){ try { localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ packGridState: window._packGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
                         window.debouncedPackSave = function(){ clearTimeout(window._packGridSaveTimer); window._packGridSaveTimer = setTimeout(window.savePackGridStateNow, 700); };
                     }
                 });
@@ -1113,6 +1113,11 @@
                 // When Firebase is initialized we enable CLOUD_ONLY mode so localStorage writes are suppressed
                 window.CLOUD_ONLY = true;
                 console.log('Firebase initialized (compat) — CLOUD_ONLY enabled');
+                // Global safety flags: disable any auto-seeding on startup per user request
+                try {
+                    window.__DISABLE_AUTO_SEED_GLOBAL = true;
+                    window.__DISABLE_AUTO_SEED_COST_LISTS = true;
+                } catch(_){ }
 
                 // Install read-only guards for reviewers (after db is ready)
                 try { installReviewerReadOnlyGuards(); } catch(e){ console.warn('installReviewerReadOnlyGuards failed', e); }
@@ -1160,7 +1165,13 @@
                             
                             // إلغاء الاعتماد على appState القديم
                             setTimeout(() => {
-                                try { if (typeof seedDefaultsIfEmpty === 'function') seedDefaultsIfEmpty(); } catch(e){ console.error('seedDefaultsIfEmpty error:', e); }
+                                try {
+                                    if (!window.__DISABLE_AUTO_SEED_GLOBAL && typeof seedDefaultsIfEmpty === 'function') {
+                                        seedDefaultsIfEmpty();
+                                    } else {
+                                        console.log('⏭️ Auto-seeding disabled by flag; skipping seedDefaultsIfEmpty');
+                                    }
+                                } catch(e){ console.error('seedDefaultsIfEmpty error:', e); }
                             }, 1000);
                             
                             // في حال البذر لم يجد شيئاً وظهرت مجموعات قديمة
@@ -4294,6 +4305,123 @@
         }
         window.printViaRawBT = printViaRawBT;
     </script>
+    <script>
+        // --- FIX: Define Missing USB Print Function ---
+        // Called from sales page with printViaUSB(sale)
+        window.printViaUSB = async function(sale) {
+            try {
+                if (!sale) {
+                    return alert("❌ لا توجد فاتورة للطباعة");
+                }
+
+                // 1. Build Invoice HTML for printing
+                const invoiceHTML = `
+                    <div style="width: 80mm; font-family: Arial, sans-serif; direction: rtl; padding: 4mm; color: black; background: white;">
+                        <div style="text-align: center; border: 1px solid black; padding: 4mm;">
+                            <div style="font-weight: bold; font-size: 16px; margin-bottom: 4px;">Delente ERP</div>
+                            <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px;">فاتورة مبيعات</div>
+                            <div style="border-top: 1px dashed black; border-bottom: 1px dashed black; padding: 4px 0; margin: 4px 0; font-size: 11px;">
+                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                                    <span>رقم:</span><span>${sale.invoiceNumber || sale.id || ''}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                                    <span>التاريخ:</span><span>${sale.date ? new Date(sale.date).toLocaleDateString('ar-EG') : ''}</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                                    <span>العميل:</span><span>${sale.customerName || 'عميل'}</span>
+                                </div>
+                            </div>
+                            ${sale.items && Array.isArray(sale.items) ? `
+                                <table style="width: 100%; font-size: 10px; border-collapse: collapse; margin: 4px 0;">
+                                    <thead>
+                                        <tr style="border-bottom: 1px solid black;">
+                                            <th style="text-align: right; padding: 2px;">الصنف</th>
+                                            <th style="text-align: center; padding: 2px;">الكمية</th>
+                                            <th style="text-align: center; padding: 2px;">السعر</th>
+                                            <th style="text-align: left; padding: 2px;">الإجمالي</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        ${sale.items.map(item => {
+                                            const qty = item.quantity || item.qty || 0;
+                                            const price = item.price || 0;
+                                            const total = qty * price;
+                                            return `<tr style="border-bottom: 1px dotted #ccc;">
+                                                <td style="text-align: right; padding: 2px;">${item.productName || item.name || ''}</td>
+                                                <td style="text-align: center; padding: 2px;">${qty}</td>
+                                                <td style="text-align: center; padding: 2px;">${price.toFixed(2)}</td>
+                                                <td style="text-align: left; padding: 2px;">${total.toFixed(2)}</td>
+                                            </tr>`;
+                                        }).join('')}
+                                    </tbody>
+                                </table>
+                            ` : ''}
+                            <div style="border-top: 1px solid black; border-bottom: 1px solid black; padding: 4px 0; margin: 4px 0; font-size: 12px; font-weight: bold;">
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span>الإجمالي:</span><span>${(sale.total || 0).toFixed(2)} ج.م</span>
+                                </div>
+                            </div>
+                            <div style="font-size: 10px; margin: 4px 0;">
+                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
+                                    <span>المدفوع:</span><span>${(sale.paidAmount || 0).toFixed(2)} ج.م</span>
+                                </div>
+                                <div style="display: flex; justify-content: space-between;">
+                                    <span>المتبقي:</span><span>${((sale.total || 0) - (sale.paidAmount || 0)).toFixed(2)} ج.م</span>
+                                </div>
+                            </div>
+                            <div style="border-top: 1px dashed black; padding: 4px 0; margin: 4px 0; font-size: 10px; text-align: center;">
+                                شكراً لتعاملكم معنا
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                // 2. Create a hidden container and inject HTML
+                const printContainer = document.createElement('div');
+                printContainer.id = 'usb-print-container';
+                printContainer.innerHTML = invoiceHTML;
+                printContainer.style.display = 'none';
+                document.body.appendChild(printContainer);
+
+                // 3. Add print styles
+                const styleId = 'usb-thermal-print-style';
+                let style = document.getElementById(styleId);
+                if (!style) {
+                    style = document.createElement('style');
+                    style.id = styleId;
+                    style.innerHTML = `
+                        @media print {
+                            body * { visibility: hidden; }
+                            #usb-print-container, #usb-print-container * { visibility: visible; }
+                            #usb-print-container { 
+                                position: absolute; 
+                                left: 0; 
+                                top: 0; 
+                                width: 100%;
+                            }
+                            @page { size: 80mm auto; margin: 0; }
+                        }
+                    `;
+                    document.head.appendChild(style);
+                }
+
+                // 4. Trigger print and cleanup
+                setTimeout(() => {
+                    window.print();
+                    // Cleanup after print dialog closes
+                    setTimeout(() => {
+                        if (printContainer && printContainer.parentNode) {
+                            printContainer.parentNode.removeChild(printContainer);
+                        }
+                    }, 500);
+                }, 100);
+
+            } catch(e) {
+                console.error('USB Print Error:', e);
+                alert('❌ خطأ في الطباعة: ' + (e && e.message ? e.message : e));
+            }
+        };
+    </script>
 
     <style>
         
@@ -6696,10 +6824,14 @@
                                             const justLoggedIn = !!(window.auth && auth.currentUser); // heuristic: logged-in state
                                             const localEmpty = !window.costLists || (!Array.isArray(window.costLists.raw) && !Array.isArray(window.costLists.pack));
                                             if (localEmpty || !localTs || justLoggedIn) {
-                                                // Trigger another save to align local with cloud timestamp
+                                                // Startup alignment is disabled to prevent unintended seeding
                                                 try {
-                                                    if (typeof window.ensureRawAndPackFromState === 'function') window.ensureRawAndPackFromState();
-                                                } catch(_){}
+                                                    if (!window.__DISABLE_AUTO_SEED_COST_LISTS && typeof window.ensureRawAndPackFromState === 'function') {
+                                                        window.ensureRawAndPackFromState();
+                                                    } else {
+                                                        console.log('⏭️ Skipped ensureRawAndPackFromState (auto-seed disabled)');
+                                                    }
+                                                } catch(_){ }
                                             }
                                             return res;
                                         } catch(e){
@@ -22150,10 +22282,22 @@
             // Sync to window so simplified recipe quick lists can read them
             try { window.costFinished = costFinished; window.costRaw = costRaw; window.costPack = costPack; window.costOps = costOps; } catch(_){ }
             console.log('loadLists: loaded from localStorage', { costRaw: costRaw.length, costPack: costPack.length, costFinished: costFinished.length });
-            // ensure finished products have defaults from app state if empty
-            ensureFinishedFromState();
-            // ensure raw/pack lists are populated from stock-control state if empty
-            try { ensureRawAndPackFromState(); } catch(_){ }
+            // ensure finished products have defaults from app state if empty (disabled by flag)
+            try {
+                if (!window.__DISABLE_AUTO_SEED_COST_LISTS) {
+                    ensureFinishedFromState();
+                } else {
+                    console.log('⏭️ Auto-seed finished list disabled; skipping ensureFinishedFromState');
+                }
+            } catch(_){ }
+            // ensure raw/pack lists populated from stock-control state if empty (disabled by flag)
+            try {
+                if (!window.__DISABLE_AUTO_SEED_COST_LISTS) {
+                    ensureRawAndPackFromState();
+                } else {
+                    console.log('⏭️ Auto-seed raw/pack disabled; skipping ensureRawAndPackFromState');
+                }
+            } catch(_){ }
             console.log('loadLists: after ensure', { costRaw: costRaw.length, costPack: costPack.length, costFinished: costFinished.length });
             renderListsSummary(); renderProductSelect(); renderRawPriceTable(); renderFinishedPriceTable(); renderPackPriceTable();
             // Try overlay-from-cloud after local load
@@ -22392,6 +22536,10 @@
                         } catch(e) { console.warn('UI refresh failed:', e); }
                         
                         window.dataLoaded = true;
+                        try {
+                            window.__costSnapshotLoaded = true;
+                            window.__hasCloudCostDoc = true;
+                        } catch(_){ }
                         console.log('✅ Real-time sync update applied (safe, no loops)');
                         
                         // 🛑 CLEAR FLAG after delay
@@ -22434,6 +22582,8 @@
                 const doc = await firebase.firestore().collection('settings').doc('costLists').get();
                 
                 if (doc.exists) {
+                    // Mark that a cloud costLists document exists so we don't accidentally overwrite with zeros
+                    try { window.__hasCloudCostDoc = true; } catch(_){}
                     const data = doc.data();
                     console.log("📋 Cloud doc found:", { hasRaw: !!data.raw, hasPack: !!data.pack, hasFinished: !!data.finished, hasRawGridState: !!data.rawGridState, hasPackGridState: !!data.packGridState, hasFinishedProducts: !!data.finishedProducts, hasStockEntries: !!data.stockEntries });
                     
@@ -22465,15 +22615,23 @@
 
                     // 2. CRITICAL: Restore Grid States (The Inputs & Prices)
                     // If the cloud has grid states, inject them into the Window & LocalStorage
-                    if (data.rawGridState && typeof data.rawGridState === 'object') {
+                    // RAW: prefer canonical field, fallback to legacy `rawMaterials`
+                    if ((data.rawGridState && typeof data.rawGridState === 'object') || (data.rawMaterials && typeof data.rawMaterials === 'object')) {
+                        const rawState = (data.rawGridState && typeof data.rawGridState === 'object') ? data.rawGridState : data.rawMaterials;
                         window._rawGridState = data.rawGridState;
-                        localStorage.setItem('raw_materials_grid', JSON.stringify(data.rawGridState));
-                        console.log("✅ Restored rawGridState to window and localStorage");
+                        try { localStorage.setItem('raw_materials_grid', JSON.stringify(rawState)); } catch(_){}
+                        console.log("✅ Restored raw grid state to window and localStorage", { keys: Object.keys(rawState||{}).length });
+                        // Migrate legacy field to canonical on cloud
+                        try { if (!data.rawGridState && window.db) await db.collection('settings').doc('costLists').set({ rawGridState: rawState, updatedAt: serverTs() }, { merge:true }); } catch(_){}
                     }
-                    if (data.packGridState && typeof data.packGridState === 'object') {
-                        window._packGridState = data.packGridState;
-                        localStorage.setItem('packaging_grid', JSON.stringify(data.packGridState));
-                        console.log("✅ Restored packGridState to window and localStorage");
+                    // PACK: prefer canonical field, fallback to legacy `packaging`
+                    if ((data.packGridState && typeof data.packGridState === 'object') || (data.packaging && typeof data.packaging === 'object')) {
+                        const packState = (data.packGridState && typeof data.packGridState === 'object') ? data.packGridState : data.packaging;
+                        window._packGridState = packState;
+                        try { localStorage.setItem('packaging_grid', JSON.stringify(packState)); } catch(_){}
+                        console.log("✅ Restored pack grid state to window and localStorage", { keys: Object.keys(packState||{}).length });
+                        // Migrate legacy field to canonical on cloud
+                        try { if (!data.packGridState && window.db) await db.collection('settings').doc('costLists').set({ packGridState: packState, updatedAt: serverTs() }, { merge:true }); } catch(_){}
                     }
                     // FIXED: Use finishedProducts field (not finishedGridState)
                     if (data.finishedProducts && typeof data.finishedProducts === 'object') {
@@ -22514,8 +22672,12 @@
                     } catch(e){ console.warn('renderFinishedProducts re-render failed:', e); }
 
                     console.log("✅ Data restored from Cloud successfully!");
+                    // بعد الاستعادة من السحابة، طبّع الرصيد والأسعار في inventory_items لضمان الدوام
+                    try { setTimeout(() => { if (typeof window.normalizeInventoryNow === 'function') window.normalizeInventoryNow(); }, 800); } catch(_){ }
                     return true;
                 } else {
+                    // No cloud doc yet; note this so startup saves can proceed once local lists are ready
+                    try { window.__hasCloudCostDoc = false; } catch(_){}
                     console.log('ℹ️ No cloud doc found; using local data');
                     return false;
                 }
@@ -22524,6 +22686,64 @@
                 return false;
             }
         }
+
+        // ===== Recovery Helpers: Restore Balances from Cloud History =====
+        async function restoreFinishedFromDaily(maxDays = 14){
+            try {
+                const now = new Date();
+                let restored = false;
+                for (let i = 0; i < maxDays; i++) {
+                    const d = new Date(now);
+                    d.setDate(now.getDate() - i);
+                    const dateId = d.toISOString().split('T')[0];
+                    let snap;
+                    try {
+                        const ref = (window.db ? window.db : firebase.firestore());
+                        snap = await ref.collection('daily_cost_lists').doc(String(dateId)).get();
+                    } catch(e){ console.warn('restoreFinishedFromDaily: fetch failed', e); continue; }
+                    if (snap && snap.exists) {
+                        const data = snap.data() || {};
+                        const arr = Array.isArray(data.finished_products) ? data.finished_products : [];
+                        if (arr.length > 0) {
+                            window._finishedGridState = window._finishedGridState || {};
+                            arr.forEach(fp => {
+                                const id = String(fp.id || fp.code || fp.name || '').trim();
+                                if (!id) return;
+                                const count = Number(fp.count || fp.actual || fp.opening || 0);
+                                window._finishedGridState[id] = Object.assign({}, window._finishedGridState[id] || {}, { actual: count, updatedAt: new Date().toISOString() });
+                            });
+                            try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState)); } catch(_){}
+                            console.log('✅ تمت استعادة رصيد المنتجات التامة من اليوم:', dateId, ' — عناصر:', arr.length);
+                            restored = true;
+                            break; // نكتفي بأحدث يوم غير فارغ
+                        }
+                    }
+                }
+                if (!restored) console.warn('⚠️ لم يتم العثور على رصيد منتجات تامة في الأيام الماضية');
+                return restored;
+            } catch(e){ console.warn('restoreFinishedFromDaily failed', e); return false; }
+        }
+
+        // أمر شامل للاستعادة من السحابة: يعيد تحميل القوائم ويسترجع رصيد المنتجات التامة
+        try {
+            window.restoreBalancesFromCloud = async function(){
+                try {
+                    console.log('♻️ بدء استعادة الأرصدة من السحابة...');
+                    // حمل القوائم من مستند costLists (يعيد raw/pack grid states)
+                    await tryLoadCostListsFromCloud();
+                    // حاول استرجاع المنتجات التامة من أرشيف الأيام
+                    const ok = await restoreFinishedFromDaily(30);
+                    // أعدّ الرسم لإظهار القيم المستعادة
+                    try { if (typeof renderFinishedProducts === 'function') renderFinishedProducts(); } catch(_){}
+                    try { if (typeof renderPackaging === 'function') renderPackaging(); } catch(_){}
+                    try { if (typeof renderRawMaterials === 'function') renderRawMaterials(); } catch(_){}
+                    // احفظ الحالة بعد الاستعادة (غير قسري؛ سيتخطى صفر)
+                    try { if (typeof window.saveCostListsToFirebase === 'function') await window.saveCostListsToFirebase(); } catch(_){}
+                    console.log(ok ? '✅ تم الاستعادة بنجاح' : 'ℹ️ لم يتم العثور على أرصدة محفوظة مؤخرًا');
+                    return ok;
+                } catch(e){ console.warn('restoreBalancesFromCloud failed', e); return false; }
+            };
+        } catch(_){}
         function queueCloudSave(){
             if (!window.db) { console.warn('⚠️ queueCloudSave: Firebase not initialized'); return; }
             if (__costCloudTimer) clearTimeout(__costCloudTimer);
@@ -22624,6 +22844,26 @@
             if (includeFinished) {
                 payload.finished = window.costFinished || window.costLists?.costFinished || [];
             }
+
+            // SAFETY GUARD: Never push an all-zero payload that would wipe cloud data
+            try {
+                const rawCount = Array.isArray(payload.raw) ? payload.raw.length : 0;
+                const packCount = Array.isArray(payload.pack) ? payload.pack.length : 0;
+                const finishedCount = Array.isArray(payload.finished) ? payload.finished.length : 0;
+                const allZero = (rawCount === 0 && packCount === 0 && finishedCount === 0);
+                const hasCloudDoc = !!window.__hasCloudCostDoc;
+                const ready = !!window.__costListsReady;
+                const force = (immediate === 'force') || (immediate && typeof immediate === 'object' && immediate.force === true) || !!window.__allowZeroCloudSave;
+                if (allZero && hasCloudDoc && !force) {
+                    console.warn('🛑 saveCostListsToFirebase: Skip zero-save to protect cloud data (doc exists, arrays empty).');
+                    return false;
+                }
+                // Also skip early startup writes when not ready and arrays are empty
+                if (allZero && !ready && !force) {
+                    console.warn('🛑 saveCostListsToFirebase: Startup not ready; skipping zero-save.');
+                    return false;
+                }
+            } catch(_){ /* guard evaluation failed; continue */ }
 
             // Attempt immediate write with token refresh + retries
             let attempts = 0; const MAX_ATTEMPTS = 3; const BASE_DELAY = 800;
@@ -22874,6 +23114,15 @@
                     // Always sync to window for autocomplete access
                     try { window.costRaw = costRaw; window.costPack = costPack; } catch(_){ }
                     console.log('Cost lists synced to window. Totals:', 'costRaw=' + (costRaw||[]).length, 'costPack=' + (costPack||[]).length);
+                    // Mark readiness so cloud saves can proceed safely
+                    try { window.__costListsReady = true; } catch(_){}
+                    // Schedule a safe cloud save if we have any items (prevents zero-wipe on startup)
+                    try {
+                        const r = (costRaw||[]).length, p = (costPack||[]).length, f = (window.costFinished||[]).length;
+                        if ((r + p + f) > 0) {
+                            setTimeout(() => { try { if (typeof saveLists === 'function') saveLists(false); } catch(_){} }, 400);
+                        }
+                    } catch(_){}
                 }catch(e){ console.warn('ensureRawAndPackFromState built-in merge failed', e); }
             }catch(e){ console.warn('ensureRawAndPackFromState failed', e); }
         }
@@ -27291,39 +27540,70 @@
                     // Try avgCost first (for raw/packing), then price (for finished), then cost
                     return Number(item.avgCost) || Number(item.price) || Number(item.cost) || 0;
                 };
+                // Helper to get stock from grid state (actual preferred, else bookBalance, else opening+inbound-usage)
+                const getRawStock = (name) => {
+                    const s = (window._rawGridState||{})[name] || {};
+                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
+                    return opening + inbound - usage;
+                };
+                const getPackStock = (name) => {
+                    const s = (window._packGridState||{})[name] || {};
+                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
+                    return opening + inbound - usage;
+                };
+                const getFinishedStock = (item) => {
+                    const grid = window._finishedGridState || {};
+                    const keyCandidates = [String(item.id||'').trim(), String(item.code||'').trim(), String(item.name||'').trim()];
+                    let s = null;
+                    for (const k of keyCandidates){ if (k && grid[k]) { s = grid[k]; break; } }
+                    if (s && s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s && s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s && s.opening)||0, inbound = Number(s && s.inbound)||0, usage = Number(s && s.usage)||0;
+                    return opening + inbound - usage;
+                };
                 
                 // Calculate from Raw Materials
                 if (window.costRaw && Array.isArray(window.costRaw)) {
+                    let rawSum = 0;
                     window.costRaw.forEach(item => {
-                        const stock = Number(item.stock) || 0;
+                        const stock = getRawStock(String(item.name||'').trim());
                         const cost = getCost(item);
                         total += stock * cost;
+                        rawSum += stock;
                     });
-                    console.log(`📊 Raw Materials: ${window.costRaw.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
+                    console.log(`📊 Raw Materials: ${rawSum} items, contributing to total`);
                 }
                 
                 // Calculate from Packing Materials
                 if (window.costPack && Array.isArray(window.costPack)) {
+                    let packSum = 0;
                     window.costPack.forEach(item => {
-                        const stock = Number(item.stock) || 0;
+                        const stock = getPackStock(String(item.name||'').trim());
                         const cost = getCost(item);
                         total += stock * cost;
+                        packSum += stock;
                     });
-                    console.log(`📊 Packing Materials: ${window.costPack.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
+                    console.log(`📊 Packing Materials: ${packSum} items, contributing to total`);
                 }
                 
                 // Calculate from Finished Products
                 if (window.costFinished && Array.isArray(window.costFinished)) {
+                    let finSum = 0;
                     window.costFinished.forEach(item => {
-                        const stock = Number(item.stock) || 0;
+                        const stock = getFinishedStock(item);
                         const cost = getCost(item);
                         const itemTotal = stock * cost;
                         if (itemTotal > 0) {
                             console.log(`  - ${item.name}: ${stock} × ${cost} = ${itemTotal}`);
                         }
                         total += itemTotal;
+                        finSum += stock;
                     });
-                    console.log(`📊 Finished Products: ${window.costFinished.reduce((s, i) => s + (Number(i.stock)||0), 0)} items, contributing to total`);
+                    console.log(`📊 Finished Products: ${finSum} items, contributing to total`);
                 }
                 
                 const el = document.getElementById('total-inventory-value');
@@ -27335,6 +27615,81 @@
             } catch(e) {
                 console.error('updateTotalValue error:', e);
             }
+        };
+
+        // ========== PERSIST INVENTORY ITEMS FROM GRID STATES ==========
+        window.normalizeInventoryNow = async function(){
+            try {
+                if (!window.db) {
+                    console.warn('⚠️ normalizeInventoryNow: Firebase not ready, waiting...');
+                    try { await waitForDbReady(5000); } catch(e) { console.warn('⚠️ DB wait timed out', e); }
+                    if (!window.db) { console.warn('❌ normalizeInventoryNow: Firebase still not ready'); return false; }
+                }
+                const batch = db.batch();
+                const sanitizeId = (s) => String(s||'').trim().replace(/[/\\#?%]/g,'-');
+                const nowTs = serverTs();
+
+                // Helpers to compute stock from grids (same logic as updateTotalValue)
+                const getRawStock = (name) => {
+                    const s = (window._rawGridState||{})[name] || {};
+                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
+                    return opening + inbound - usage;
+                };
+                const getPackStock = (name) => {
+                    const s = (window._packGridState||{})[name] || {};
+                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
+                    return opening + inbound - usage;
+                };
+                const getFinishedStock = (item) => {
+                    const grid = window._finishedGridState || {};
+                    const candidates = [String(item.id||'').trim(), String(item.code||'').trim(), String(item.name||'').trim()].filter(Boolean);
+                    let s = null;
+                    for (const k of candidates){ if (grid[k]) { s = grid[k]; break; } }
+                    if (s && s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
+                    if (s && s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
+                    const opening = Number(s && s.opening)||0, inbound = Number(s && s.inbound)||0, usage = Number(s && s.usage)||0;
+                    return opening + inbound - usage;
+                };
+                const getPriceVal = (item) => Number(item.avgCost) || Number(item.price) || Number(item.cost) || 0;
+
+                const addToBatch = (items, type) => {
+                    if (!Array.isArray(items)) return;
+                    items.forEach(item => {
+                        const name = String(item.name||'').trim(); if (!name) return;
+                        const docId = sanitizeId(item.id || item.code || item.name);
+                        const ref = db.collection('inventory_items').doc(docId);
+                        let stock = 0;
+                        if (type === 'raw') stock = getRawStock(name);
+                        else if (type === 'packing') stock = getPackStock(name);
+                        else if (type === 'finished') stock = getFinishedStock(item);
+                        const priceVal = getPriceVal(item);
+                        const payload = {
+                            id: item.id || docId,
+                            name: name,
+                            unit: item.unit || '',
+                            type,
+                            stock: Number(stock)||0,
+                            avgCost: Number(priceVal)||0,
+                            price: Number(priceVal)||0,
+                            updatedAt: nowTs
+                        };
+                        batch.set(ref, payload, { merge: true });
+                    });
+                };
+
+                addToBatch(window.costRaw, 'raw');
+                addToBatch(window.costPack, 'packing');
+                addToBatch(window.costFinished, 'finished');
+
+                await batch.commit();
+                console.log('✅ تم حفظ الرصيد والأسعار في السحابة (inventory_items)');
+                try { window.updateTotalValue && window.updateTotalValue(); } catch(_){}
+                return true;
+            } catch(e){ console.warn('normalizeInventoryNow failed', e); return false; }
         };
 
         // ========== EDIT ITEM PRICE (Simple Prompt + Cloud Save) ==========

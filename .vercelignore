@@ -1,0 +1,38 @@
+# Node modules
+node_modules
+npm-debug.log
+yarn-error.log
+
+# Environment files (except .env.production)
+.env
+.env.local
+.env.*.local
+
+# Development files
+.git
+.gitignore
+.DS_Store
+*.log
+*.zip
+
+# Documentation and backup files
+docs/
+REFACTORING_PLAN.md
+LOCAL_TEST_CHECKLIST.md
+STOCK_CLOUD_PERSISTENCE_FIX.md
+*.backup
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Testing
+scripts/
+tests/
+
+# Unnecessary root files
+tools_check_syntax.js
+update_old_invoices_admin_metadata.js
+
