@@ -21903,11 +21903,17 @@
                     }
                     
                     const source = doc.metadata.hasPendingWrites ? "Local" : "Server";
+                    
+                    // 🛑 CRITICAL: Ignore local writes to prevent infinite loops
+                    if (source === "Local") {
+                        // Don't log or process - this is our own write bouncing back
+                        return;
+                    }
+                    
                     const data = doc.data();
                     console.log(`📥 Received update from ${source}`, { hasRaw: !!data.raw, hasPack: !!data.pack, hasFinished: !!data.finished });
 
-                    // Only update if the change comes from SERVER (another device)
-                    // or if we are loading for the first time.
+                    // Only process SERVER updates (from other devices or initial load)
                     if (source === "Server" || !window.dataLoaded) {
                         
                         // 🛑 SET FLAG: Prevent save loops during cloud sync
@@ -26452,20 +26458,8 @@
                 
                 console.log(`✅ updateCounters: Raw=${window.costRaw?.length || 0}, Pack=${window.costPack?.length || 0}, Finished=${finishedCount}`);
                 
-                // Save finished products to localStorage and Cloud
-                if (window.finishedProducts && window.finishedProducts.length > 0) {
-                    try {
-                        localStorage.setItem('cost_finished', JSON.stringify(window.finishedProducts));
-                        console.log(`💾 Saved ${finishedCount} finished products to localStorage`);
-                        
-                        // Also save to Firestore via saveCostListsToFirebase if available
-                        if (navigator.onLine && typeof window.saveCostListsToFirebase === 'function') {
-                            window.saveCostListsToFirebase(true).catch(e => console.warn('⚠️ Failed to save finished products to cloud:', e));
-                        }
-                    } catch(e) {
-                        console.warn('⚠️ Failed to save finished products:', e);
-                    }
-                }
+                // REMOVED: Automatic save on every counter update (causes infinite loop)
+                // Save operations should only happen on user action or data change, not on display update
             } catch(e) {
                 console.error('❌ updateCounters failed:', e);
             }
