@@ -8580,43 +8580,92 @@
 
             <div id="page-stock-control" class="page">
                 <style>
-                    .inv-tab-btn { transition: all 0.3s ease; border-bottom: 2px solid transparent; cursor: pointer; }
-                    .inv-tab-btn.active { background-color: #ebf8ff; color: #2563eb; border-bottom-color: #2563eb; }
-                    .fade-in { animation: fadeIn 0.3s ease-in-out; }
-                    @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+                    /* Enhanced Tab Styling */
+                    .inv-tab-btn { 
+                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+                        border-bottom: 4px solid transparent; 
+                        cursor: pointer;
+                        position: relative;
+                    }
+                    .inv-tab-btn:hover {
+                        background-color: rgba(255, 255, 255, 0.7);
+                        transform: translateY(-2px);
+                    }
+                    .inv-tab-btn.active { 
+                        background-color: #ffffff; 
+                        color: #2563eb; 
+                        border-bottom-color: #2563eb;
+                        box-shadow: 0 -2px 8px rgba(37, 99, 235, 0.1);
+                    }
+                    
+                    /* Smooth Fade Animation */
+                    .fade-in { 
+                        animation: fadeIn 0.4s ease-in-out; 
+                    }
+                    @keyframes fadeIn { 
+                        from { opacity: 0; transform: translateY(10px); } 
+                        to { opacity: 1; transform: translateY(0); } 
+                    }
                     
                     /* Item Card Modal */
-                    #itemCardModal { display: none; position: fixed; z-index: 9999; left: 0; top: 0; width: 100%; height: 100%; overflow: auto; background-color: rgba(0,0,0,0.5); backdrop-filter: blur(2px); }
-                    .modal-content-inv { margin: 5% auto; background: white; border-radius: 12px; overflow: hidden; animation: slideDown 0.3s ease-out; max-width: 600px; }
+                    #itemCardModal { 
+                        display: none; 
+                        position: fixed; 
+                        z-index: 9999; 
+                        left: 0; 
+                        top: 0; 
+                        width: 100%; 
+                        height: 100%; 
+                        overflow: auto; 
+                        background-color: rgba(0,0,0,0.6); 
+                        backdrop-filter: blur(4px);
+                    }
+                    .modal-content-inv { 
+                        margin: 5% auto; 
+                        background: white; 
+                        border-radius: 16px; 
+                        overflow: hidden; 
+                        animation: slideDown 0.3s ease-out; 
+                        max-width: 600px;
+                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                    }
                     @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
                 </style>
 
                 <div id="warehouse-section" class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100 mb-8">
                     <!-- Header -->
-                    <div class="p-4 border-b flex justify-between items-center bg-gray-50">
-                        <h2 class="text-xl font-bold text-gray-800">🏭 إدارة المخازن (Cloud Synced)</h2>
+                    <div class="p-4 border-b flex justify-between items-center bg-gradient-to-r from-gray-50 to-blue-50">
+                        <div>
+                            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
+                                🏭 إدارة المخازن
+                                <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-normal">Cloud Synced ☁️</span>
+                            </h2>
+                        </div>
                         <div class="flex gap-2">
-                            <button onclick="if(window.migrateInventoryToCloud) window.migrateInventoryToCloud()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-bold shadow hover:bg-purple-700">☁️ رفع البيانات</button>
-                            <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700">+ صنف جديد</button>
+                            <button onclick="if(window.migrateInventoryToCloud) window.migrateInventoryToCloud()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-bold shadow hover:bg-purple-700 transition">☁️ رفع البيانات</button>
+                            <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700 transition">+ صنف جديد</button>
                         </div>
                     </div>
 
                     <!-- Search & Total Value -->
-                    <div class="p-4 bg-gradient-to-r from-blue-50 to-indigo-50 border-b flex justify-between items-center">
-                        <div class="flex-1 max-w-md">
-                            <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="🔍 بحث في المخزون..." class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" dir="rtl">
+                    <div class="p-5 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
+                        <div class="w-full md:flex-1 md:max-w-lg">
+                            <div class="relative">
+                                <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="🔍 بحث عن صنف..." class="w-full px-4 py-3 pr-10 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition" dir="rtl">
+                                <div class="absolute left-3 top-3 text-blue-400">🔍</div>
+                            </div>
                         </div>
-                        <div class="text-left ml-4">
-                            <div class="text-sm text-gray-600 mb-1">إجمالي قيمة المخزون</div>
-                            <div id="total-inventory-value" class="text-2xl font-bold text-green-700">0 ج.م</div>
+                        <div class="bg-white px-6 py-3 rounded-xl shadow-md border-2 border-blue-200">
+                            <div class="text-xs text-gray-500 mb-1 text-center">إجمالي قيمة المخزون</div>
+                            <div id="total-inventory-value" class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-blue-600">0 ج.م</div>
                         </div>
                     </div>
 
                     <!-- Tabs -->
-                    <div class="flex border-b border-gray-200">
-                        <div onclick="switchInvTab('finished')" id="btn-finished" class="inv-tab-btn active flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">📦 منتج تام</div>
-                        <div onclick="switchInvTab('raw')" id="btn-raw" class="inv-tab-btn flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">🥛 خامات</div>
-                        <div onclick="switchInvTab('packing')" id="btn-packing" class="inv-tab-btn flex-1 py-3 text-center font-bold text-gray-600 hover:bg-gray-50">🥡 تغليف</div>
+                    <div class="flex border-b-2 border-gray-200 bg-gray-50">
+                        <div onclick="switchInvTab('finished')" id="btn-finished" class="inv-tab-btn active flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">📦 منتج تام</div>
+                        <div onclick="switchInvTab('raw')" id="btn-raw" class="inv-tab-btn flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">🥛 خامات</div>
+                        <div onclick="switchInvTab('packing')" id="btn-packing" class="inv-tab-btn flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">🥡 تغليف</div>
                     </div>
 
                     <!-- Tables Container -->
@@ -8651,17 +8700,31 @@
                 <!-- Item Modal -->
                 <div id="itemCardModal">
                     <div class="modal-content-inv w-11/12 md:w-1/2">
-                        <div class="bg-gray-800 text-white p-4 flex justify-between items-center">
-                            <h3 id="modal-title" class="text-lg font-bold">تفاصيل</h3>
-                            <button onclick="document.getElementById('itemCardModal').style.display='none'" class="text-2xl hover:text-red-400">&times;</button>
+                        <div class="bg-gradient-to-r from-gray-800 to-gray-900 text-white p-5 flex justify-between items-center">
+                            <div>
+                                <h3 id="modal-title" class="text-xl font-bold mb-1">تفاصيل الصنف</h3>
+                                <div id="modal-category" class="text-sm text-gray-400"></div>
+                            </div>
+                            <button onclick="document.getElementById('itemCardModal').style.display='none'" class="text-3xl hover:text-red-400 transition">&times;</button>
                         </div>
-                        <div class="p-6 text-center">
-                            <div class="mb-2 text-sm text-gray-500">الرصيد الحالي</div>
-                            <h2 id="modal-stock" class="text-4xl font-bold text-blue-600 mb-4">0</h2>
-                            <div class="mb-4 text-sm text-gray-500">متوسط التكلفة: <span id="modal-cost" class="font-bold text-gray-700">0</span> ج.م</div>
-                            <div class="flex gap-2">
-                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('add')" class="flex-1 bg-green-600 text-white py-2 rounded hover:bg-green-700">إضافة (+)</button>
-                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('subtract')" class="flex-1 bg-red-600 text-white py-2 rounded hover:bg-red-700">صرف (-)</button>
+                        <div class="p-6">
+                            <div class="grid grid-cols-2 gap-4 mb-6">
+                                <div class="bg-blue-50 p-4 rounded-xl border-2 border-blue-200 text-center">
+                                    <div class="text-xs text-gray-500 mb-2">الرصيد الحالي</div>
+                                    <div id="modal-stock" class="text-3xl font-bold text-blue-600">0</div>
+                                </div>
+                                <div class="bg-yellow-50 p-4 rounded-xl border-2 border-yellow-200 text-center">
+                                    <div class="text-xs text-gray-500 mb-2">القيمة الإجمالية</div>
+                                    <div id="modal-total-value" class="text-2xl font-bold text-yellow-600">0 ج.م</div>
+                                </div>
+                            </div>
+                            <div class="mb-6 text-center p-3 bg-gray-50 rounded-lg">
+                                <span class="text-sm text-gray-500">متوسط التكلفة: </span>
+                                <span id="modal-cost" class="font-bold text-gray-800 text-lg">0</span> ج.م
+                            </div>
+                            <div class="flex gap-3">
+                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('add')" class="flex-1 bg-gradient-to-r from-green-600 to-green-700 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all">➕ إضافة</button>
+                                <button onclick="if(window.inventorySystem) window.inventorySystem.adjustStock('subtract')" class="flex-1 bg-gradient-to-r from-red-600 to-red-700 text-white py-3 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-105 transition-all">➖ صرف</button>
                             </div>
                         </div>
                     </div>
@@ -8714,11 +8777,20 @@
                 <script>
                     function switchInvTab(tab) {
                         ['finished', 'raw', 'packing'].forEach(t => {
-                            document.getElementById('btn-'+t).classList.remove('active', 'bg-blue-50', 'text-blue-600');
-                            document.getElementById('tab-'+t+'-content').classList.add('hidden');
+                            const btn = document.getElementById('btn-'+t);
+                            if (btn) {
+                                btn.classList.remove('active', 'bg-white', 'text-blue-600', 'border-b-4', 'border-blue-600');
+                                btn.classList.add('text-gray-600');
+                            }
+                            document.getElementById('tab-'+t+'-content')?.classList.add('hidden');
                         });
-                        document.getElementById('btn-'+tab).classList.add('active', 'bg-blue-50', 'text-blue-600');
-                        document.getElementById('tab-'+tab+'-content').classList.remove('hidden');
+                        
+                        const activeBtn = document.getElementById('btn-'+tab);
+                        if (activeBtn) {
+                            activeBtn.classList.add('active', 'bg-white', 'text-blue-600', 'border-b-4', 'border-blue-600');
+                            activeBtn.classList.remove('text-gray-600');
+                        }
+                        document.getElementById('tab-'+tab+'-content')?.classList.remove('hidden');
                         
                         // Load data when switching tabs
                         if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
@@ -8728,6 +8800,11 @@
                         // Update counters after tab switch
                         if (typeof updateCounters === 'function') {
                             setTimeout(() => updateCounters(), 100);
+                        }
+                        
+                        // Update total value
+                        if (typeof updateTotalValue === 'function') {
+                            setTimeout(() => updateTotalValue(), 200);
                         }
                     }
                 </script>
@@ -26028,10 +26105,28 @@
                     // Store current item for editing
                     this.currentItem = { id: docId, ...item };
                     
+                    // Calculate total value (stock × cost)
+                    const stock = Number(item.stock) || 0;
+                    const cost = Number(item.avgCost || item.cost || item.price) || 0;
+                    const totalValue = stock * cost;
+                    
                     // Update modal display
                     document.getElementById('modal-title').textContent = item.name || 'تفاصيل الصنف';
-                    document.getElementById('modal-stock').textContent = item.stock || 0;
-                    document.getElementById('modal-cost').textContent = (item.avgCost || item.cost || 0).toFixed(2);
+                    document.getElementById('modal-stock').textContent = stock;
+                    document.getElementById('modal-cost').textContent = cost.toFixed(2);
+                    document.getElementById('modal-total-value').textContent = totalValue.toLocaleString('en-EG', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ج.م';
+                    
+                    // Show category badge
+                    const categoryNames = {
+                        'finished': '📦 منتج تام',
+                        'raw': '🥛 خامات',
+                        'packing': '🥡 تغليف'
+                    };
+                    const categoryEl = document.getElementById('modal-category');
+                    if (categoryEl) {
+                        categoryEl.textContent = categoryNames[this.currentTab] || '';
+                    }
+                    
                     document.getElementById('itemCardModal').style.display = 'block';
                     
                     console.log(`✅ Opened item modal: ${item.name} (from ${loadedFromFirestore ? 'Firestore' : 'Local Array'})`);
