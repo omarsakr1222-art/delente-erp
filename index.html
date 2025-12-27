@@ -4471,10 +4471,10 @@
                             </div>
                             <div style="font-size: 10px; margin: 4px 0;">
                                 <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                                    <span>المدفوع:</span><span>${(sale.paidAmount || 0).toFixed(2)} ج.م</span>
+                                    <span>المدفوع:</span><span>${((sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0).toFixed(2)} ج.م</span>
                                 </div>
                                 <div style="display: flex; justify-content: space-between;">
-                                    <span>المتبقي:</span><span>${((sale.total || 0) - (sale.paidAmount || 0)).toFixed(2)} ج.م</span>
+                                    <span>المتبقي:</span><span>${((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)) || 0)).toFixed(2)} ج.م</span>
                                 </div>
                             </div>
                             <div style="border-top: 1px dashed black; padding: 4px 0; margin: 4px 0; font-size: 10px; text-align: center;">
@@ -6455,10 +6455,10 @@
                                     <span>${formatCurrency(sale.total||0)} ج.م</span><span>: الإجمالي</span>
                                 </div>
                                 <div style="font-size:10px;display:flex;justify-content:space-between;margin:2px 0;">
-                                    <span>${formatCurrency(sale.paidAmount||0)} ج.م</span><span>: المدفوع</span>
+                                    <span>${formatCurrency(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)) || 0)} ج.م</span><span>: المدفوع</span>
                                 </div>
                                 <div style="font-size:10px;display:flex;justify-content:space-between;">
-                                    <span>${formatCurrency((sale.total||0)-(sale.paidAmount||0))} ج.م</span><span>: المتبقي</span>
+                                    <span>${formatCurrency((sale.total||0)-(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)) || 0))} ج.م</span><span>: المتبقي</span>
                                 </div>
                                 <div style="border-top:1px dashed #000;margin:6px 0;"></div>
                                 <div style="font-size:9px;text-align:center;">شكراً لتعاملكم معنا</div>
@@ -11836,7 +11836,7 @@
                 statusSelect.value = sale.status;
                 if (sale.status === 'partial') {
                     paidAmountContainer.classList.remove('hidden');
-                    document.getElementById('sale-paid-amount').value = sale.paidAmount;
+                    document.getElementById('sale-paid-amount').value = (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)) || 0);
                 } else {
                     paidAmountContainer.classList.add('hidden');
                 }
@@ -14066,6 +14066,7 @@
 
         function renderDashboard() {
              const selectedRepName = (document.getElementById('dashboard-rep-filter') || {}).value || '';
+             console.debug('renderDashboard called with state.sales length:', (state.sales || []).length, 'activePeriod:', state.activePeriod);
              
              // Helper function للحصول على مبيعات الشهر النشط
              const getActivePeriodSalesLocal = () => {
@@ -14103,9 +14104,13 @@
                 if (targetTitleEl) targetTitleEl.textContent = `الهدف الشهري (الإجمالي):`;
             }
             
-            const totalSales = filteredMonthSales.reduce((sum, s) => sum + s.total, 0);
-            const totalCollected = filteredMonthSales.reduce((sum, s) => sum + s.paidAmount, 0);
+            const totalSales = filteredMonthSales.reduce((sum, s) => sum + (s.total || 0), 0);
+            const totalCollected = filteredMonthSales.reduce((sum, s) => {
+                const paid = s.paidAmount ?? ((s.firstPayment || 0) + (s.secondPayment || 0));
+                return sum + (Number(paid) || 0);
+            }, 0);
             const totalDue = totalSales - totalCollected;
+            console.debug('Dashboard calculated:', {totalSales, totalCollected, totalDue, filteredMonthSalesLength: filteredMonthSales.length, selectedRepName});
             if (document.getElementById('total-sales')) document.getElementById('total-sales').textContent = formatCurrency(totalSales);
             if (document.getElementById('total-collected')) document.getElementById('total-collected').textContent = formatCurrency(totalCollected);
             if (document.getElementById('total-due')) document.getElementById('total-due').textContent = formatCurrency(totalDue);
@@ -14562,7 +14567,7 @@
                 const saleBgColor = isReturn ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
                 const totalAmountClass = (String(sale.reviewStatus||'').toLowerCase() === 'pending') ? 'text-red-700' : (isReturn ? 'text-red-700' : 'text-blue-700');
                 
-                const itemsList = sale.items.map((item, itemIndex) => { 
+                const itemsList = (Array.isArray(sale.items) ? sale.items : []).map((item, itemIndex) => { 
                     const product = findProduct(item.productId); 
                     const itemName = product ? product.name : 'منتج محذوف'; 
                     const itemDiscountFactor = (1 - (item.discountPercent || 0) / 100);
@@ -15569,10 +15574,10 @@
                     const key = String(sale.customerId === undefined || sale.customerId === null ? 'unknown' : sale.customerId);
                     const existing = map.get(key) || { name: (findCustomer(sale.customerId)?.name) || ('عميل ' + key), total: 0, paid: 0, balance: 0 };
                     existing.total = (existing.total || 0) + (sale.total || 0);
-                    existing.paid = (existing.paid || 0) + ((typeof sale.paidAmount === 'number') ? sale.paidAmount : ((sale.status === 'paid') ? (sale.total || 0) : 0));
+                    const paidAmount = sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                    existing.paid = (existing.paid || 0) + (Number(paidAmount) || 0);
                     map.set(key, existing);
                 });
-
                 // compute balance for each entry
                 map.forEach((v, k) => { v.balance = (v.total || 0) - (v.paid || 0); });
             } catch (e) {
@@ -16213,7 +16218,7 @@
             
             if (hidePaid) {
                 filteredSales = filteredSales.filter(sale => {
-                    const paidAmount = sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0);
+                    const paidAmount = sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0));
                     const remainingAmount = (sale.total || 0) - paidAmount;
                     return remainingAmount > 0.01; // Show only if remaining debt > 0
                 });
@@ -16230,8 +16235,8 @@
                         if (column === 'date') return sale.date ? sale.date.split('T')[0] : '';
                         if (column === 'invoice') return String(sale.invoiceNumber || '');
                         if (column === 'total') return Number(sale.total || 0);
-                        if (column === 'paid') return Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0));
-                        if (column === 'remaining') return Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)));
+                        if (column === 'paid') return Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)));
+                        if (column === 'remaining') return Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))));
                         return '';
                     };
                     filteredSales.sort((a,b)=>{
@@ -16248,9 +16253,15 @@
 
             // Compute stats
             const subtotal = filteredSales.reduce((s, r) => s + (r.total || 0), 0);
-            const paidSum = filteredSales.reduce((s, r) => s + (r.paidAmount || (r.status === 'paid' ? (r.total || 0) : 0)), 0);
+            const paidSum = filteredSales.reduce((s, r) => {
+                const paid = r.paidAmount ?? ((r.firstPayment || 0) + (r.secondPayment || 0));
+                return s + (Number(paid) || 0);
+            }, 0);
             const invoicesCount = filteredSales.length;
-            const debtsTotal = filteredSales.reduce((s, r) => s + ((r.total || 0) - (r.paidAmount || (r.status === 'paid' ? (r.total || 0) : 0))), 0);
+            const debtsTotal = filteredSales.reduce((s, r) => {
+                const paid = r.paidAmount ?? ((r.firstPayment || 0) + (r.secondPayment || 0));
+                return s + ((r.total || 0) - (Number(paid) || 0));
+            }, 0);
 
             // Preserve original rendered sales for column filters if any active
             // Support both the old `_columnFilterState` (legacy) and the new `debtsColumnFilters` state.
@@ -16297,14 +16308,15 @@
                 const dateText = sale.date ? formatArabicDate(sale.date) : '';
                 const invoiceNum = sale.invoiceNumber || '';
                 const total = formatCurrency(sale.total || 0);
-                const paid = formatCurrency(sale.paidAmount || (sale.status === 'paid' ? (sale.total || 0) : 0));
-                const remaining = formatCurrency((sale.total || 0) - (sale.paidAmount || (sale.status === 'paid' ? (sale.total || 0) : 0)));
+                const paidAmount = sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                const paid = formatCurrency(paidAmount);
+                const remaining = formatCurrency((sale.total || 0) - paidAmount);
                 const rep = sale.repName || '';
                 // Format numbers without currency symbol for table cells
                 const formatTableNumber = (num) => Math.abs(num).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
                 const formattedTotal = formatTableNumber(sale.total || 0);
-                const formattedPaid = formatTableNumber(sale.paidAmount || (sale.status === 'paid' ? (sale.total || 0) : 0));
-                const formattedRemaining = formatTableNumber((sale.total || 0) - (sale.paidAmount || (sale.status === 'paid' ? (sale.total || 0) : 0)));
+                const formattedPaid = formatTableNumber(paidAmount);
+                const formattedRemaining = formatTableNumber((sale.total || 0) - paidAmount);
                 
                 const html = `
                     <td style="${rightCellStyle}" class="customer-name">${custName}</td>
@@ -16326,12 +16338,11 @@
                         try { tr.dataset.date = sale.date ? sale.date.split('T')[0] : ''; } catch(e){}
                         try { tr.dataset.invoice = sale.invoiceNumber ? String(sale.invoiceNumber) : ''; } catch(e){}
                         try { tr.dataset.total = String(Number(sale.total || 0)); } catch(e){}
-                        try { const paidRaw = Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)); tr.dataset.paid = String(paidRaw); } catch(e){}
-                        try { const rem = Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0))); tr.dataset.remaining = String(rem); } catch(e){}
+                        try { const paidRaw = Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))); tr.dataset.paid = String(paidRaw); } catch(e){}
+                        try { const rem = Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)))); tr.dataset.remaining = String(rem); } catch(e){}
                         try { tr.dataset.rep = sale.repName ? String(sale.repName) : ''; } catch(e){}
                     }
-                } catch(e){}
-                // add alternating classes for gold styling
+                } catch(e){}                // add alternating classes for gold styling
                 // Add visual indicators for balances - using black color now to match screenshot
                 const remainingCell = tr.querySelector('.remaining');
                 if (remainingCell) {
@@ -16352,7 +16363,21 @@
         }
         
         function calculateRepBalances() { 
-            const repBalances = new Map(); state.reps.forEach(rep => { repBalances.set(rep.name, { totalSales: 0, totalCollected: 0, balance: 0, repId: rep.id }); }); state.sales.forEach(sale => { const repEntry = repBalances.get(sale.repName); if (repEntry) { repEntry.totalSales += (sale.total || 0); repEntry.totalCollected += (typeof sale.paidAmount === 'number' ? sale.paidAmount : (sale.status === 'paid' ? sale.total : 0)) || 0; } }); repBalances.forEach(entry => { entry.balance = entry.totalSales - entry.totalCollected; }); 
+            const repBalances = new Map(); 
+            state.reps.forEach(rep => { 
+                repBalances.set(rep.name, { totalSales: 0, totalCollected: 0, balance: 0, repId: rep.id }); 
+            }); 
+            state.sales.forEach(sale => { 
+                const repEntry = repBalances.get(sale.repName); 
+                if (repEntry) { 
+                    repEntry.totalSales += (sale.total || 0);
+                    const paidAmount = sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                    repEntry.totalCollected += (Number(paidAmount) || 0);
+                } 
+            }); 
+            repBalances.forEach(entry => { 
+                entry.balance = entry.totalSales - entry.totalCollected; 
+            }); 
             return repBalances; 
         }
 
@@ -16374,8 +16399,8 @@
                     else if (col === 'date') { raw = sale.date ? sale.date.split('T')[0] : ''; disp = sale.date ? formatArabicDate(sale.date) : ''; }
                     else if (col === 'invoice') { raw = normalizeRaw(sale.invoiceNumber); disp = raw; }
                     else if (col === 'total') { const v = Number(sale.total || 0); raw = normalizeRaw(v); disp = Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-                    else if (col === 'paid') { const v = Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)); raw = normalizeRaw(v); disp = Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-                    else if (col === 'remaining') { const v = Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0))); raw = normalizeRaw(v); disp = Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+                    else if (col === 'paid') { const v = Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))); raw = normalizeRaw(v); disp = Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+                    else if (col === 'remaining') { const v = Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)))); raw = normalizeRaw(v); disp = Math.abs(v).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
                     else if (col === 'rep') { raw = normalizeRaw(sale.repName); disp = raw; }
                     if (!map.has(raw)) map.set(raw, disp);
                 });
@@ -16543,8 +16568,8 @@
                         else if (col === 'date') raw = sale.date ? sale.date.split('T')[0] : '';
                         else if (col === 'invoice') raw = normalizeRaw(sale.invoiceNumber);
                         else if (col === 'total') raw = normalizeRaw(Number(sale.total || 0));
-                        else if (col === 'paid') raw = normalizeRaw(Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)));
-                        else if (col === 'remaining') raw = normalizeRaw(Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0))));
+                        else if (col === 'paid') raw = normalizeRaw(Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))));
+                        else if (col === 'remaining') raw = normalizeRaw(Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)))));
                         else if (col === 'rep') raw = normalizeRaw(sale.repName);
                         if (!sel.includes(String(raw))) return false;
                     }
@@ -16624,7 +16649,25 @@
         }
         
         function generateAndShowRepSummary(repName) {
-            const repSales = state.sales.filter(s => s.repName === repName).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); const repSummaryContent = document.getElementById('rep-sales-summary-content'); const repSummaryTitle = document.getElementById('rep-sales-summary-title'); if (!repSales.length) { repSummaryContent.innerHTML = `<p class="text-center text-gray-500 p-4">لا توجد فواتير مسجلة للمندوب ${repName}.</p>`; repSummaryTitle.textContent = `كشف حساب المندوب: ${repName}`; openModal(repSalesSummaryModal); return; } const repBalances = calculateRepBalances().get(repName) || { totalSales: 0, totalCollected: 0, balance: 0 }; let html = `<div class="space-y-4"><div class="bg-orange-50 p-4 rounded-lg shadow-inner border border-orange-200"><p class="font-bold text-xl text-orange-700">${repName}</p><div class="grid grid-cols-3 gap-4 mt-2 text-sm"><p><strong>إجمالي المبيعات:</strong> <span class="font-semibold text-blue-600">${formatCurrency(repBalances.totalSales)}</span></p><p><strong>الإجمالي المحصل:</strong> <span class="font-semibold text-green-600">${formatCurrency(repBalances.totalCollected)}</span></p><p><strong>المديونية/المستحق:</strong> <span class="font-bold ${repBalances.balance > 0 ? 'text-red-600' : 'text-gray-600'}">${formatCurrency(repBalances.balance)}</span></p></div></div><h3 class="font-bold text-gray-700 border-b pb-2">تفاصيل الفواتير:</h3><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-50"><tr><th class="px-4 py-2 text-right">التاريخ</th><th class="px-4 py-2 text-center">رقم الفاتورة</th><th class="px-4 py-2 text-right">العميل</th><th class="px-4 py-2 text-center">الإجمالي</th><th class="px-4 py-2 text-center">المدفوع</th><th class="px-4 py-2 text-center">الحالة</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">${repSales.map(sale => `<tr><td class="px-4 py-2 whitespace-nowrap"><bdo dir="rtl">${formatArabicDate(sale.date)}</bdo></td><td class="px-4 py-2 text-center font-bold text-red-600">${sale.invoiceNumber}</td><td class="px-4 py-2 text-right">${findCustomer(sale.customerId)?.name || 'عميل محذوف'}</td><td class="px-4 py-2 text-center font-semibold ${sale.total < 0 ? 'text-red-600' : 'text-blue-600'}">${formatCurrency(sale.total)}</td><td class="px-4 py-2 text-center text-green-600">${formatCurrency(sale.paidAmount)}</td><td class="px-4 py-2 text-center">${getStatusBadge(sale.status)}</td></tr>`).join('')}</tbody></table></div></div>`; repSummaryContent.innerHTML = html; repSummaryTitle.textContent = `كشف حساب المندوب: ${repName}`; updateIcons(); openModal(repSalesSummaryModal);
+            const repSales = state.sales.filter(s => s.repName === repName).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); 
+            const repSummaryContent = document.getElementById('rep-sales-summary-content'); 
+            const repSummaryTitle = document.getElementById('rep-sales-summary-title'); 
+            if (!repSales.length) { 
+                repSummaryContent.innerHTML = `<p class="text-center text-gray-500 p-4">لا توجد فواتير مسجلة للمندوب ${repName}.</p>`; 
+                repSummaryTitle.textContent = `كشف حساب المندوب: ${repName}`; 
+                openModal(repSalesSummaryModal); 
+                return; 
+            } 
+            const repBalances = calculateRepBalances().get(repName) || { totalSales: 0, totalCollected: 0, balance: 0 }; 
+            const saleRowsHtml = repSales.map(sale => {
+                const paidAmount = sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                return `<tr><td class="px-4 py-2 whitespace-nowrap"><bdo dir="rtl">${formatArabicDate(sale.date)}</bdo></td><td class="px-4 py-2 text-center font-bold text-red-600">${sale.invoiceNumber}</td><td class="px-4 py-2 text-right">${findCustomer(sale.customerId)?.name || 'عميل محذوف'}</td><td class="px-4 py-2 text-center font-semibold ${sale.total < 0 ? 'text-red-600' : 'text-blue-600'}">${formatCurrency(sale.total)}</td><td class="px-4 py-2 text-center text-green-600">${formatCurrency(paidAmount)}</td><td class="px-4 py-2 text-center">${getStatusBadge(sale.status)}</td></tr>`;
+            }).join('');
+            let html = `<div class="space-y-4"><div class="bg-orange-50 p-4 rounded-lg shadow-inner border border-orange-200"><p class="font-bold text-xl text-orange-700">${repName}</p><div class="grid grid-cols-3 gap-4 mt-2 text-sm"><p><strong>إجمالي المبيعات:</strong> <span class="font-semibold text-blue-600">${formatCurrency(repBalances.totalSales)}</span></p><p><strong>الإجمالي المحصل:</strong> <span class="font-semibold text-green-600">${formatCurrency(repBalances.totalCollected)}</span></p><p><strong>المديونية/المستحق:</strong> <span class="font-bold ${repBalances.balance > 0 ? 'text-red-600' : 'text-gray-600'}">${formatCurrency(repBalances.balance)}</span></p></div></div><h3 class="font-bold text-gray-700 border-b pb-2">تفاصيل الفواتير:</h3><div class="overflow-x-auto"><table class="min-w-full divide-y divide-gray-200 text-sm"><thead class="bg-gray-50"><tr><th class="px-4 py-2 text-right">التاريخ</th><th class="px-4 py-2 text-center">رقم الفاتورة</th><th class="px-4 py-2 text-right">العميل</th><th class="px-4 py-2 text-center">الإجمالي</th><th class="px-4 py-2 text-center">المدفوع</th><th class="px-4 py-2 text-center">الحالة</th></tr></thead><tbody class="bg-white divide-y divide-gray-200">${saleRowsHtml}</tbody></table></div></div>`; 
+            repSummaryContent.innerHTML = html; 
+            repSummaryTitle.textContent = `كشف حساب المندوب: ${repName}`; 
+            updateIcons(); 
+            openModal(repSalesSummaryModal);
         }
 
         function addRowToNewDispatchGrid(item = {}) {
@@ -16830,8 +16873,8 @@
                     else if (col === 'date') { raw = sale.date ? sale.date.split('T')[0] : ''; disp = sale.date ? formatArabicDate(sale.date) : ''; }
                     else if (col === 'invoice') { raw = normalizeRaw(sale.invoiceNumber); disp = raw; }
                     else if (col === 'total') { raw = normalizeRaw(Number(sale.total || 0)); disp = Math.abs(sale.total || 0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-                    else if (col === 'paid') { const p = Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)); raw = normalizeRaw(p); disp = Math.abs(p).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
-                    else if (col === 'remaining') { const r = Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0))); raw = normalizeRaw(r); disp = Math.abs(r).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+                    else if (col === 'paid') { const p = Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))); raw = normalizeRaw(p); disp = Math.abs(p).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+                    else if (col === 'remaining') { const r = Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)))); raw = normalizeRaw(r); disp = Math.abs(r).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
                     else if (col === 'rep') { raw = normalizeRaw(sale.repName); disp = raw; }
                     else if (col === 'collection') { raw = sale.collectionReportCreated ? 'created' : 'not-created'; disp = raw === 'created' ? 'تم' : 'لم يتم'; }
                     if (!map.has(raw)) map.set(raw, disp);
@@ -16949,8 +16992,8 @@
                         else if (col === 'date') raw = sale.date ? sale.date.split('T')[0] : '';
                         else if (col === 'invoice') raw = normalizeRaw(sale.invoiceNumber);
                         else if (col === 'total') raw = normalizeRaw(Number(sale.total || 0));
-                        else if (col === 'paid') raw = normalizeRaw(Number(sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0)));
-                        else if (col === 'remaining') raw = normalizeRaw(Number((sale.total || 0) - (sale.paidAmount ?? (sale.status === 'paid' ? (sale.total || 0) : 0))));
+                        else if (col === 'paid') raw = normalizeRaw(Number(sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0))));
+                        else if (col === 'remaining') raw = normalizeRaw(Number((sale.total || 0) - (sale.paidAmount ?? ((sale.firstPayment || 0) + (sale.secondPayment || 0)))));
                         else if (col === 'rep') raw = normalizeRaw(sale.repName);
                         else if (col === 'collection') raw = sale.collectionReportCreated ? 'created' : 'not-created';
                         if (!sel.includes(String(raw))) return false;
