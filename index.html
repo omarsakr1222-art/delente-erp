@@ -18573,7 +18573,8 @@
             const [yearStr, monthStr] = monthVal.split('-');
             const year = parseInt(yearStr,10); const m = parseInt(monthStr,10)-1;
             const monthStart = new Date(Date.UTC(year,m,1));
-            const monthEnd = new Date(Date.UTC(year,m+1,0,23,59,59));
+            // Last moment of the month: first day of next month minus 1ms
+            const monthEnd = new Date(Date.UTC(year,m+1,1) - 1);
             const today = new Date();
             const daysInMonth = new Date(year,m+1,0).getDate();
             const todayDay = (today.getMonth()===m && today.getFullYear()===year) ? today.getDate() : daysInMonth; // إذا شهر سابق اعتبره مكتمل
@@ -18710,7 +18711,7 @@
             if (!out) return;
             if (!monthVal){ out.innerHTML = '<p class="text-center text-gray-500">اختر شهر.</p>'; return; }
             const [yStr, mStr] = monthVal.split('-'); const year = parseInt(yStr,10); const m = parseInt(mStr,10)-1;
-            const monthStart = new Date(Date.UTC(year,m,1)); const monthEnd = new Date(Date.UTC(year,m+1,0,23,59,59));
+            const monthStart = new Date(Date.UTC(year,m,1)); const monthEnd = new Date(Date.UTC(year,m+1,1) - 1);
             // العملاء المطلوبون بالأسماء المطلوبة
             const nameKeys = ['اكسبشن','سفير','الضحى'];
             // استبعاد أي اسم يحتوي "اكسبشن" و"حلواني/حلوانى" معاً من القائمة (اكسبشن حلواني)
