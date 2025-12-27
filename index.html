@@ -1065,6 +1065,12 @@
                 if (!email) return;
                 if (!window.db) { console.warn('autoRestoreSalesIfEmpty: Firestore not ready'); return; }
                 try {
+                    // Try loading all sales first (no filter)
+                    const allSnap = await db.collection('sales').limit(1000).get();
+                    const allCount = allSnap.size;
+                    console.log(`📊 autoRestoreSalesIfEmpty: Total sales in cloud: ${allCount}`);
+                    
+                    // Then load user's sales
                     const snap = await db.collection('sales').where('repEmail','==', email).get();
                     const arr = [];
                     snap.forEach(doc => {
@@ -1072,6 +1078,17 @@
                         s._id = doc.id; if (!s.id) s.id = doc.id;
                         arr.push(s);
                     });
+                    
+                    // If not enough user sales, load all sales
+                    if (arr.length < 50 && allCount > arr.length) {
+                        console.log(`⚠️ Only ${arr.length} sales for user, loading all ${allCount} sales from cloud`);
+                        allSnap.forEach(doc => {
+                            const s = doc.data() || {};
+                            s._id = doc.id; if (!s.id) s.id = doc.id;
+                            if (!arr.find(x => x.id === s.id)) arr.push(s);
+                        });
+                    }
+                    
                     if (arr.length > 0) {
                         try { localStorage.setItem('cache_sales', JSON.stringify(arr)); } catch(e){}
                         try { localStorage.setItem('reps_local_ts', new Date().toISOString()); } catch(e){}
@@ -1079,13 +1096,76 @@
                         state.sales = arr.slice(0,500);
                         try { if (typeof renderAllSales === 'function') renderAllSales('', '', 'all'); } catch(e){}
                         try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
-                        console.log('autoRestoreSalesIfEmpty: restored', arr.length, 'sales for', email);
+                        console.log('✅ autoRestoreSalesIfEmpty: restored', arr.length, 'sales for', email);
                     } else {
                         console.log('autoRestoreSalesIfEmpty: no sales found for', email);
                     }
                 } catch(e){ console.warn('autoRestoreSalesIfEmpty: query failed', e); }
             } catch(e){ console.warn('autoRestoreSalesIfEmpty failed', e); }
         };
+
+        // Sync all sales from localStorage to cloud to prevent data loss
+        window.syncAllSalesToCloud = async function(){
+            try {
+                if (!window.auth || !auth.currentUser) return;
+                if (!window.db) { console.warn('syncAllSalesToCloud: DB not ready'); return; }
+                
+                const raw = localStorage.getItem('cache_sales');
+                if (!raw || raw.length <= 2) {
+                    console.log('📦 syncAllSalesToCloud: no sales in localStorage to sync');
+                    return;
+                }
+                
+                try {
+                    const localSales = JSON.parse(raw);
+                    if (!Array.isArray(localSales) || localSales.length === 0) return;
+                    
+                    console.log(`📦 syncAllSalesToCloud: syncing ${localSales.length} sales to cloud...`);
+                    
+                    // Check which ones are already in cloud
+                    const cloudSnap = await db.collection('sales').limit(1000).get();
+                    const cloudIds = new Set();
+                    cloudSnap.forEach(doc => {
+                        cloudIds.add(doc.id);
+                        const data = doc.data();
+                        if (data.id) cloudIds.add(String(data.id));
+                    });
+                    
+                    let uploaded = 0;
+                    let batch = db.batch();
+                    let count = 0;
+                    
+                    for (const sale of localSales) {
+                        const id = String(sale.id || sale._id || '');
+                        if (!id || cloudIds.has(id)) continue; // already in cloud
+                        
+                        try {
+                            const ref = db.collection('sales').doc(id);
+                            batch.set(ref, { ...sale, synced: true, syncedAt: new Date().toISOString() }, { merge: true });
+                            uploaded++;
+                            count++;
+                            
+                            if (count >= 450) {
+                                await batch.commit();
+                                batch = db.batch();
+                                count = 0;
+                            }
+                        } catch(e) {
+                            console.warn(`Failed to sync sale ${id}:`, e);
+                        }
+                    }
+                    
+                    if (count > 0) await batch.commit();
+                    console.log(`✅ syncAllSalesToCloud: uploaded ${uploaded} new sales to cloud`);
+                    
+                } catch(e) {
+                    console.error('syncAllSalesToCloud: parse failed', e);
+                }
+            } catch(e) {
+                console.warn('syncAllSalesToCloud failed', e);
+            }
+        };
+
         function initFirebase() {
             try {
                 if (!window.firebase) {
@@ -1149,6 +1229,11 @@
                             try { initializeAppForUser(); } catch(e){ console.error('initializeAppForUser error:', e); }
                             try { setupRealtimeListeners(); } catch(e){ console.error('setupRealtimeListeners error:', e); }
                             try { if (typeof autoRestoreSalesIfEmpty === 'function') autoRestoreSalesIfEmpty(); } catch(e){ console.error('autoRestoreSalesIfEmpty error:', e); }
+                            
+                            // Sync all local sales to cloud to prevent data loss
+                            setTimeout(() => {
+                                try { if (typeof syncAllSalesToCloud === 'function') syncAllSalesToCloud(); } catch(e){ console.error('syncAllSalesToCloud error:', e); }
+                            }, 2000);
                             
                             // === تأخير الدوال الثقيلة لتجنب blocking UI على الموبايل ===
                             // Start real-time sync for cost lists
@@ -1703,6 +1788,29 @@
                 }, err => console.warn('reps snapshot error', err));
                 // (Optional) could add permission handler for reps/users/presence if needed
             } catch(e){ console.warn('reps listener init failed', e); }
+            
+            // Listen to current user document for chains and other state
+            try {
+                const currentUser = auth.currentUser;
+                if (currentUser) {
+                    db.collection('users').doc(currentUser.uid).onSnapshot(function(snap){
+                        if (!snap.exists) return;
+                        const data = snap.data() || {};
+                        const appState = data.appState || {};
+                        
+                        // Load chains from cloud
+                        if (Array.isArray(appState.chains)) {
+                            state.chains = appState.chains;
+                            // Update localStorage for offline access
+                            try { localStorage.setItem('customerChains', JSON.stringify(appState.chains)); } catch(e){}
+                            // Refresh UI if on customers page
+                            try { if (typeof renderChainsDisplay === 'function') renderChainsDisplay(); } catch(e){}
+                            console.log('📦 Loaded chains from cloud:', appState.chains.length);
+                        }
+                    }, err => console.warn('user doc snapshot error', err));
+                }
+            } catch(e){ console.warn('user doc listener init failed', e); }
+            
             // المستخدمون (للأدوار) — Admin only
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
@@ -5570,7 +5678,7 @@
             // تحديد activePeriod: استخدم التاريخ الحالي دائماً، لا تعتمد على localStorage المحفوظ
             const currentPeriod = __formatPeriod(new Date());
             if (!window.state) {
-                window.state = { customers: [], products: [], sales: [], reps: [], promotions: [], productions: [], settings: { salesTarget: 10000 }, stockEntries: {}, activePeriod: currentPeriod };
+                window.state = { customers: [], products: [], sales: [], reps: [], promotions: [], productions: [], settings: { salesTarget: 10000 }, stockEntries: {}, activePeriod: currentPeriod, chains: [] };
                 // CRITICAL: Load stockEntries from localStorage on init
                 try {
                     const saved = localStorage.getItem('stock_entries');
@@ -6410,6 +6518,39 @@
                     window.printHtmlReceiptLatest = printHtmlReceiptLatest;
                 })();
 
+                // Smart mobile printing: chooses best method for Arabic text
+                (function(){
+                    window.smartMobilePrintInvoice = async function(sale){
+                        try {
+                            const isAndroid = /Android/i.test(navigator.userAgent || '');
+                            const hasArabic = /[\u0600-\u06FF]/.test(JSON.stringify(sale||{}));
+
+                            // Prefer RawBT on Android if available (handles Arabic via app fonts)
+                            if (isAndroid && typeof window.printViaRawBT === 'function') {
+                                try { window.printViaRawBT(sale); return; } catch(_){}
+                            }
+
+                            // Prefer image printing when Arabic is present
+                            if (hasArabic && typeof window.printAsImageForThermal === 'function') {
+                                try { await window.printAsImageForThermal(sale); return; } catch(_){}
+                            }
+
+                            // Fallbacks: HTML print, then ASCII Bluetooth
+                            if (typeof window.printHtmlReceiptLatest === 'function') {
+                                try { window.printHtmlReceiptLatest(); return; } catch(_){}
+                            }
+                            if (typeof window.printInvoiceViaBluetooth === 'function') {
+                                try { await window.printInvoiceViaBluetooth(sale); return; } catch(_){}
+                            }
+                            if (typeof window.printInvoiceBluetooth === 'function') {
+                                try { await window.printInvoiceBluetooth(sale); return; } catch(_){}
+                            }
+
+                            alert('لا توجد طريقة طباعة متاحة حالياً');
+                        } catch(e){ console.warn('smartMobilePrintInvoice failed', e); }
+                    };
+                })();
+
                 // ===== Thermal Receipt Builder (simplified ESC/POS) =====
                 // NOTE: This encodes a very basic Arabic receipt; adjust per printer specs.
                 function buildEscPosReceipt(sale){
@@ -6508,10 +6649,15 @@
                             alert('لا توجد فاتورة للطباعة');
                             return;
                         }
-                        if (typeof printInvoiceViaBluetooth === 'function') {
+                        // Prefer image-based printing to ensure Arabic text renders correctly on mobile
+                        if (typeof window.printAsImageForThermal === 'function') {
+                            try { await window.printAsImageForThermal(latestSale); } catch(e){ alert('تعذر الطباعة كصورة: '+(e&&e.message)); }
+                        } else if (typeof window.printHtmlReceiptLatest === 'function') {
+                            window.printHtmlReceiptLatest();
+                        } else if (typeof printInvoiceViaBluetooth === 'function') {
                             await printInvoiceViaBluetooth(latestSale);
                         } else {
-                            alert('دالة طباعة البلوتوث غير متوفرة');
+                            alert('دالة الطباعة غير متوفرة');
                         }
                     });
                     
@@ -14267,6 +14413,13 @@
         });
 
         function renderAllSales(textFilter = '', dateFilter = '', taxStatusFilter = 'all', reviewFilterArg = null) {
+             // --- SAFETY CHECK START ---
+             if (!window.allSales) window.allSales = [];
+             if (!window.sales) window.sales = [];
+             if (!window.state) window.state = {};
+             if (!Array.isArray(state.sales)) state.sales = [];
+             // --- SAFETY CHECK END ---
+             
              const salesList = document.getElementById('sales-list'); 
              salesList.innerHTML = '';
              // Defensive guards & debug to diagnose empty-sales regression
@@ -14555,11 +14708,14 @@
                             evt.preventDefault(); 
                             try { 
                                 showPrintPreviewModal(sale, () => { 
-                                    if (typeof performBluetoothPrint === 'function') { 
-                                        performBluetoothPrint(sale); 
-                                    } else if (typeof printInvoiceBluetooth === 'function') { 
-                                        // Fallback to older ESC/POS text printing
-                                        printInvoiceBluetooth(sale); 
+                                    if (typeof window.smartMobilePrintInvoice === 'function') {
+                                        window.smartMobilePrintInvoice(sale);
+                                    } else if (typeof performBluetoothPrint === 'function') {
+                                        performBluetoothPrint(sale);
+                                    } else if (typeof printInvoiceViaBluetooth === 'function') {
+                                        printInvoiceViaBluetooth(sale);
+                                    } else if (typeof printInvoiceBluetooth === 'function') {
+                                        printInvoiceBluetooth(sale);
                                     } else {
                                         alert('دالة الطباعة عبر البلوتوث غير متوفرة');
                                     }
@@ -14670,10 +14826,31 @@
             uom: { EA: 'Each', KGM: 'Kilogram', LTR: 'Liter', BOX: 'Box', DZ: 'Dozen', M: 'Meter', H: 'Hour', MIN: 'Minute' }
         };
 
-        // Chain Management (local-only storage)
+        // Chain Management (cloud-backed storage)
         const CHAINS_LS_KEY = 'customerChains';
-        function loadChains() { try { const raw = localStorage.getItem(CHAINS_LS_KEY); const arr = raw ? JSON.parse(raw) : []; return Array.isArray(arr) ? arr : []; } catch(e){ return []; } }
-        function saveChains(chains){ try{ localStorage.setItem(CHAINS_LS_KEY, JSON.stringify(chains || [])); } catch(e){ console.warn('saveChains failed', e); } }
+        function loadChains() { 
+            // Load from state.chains (cloud-backed), fallback to localStorage for migration
+            if (Array.isArray(state.chains)) return state.chains;
+            try { 
+                const raw = localStorage.getItem(CHAINS_LS_KEY); 
+                const arr = raw ? JSON.parse(raw) : []; 
+                if (Array.isArray(arr) && arr.length > 0) {
+                    // Migrate from localStorage to state
+                    state.chains = arr;
+                    saveState();
+                    console.log('📦 Migrated chains from localStorage to cloud');
+                }
+                return Array.isArray(arr) ? arr : []; 
+            } catch(e){ return []; } 
+        }
+        function saveChains(chains){ 
+            try{ 
+                state.chains = chains || [];
+                localStorage.setItem(CHAINS_LS_KEY, JSON.stringify(chains || [])); 
+                saveState(); // Save to cloud
+                console.log('✅ Chains saved to cloud and localStorage');
+            } catch(e){ console.warn('saveChains failed', e); } 
+        }
 
         function renderChainsDisplay(){
             const chains = loadChains();
@@ -18329,8 +18506,9 @@
             }
             
             const salesForDay = state.sales.filter(s => {
-                const saleDate = new Date(s.date).toISOString().split('T')[0];
-                const matchesDate = saleDate === date;
+                const saleDate = new Date(s.date);
+                if (isNaN(saleDate.getTime())) return false; // skip invalid dates
+                const matchesDate = saleDate.toISOString().split('T')[0] === date;
                 const matchesRep = (repName === 'all' || s.repName === repName);
                 const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
                 return matchesDate && matchesRep && matchesChain;
@@ -18434,6 +18612,7 @@
             const endDate = new Date(end + 'T23:59:59Z');
             const salesInRange = state.sales.filter(s => {
                 const d = new Date(s.date);
+                if (isNaN(d.getTime())) return false; // skip invalid dates
                 const matchesDate = d >= startDate && d <= endDate;
                 const matchesRep = repName === 'all' || s.repName === repName;
                 const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
@@ -18506,6 +18685,7 @@
             const endDate = new Date(Date.UTC(year, m+1, 0, 23,59,59));
             const monthSales = state.sales.filter(s => {
                 const d = new Date(s.date);
+                if (isNaN(d.getTime())) return false; // skip invalid dates
                 const matchesDate = d >= startDate && d <= endDate;
                 const matchesRep = repName === 'all' || s.repName === repName;
                 const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
@@ -18600,6 +18780,7 @@
             const dayAgg = new Map();
             (state.sales||[]).forEach(s => {
                 const d = new Date(s.date);
+                if (isNaN(d.getTime())) return; // skip invalid dates
                 if (d < monthStart || d > monthEnd) return;
                 const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
                 if (!matchesChain) return;
@@ -18727,6 +18908,7 @@
             const agg = {}; // cid -> { multiAch: number, dairyAch: number }
             (state.sales||[]).forEach(sale => {
                 const d = new Date(sale.date);
+                if (isNaN(d.getTime())) return; // skip invalid dates
                 if (d < monthStart || d > monthEnd) return;
                 const cid = sale.customerId;
                 const cust = customers.find(c => c.id === cid || c._id === cid);
@@ -18971,9 +19153,11 @@
             }
 
             // 1. Find the dispatch note
-            const dispatchNote = state.dispatchNotes.find(n =>
-                n.repName === repName && new Date(n.date).toISOString().split('T')[0] === date
-            );
+            const dispatchNote = state.dispatchNotes.find(n => {
+                const d = new Date(n.date);
+                if (isNaN(d.getTime())) return false;
+                return n.repName === repName && d.toISOString().split('T')[0] === date;
+            });
 
             if (!dispatchNote) {
                 reportOutputArea.innerHTML = '<p class="text-center text-red-500 p-4">لم يتم العثور على إذن استلام لهذا المندوب في التاريخ المحدد.</p>';
@@ -18981,10 +19165,12 @@
             }
 
             // 2. Find all sales for the rep on that day (apply chain filter)
-            const sales = state.sales.filter(s =>
-                s.repName === repName && new Date(s.date).toISOString().split('T')[0] === date && 
-                (!allowedCustomerIds || allowedCustomerIds.includes(s.customerId))
-            );
+            const sales = state.sales.filter(s => {
+                const d = new Date(s.date);
+                if (isNaN(d.getTime())) return false; // skip invalid dates
+                return s.repName === repName && d.toISOString().split('T')[0] === date && 
+                    (!allowedCustomerIds || allowedCustomerIds.includes(s.customerId));
+            });
 
             // 3. Aggregate sales by product ID
             const salesByProduct = {};
@@ -27540,89 +27726,94 @@
         };
 
         // ========== TOTAL INVENTORY VALUE CALCULATOR ==========
+        // --- FIX: Smart Total Value Calculation (Handles Price/Cost mix) ---
         window.updateTotalValue = function() {
+            let total = 0;
+            
+            // Helper to calculate category total safely
+            const sumCategory = (items, categoryName) => {
+                if (!items || !Array.isArray(items)) return;
+                
+                items.forEach(item => {
+                    const qty = parseFloat(item.stock) || 0;
+                    
+                    // CRITICAL: Check ALL price fields in priority order
+                    const unitPrice = parseFloat(item.price) || parseFloat(item.avgCost) || parseFloat(item.cost) || 0;
+                    
+                    if (qty > 0 && unitPrice === 0) {
+                        console.warn(`⚠️ Item "${item.name}" has Stock but ZERO Price!`);
+                    }
+                    
+                    total += qty * unitPrice;
+                });
+            };
+
+            // Calculate all lists
+            sumCategory(window.costRaw, 'Raw');
+            sumCategory(window.costPack, 'Packing');
+            // Ensure we read the correct Finished Goods array
+            const finished = window.costFinished || window.finishedProducts || [];
+            sumCategory(finished, 'Finished');
+
+            // Update the UI Element
+            const totalEl = document.getElementById('total-inventory-value');
+            if (totalEl) {
+                totalEl.innerText = total.toLocaleString('en-EG') + ' ج.م';
+                totalEl.style.color = total > 0 ? '#2563eb' : '#dc2626'; // Blue if val, Red if 0
+            }
+            
+            console.log("💰 Recalculated Total Value:", total);
+        };
+
+        // Trigger calculation every 3 seconds to ensure UI stays synced
+        setInterval(window.updateTotalValue, 3000);
+
+        // --- FIX: Prevent Sales Crash on Period Change ---
+        window.renderAllSales = function() {
+            // 1. Safety Guard: Initialize if undefined
+            if (!window.allSales || !Array.isArray(window.allSales)) {
+                window.allSales = [];
+            }
+            if (!window.sales || !Array.isArray(window.sales)) {
+                window.sales = [];
+            }
+
+            const tbody = document.getElementById('sales-table-body');
+            if (!tbody) return;
+
+            // 2. Clear Table
+            tbody.innerHTML = '';
+
+            // 3. Handle Empty State
+            if (window.allSales.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-4 text-gray-500">لا توجد مبيعات في هذه الفترة</td></tr>`;
+                if (typeof window.updateSalesTotals === 'function') window.updateSalesTotals();
+                return;
+            }
+
+            // 4. Render (Safe)
             try {
-                let total = 0;
+                // Use filtered sales if active, otherwise all sales
+                const list = (window.sales.length > 0) ? window.sales : window.allSales;
                 
-                // Helper function to calculate cost from any item
-                const getCost = (item) => {
-                    // Try avgCost first (for raw/packing), then price (for finished), then cost
-                    return Number(item.avgCost) || Number(item.price) || Number(item.cost) || 0;
-                };
-                // Helper to get stock from grid state (actual preferred, else bookBalance, else opening+inbound-usage)
-                const getRawStock = (name) => {
-                    const s = (window._rawGridState||{})[name] || {};
-                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
-                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
-                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
-                    return opening + inbound - usage;
-                };
-                const getPackStock = (name) => {
-                    const s = (window._packGridState||{})[name] || {};
-                    if (s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
-                    if (s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
-                    const opening = Number(s.opening)||0, inbound = Number(s.inbound)||0, usage = Number(s.usage)||0;
-                    return opening + inbound - usage;
-                };
-                const getFinishedStock = (item) => {
-                    const grid = window._finishedGridState || {};
-                    const keyCandidates = [String(item.id||'').trim(), String(item.code||'').trim(), String(item.name||'').trim()];
-                    let s = null;
-                    for (const k of keyCandidates){ if (k && grid[k]) { s = grid[k]; break; } }
-                    if (s && s.actual !== undefined && s.actual !== null && !isNaN(Number(s.actual))) return Number(s.actual);
-                    if (s && s.bookBalance !== undefined && !isNaN(Number(s.bookBalance))) return Number(s.bookBalance);
-                    const opening = Number(s && s.opening)||0, inbound = Number(s && s.inbound)||0, usage = Number(s && s.usage)||0;
-                    return opening + inbound - usage;
-                };
-                
-                // Calculate from Raw Materials
-                if (window.costRaw && Array.isArray(window.costRaw)) {
-                    let rawSum = 0;
-                    window.costRaw.forEach(item => {
-                        const stock = getRawStock(String(item.name||'').trim());
-                        const cost = getCost(item);
-                        total += stock * cost;
-                        rawSum += stock;
-                    });
-                    console.log(`📊 Raw Materials: ${rawSum} items, contributing to total`);
-                }
-                
-                // Calculate from Packing Materials
-                if (window.costPack && Array.isArray(window.costPack)) {
-                    let packSum = 0;
-                    window.costPack.forEach(item => {
-                        const stock = getPackStock(String(item.name||'').trim());
-                        const cost = getCost(item);
-                        total += stock * cost;
-                        packSum += stock;
-                    });
-                    console.log(`📊 Packing Materials: ${packSum} items, contributing to total`);
-                }
-                
-                // Calculate from Finished Products
-                if (window.costFinished && Array.isArray(window.costFinished)) {
-                    let finSum = 0;
-                    window.costFinished.forEach(item => {
-                        const stock = getFinishedStock(item);
-                        const cost = getCost(item);
-                        const itemTotal = stock * cost;
-                        if (itemTotal > 0) {
-                            console.log(`  - ${item.name}: ${stock} × ${cost} = ${itemTotal}`);
-                        }
-                        total += itemTotal;
-                        finSum += stock;
-                    });
-                    console.log(`📊 Finished Products: ${finSum} items, contributing to total`);
-                }
-                
-                const el = document.getElementById('total-inventory-value');
-                if (el) {
-                    el.textContent = total.toLocaleString('en-EG', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + ' ج.م';
-                }
-                
-                console.log(`💰 TOTAL INVENTORY VALUE: ${total.toLocaleString('en-EG')} ج.م`);
-            } catch(e) {
-                console.error('updateTotalValue error:', e);
+                tbody.innerHTML = list.map(sale => {
+                    return `
+                        <tr class="hover:bg-gray-50 border-b">
+                            <td class="p-3">${sale.id || '-'}</td>
+                            <td class="p-3 font-bold text-gray-700">${sale.clientName || 'عميل نقدي'}</td>
+                            <td class="p-3 font-bold text-blue-600">${parseFloat(sale.total || 0).toLocaleString()}</td>
+                            <td class="p-3 text-sm text-gray-500">${sale.date || '-'}</td>
+                            <td class="p-3 text-center">
+                                <button onclick="openInvoice('${sale.id}')" class="text-blue-600 hover:underline">عرض</button>
+                            </td>
+                        </tr>`;
+                }).join('');
+
+                if (typeof window.updateSalesTotals === 'function') window.updateSalesTotals();
+
+            } catch (e) {
+                console.warn("⚠️ Render warning:", e);
+                tbody.innerHTML = `<tr><td colspan="10" class="text-center text-red-400">جاري تحميل البيانات...</td></tr>`;
             }
         };
 
