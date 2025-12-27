@@ -14538,7 +14538,16 @@
                  });
              } catch(_){ /* keep original order as fallback */ }
 
-             if (filteredSales.length === 0) { salesList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد فواتير تطابق بحثك.</p>'; return; }
+             if (filteredSales.length === 0) { 
+                 const cached = JSON.parse(localStorage.getItem('cache_sales')||'[]');
+                 if (Array.isArray(cached) && cached.length > 0) {
+                     console.warn('⚠️ renderAllSales: No filtered results; loading from localStorage cache');
+                     filteredSales = cached;
+                 } else {
+                     salesList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد فواتير تطابق بحثك.</p>'; 
+                     return; 
+                 }
+             }
              
              const reviewState = loadReviewState();
              filteredSales.forEach((sale, index) => { 
@@ -27779,55 +27788,6 @@
 
         // Trigger calculation every 3 seconds to ensure UI stays synced
         setInterval(window.updateTotalValue, 3000);
-
-        // --- FIX: Prevent Sales Crash on Period Change ---
-        window.renderAllSales = function() {
-            // 1. Safety Guard: Initialize if undefined
-            if (!window.allSales || !Array.isArray(window.allSales)) {
-                window.allSales = [];
-            }
-            if (!window.sales || !Array.isArray(window.sales)) {
-                window.sales = [];
-            }
-
-            const tbody = document.getElementById('sales-table-body');
-            if (!tbody) return;
-
-            // 2. Clear Table
-            tbody.innerHTML = '';
-
-            // 3. Handle Empty State
-            if (window.allSales.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="10" class="text-center p-4 text-gray-500">لا توجد مبيعات في هذه الفترة</td></tr>`;
-                if (typeof window.updateSalesTotals === 'function') window.updateSalesTotals();
-                return;
-            }
-
-            // 4. Render (Safe)
-            try {
-                // Use filtered sales if active, otherwise all sales
-                const list = (window.sales.length > 0) ? window.sales : window.allSales;
-                
-                tbody.innerHTML = list.map(sale => {
-                    return `
-                        <tr class="hover:bg-gray-50 border-b">
-                            <td class="p-3">${sale.id || '-'}</td>
-                            <td class="p-3 font-bold text-gray-700">${sale.clientName || 'عميل نقدي'}</td>
-                            <td class="p-3 font-bold text-blue-600">${parseFloat(sale.total || 0).toLocaleString()}</td>
-                            <td class="p-3 text-sm text-gray-500">${sale.date || '-'}</td>
-                            <td class="p-3 text-center">
-                                <button onclick="openInvoice('${sale.id}')" class="text-blue-600 hover:underline">عرض</button>
-                            </td>
-                        </tr>`;
-                }).join('');
-
-                if (typeof window.updateSalesTotals === 'function') window.updateSalesTotals();
-
-            } catch (e) {
-                console.warn("⚠️ Render warning:", e);
-                tbody.innerHTML = `<tr><td colspan="10" class="text-center text-red-400">جاري تحميل البيانات...</td></tr>`;
-            }
-        };
 
         // ========== PERSIST INVENTORY ITEMS FROM GRID STATES ==========
         window.normalizeInventoryNow = async function(){
