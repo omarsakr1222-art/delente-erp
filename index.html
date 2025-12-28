@@ -14656,8 +14656,8 @@
     <script src="./taxes.js"></script>
     <script>
         async function fixChocolateVatOneTime(silent=false){
-            const chocoRe = /chocolate|????????|????????/i;
-            if (!window.db) { alert('Firestore ??? ????. ???? ?? ????? ?????? ?????? Firebase.'); return; }
+            const chocoRe = /chocolate|شيكولاتة|شوكولاتة/i;
+            if (!window.db) { alert('Firestore غير جاهز. الرجاء الانتظار أو تسجيل الدخول Firebase.'); return; }
             try{
                 const snap = await db.collection('products').get();
                 let updated = 0;

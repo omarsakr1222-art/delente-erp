@@ -929,7 +929,7 @@ window.saveCostListsToFirebase = async function(immediate){
                     const promotionPrice = getActivePromotionPrice(productId, customerId);
                     price = (promotionPrice !== null) ? promotionPrice : basePrice;
                     try {
-                        if (product && /????|????/i.test(product.name)) {
+                        if (product && /شيكولاتة|شوكولاتة/i.test(product.name)) {
                             const customer = customerId ? findCustomer(customerId) : null;
                             const priceList = (customer && customer.priceListId) ? findPriceList(customer.priceListId) : null;
                             const listOverride = priceList ? priceList.productPrices[productId] : undefined;
@@ -1871,11 +1871,11 @@ window.saveCostListsToFirebase = async function(immediate){
             }
             updateIcons();
         }
-        // ????? ??????? ??????? ????? ???????? (????? / ??? / ???? / ???????? / ????????)
+        // تحديد المنتجات القابلة لتعديل الباركود (شامبو / صابون / معجون / شيكولاتة / شوكولاتة)
         function isBarcodeEditable(name){
             try {
                 const n = (name||'').replace(/\s+/g,' ').trim();
-                return /(?????|?????|???|??|????|????????|???????|?????|???????|??????)/.test(n);
+                return /(شامبو|صابون|لبن|عصير|معجون|شيكولاتة|شوكولاتة|بسكويت|مناديل|ورق)/.test(n);
             } catch(e){ return false; }
         }
         function renderPriceListSheet(priceListId, customerName){
@@ -1986,7 +1986,7 @@ window.saveCostListsToFirebase = async function(immediate){
                 
                 // Add customers
                 (state.customers||[])
-                    .filter(c => !/??????/.test(c.name||'') || !/(??????|??????)/.test(c.name||''))
+                    .filter(c => !/مخزن/.test(c.name||'') || !/(داخلي|ديون)/.test(c.name||''))
                     .forEach(c => {
                         options.push(`<option value="${c.id||c._id}" ${previous.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`);
                     });
@@ -2105,7 +2105,7 @@ window.saveCostListsToFirebase = async function(immediate){
                     if (!multiSel) return;
                     const selected = new Set(Array.from(multiSel.selectedOptions).map(o=>o.value));
                     multiSel.innerHTML = (state.customers||[])
-                        .filter(c => !/??????/.test(c.name||'') || !/(??????|??????)/.test(c.name||''))
+                        .filter(c => !/مخزن/.test(c.name||'') || !/(داخلي|ديون)/.test(c.name||''))
                         .filter(c => !term || (c.name||'').includes(term))
                         .map(c => `<option value="${c.id||c._id}" ${selected.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`)
                         .join('');
@@ -4083,12 +4083,12 @@ window.saveCostListsToFirebase = async function(immediate){
                     ? (isMine ? '<span class="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">???? ??</span>' : '<span class="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">????</span>')
                     : '<span class="text-xs bg-yellow-100 text-yellow-700 rounded-full px-2 py-0.5">??? ??????</span>';
                 const manageAllowed = (typeof canManageCustomer === 'function') ? canManageCustomer(customer) : true;
-                let priceListInfoHTML = `<div class="mt-2"><span class="text-sm text-gray-800 bg-gray-100 rounded-full px-2 py-0.5">???? ????? ?????</span></div>`;
+                let priceListInfoHTML = `<div class="mt-2"><span class="text-sm text-gray-800 bg-gray-100 rounded-full px-2 py-0.5">قائمة سعر عادية</span></div>`;
                 if (priceList) {
-                    const discountMatch = priceList.name.match(/\(??? (.*?)%\)/);
+                    const discountMatch = priceList.name.match(/\(خصم (.*?)%\)/);
                     const baseName = discountMatch ? priceList.name.replace(discountMatch[0], '').trim() : priceList.name;
                     let baseTag = `<span class="text-sm text-blue-800 bg-blue-100 rounded-full px-2 py-0.5">${baseName}</span>`;
-                    let discountTag = discountMatch ? ` <span class="text-sm text-red-800 bg-red-100 rounded-full px-2 py-0.5">??? ${discountMatch[1]}%</span>` : '';
+                    let discountTag = discountMatch ? ` <span class="text-sm text-red-800 bg-red-100 rounded-full px-2 py-0.5">خصم ${discountMatch[1]}%</span>` : '';
                     priceListInfoHTML = `<div class="mt-2 flex flex-wrap gap-1 items-center">${baseTag}${discountTag}</div>`;
                 }
                 const taxTag = taxRequired ? `<span class="text-xs font-semibold bg-orange-100 text-orange-800 rounded-full px-2 py-0.5 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> ????? ??? ?????</span>` : '';
@@ -5120,7 +5120,7 @@ window.saveCostListsToFirebase = async function(immediate){
                 s = s.replace(/[,\s\u00A0]/g, '');
                 // replace comma decimal with dot if user used comma as decimal and dot not present
                 // (already removed commas as thousands separators above), but still handle Arabic decimal comma
-                s = s.replace(/?/g, '.');
+                s = s.replace(/،/g, '.');
                 // if multiple dots exist, keep last dot as decimal separator
                 const parts = s.split('.');
                 if (parts.length > 2) {
@@ -6889,7 +6889,7 @@ window.saveCostListsToFirebase = async function(immediate){
         function updateSpreadsheetPriceAndProductInfo(row, productId, customerId) { 
             const priceInput = row.querySelector('.spreadsheet-price'); const nameInput = row.querySelector('.spreadsheet-product-name'); const categoryCell = row.querySelector('.spreadsheet-category'); const productDetails = getProductDetailsByCode(productId); priceInput.classList.remove('promotion-price-applied'); if (row.querySelector('.spreadsheet-tax-status-input')) { row.querySelector('.spreadsheet-tax-status-input').classList.remove('border-red-500', 'border-2'); } if (!productDetails) { nameInput.value = '??? ??? ????'; nameInput.classList.add('text-red-500'); priceInput.value = 0; categoryCell.textContent = ''; row.dataset.productId = ''; return; } nameInput.value = productDetails.name; nameInput.classList.remove('text-red-500'); categoryCell.textContent = productDetails.categoryName; row.dataset.productId = productDetails.id; let finalPrice; let basePrice; basePrice = productDetails.defaultPrice; if(customerId) { const customer = findCustomer(customerId); if(customer && customer.priceListId) { const priceList = findPriceList(customer.priceListId); if(priceList && priceList.productPrices[productDetails.id] !== undefined) { basePrice = priceList.productPrices[productDetails.id]; } } } finalPrice = basePrice; const promotionPrice = getActivePromotionPrice(productId, customerId); if (promotionPrice !== null) { finalPrice = promotionPrice; priceInput.classList.add('promotion-price-applied'); } priceInput.value = parseFloat(finalPrice).toFixed(2); 
             try {
-                if (/????|????/i.test(productDetails.name||'')) {
+                if (/شيكولاتة|شوكولاتة/i.test(productDetails.name||'')) {
                     const customer = customerId ? findCustomer(customerId) : null;
                     const priceList = (customer && customer.priceListId) ? findPriceList(customer.priceListId) : null;
                     const listOverride = priceList ? priceList.productPrices[productDetails.id] : undefined;
@@ -8225,7 +8225,7 @@ window.saveCostListsToFirebase = async function(immediate){
             const customers = (state.customers||[]).filter(c => {
                 const nm = (c.name||'');
                 const include = nameKeys.some(k => nm.includes(k));
-                const isExcluded = /??????/.test(nm) && /(??????|??????)/.test(nm);
+                const isExcluded = /مخزن/.test(nm) && /(داخلي|ديون)/.test(nm);
                 return include && !isExcluded;
             });
             if (customers.length === 0){ out.innerHTML = '<p class="text-center text-gray-500">?? ???? ????? ???????.</p>'; return; }
@@ -9083,7 +9083,7 @@ window.saveCostListsToFirebase = async function(immediate){
             try {
                 // Add to state.products
                 if (!state.products) state.products = [];
-                const chocoRe = /chocolate|????????|????????/i;
+                const chocoRe = /chocolate|شيكولاتة|شوكولاتة/i;
                 const vatRate = chocoRe.test(name) ? 14 : 0;
                 state.products.push({
                     id: code,
@@ -9151,7 +9151,7 @@ window.saveCostListsToFirebase = async function(immediate){
             try {
                 // Add to state.products
                 if (!state.products) state.products = [];
-                const chocoReRaw = /chocolate|????????|????????/i;
+                const chocoReRaw = /chocolate|شيكولاتة|شوكولاتة/i;
                 const vatRateRaw = chocoReRaw.test(name) ? 14 : 0;
                 // check tax invoice checkbox
                 const taxInvoiceEl = document.getElementById('raw-material-is_tax_invoice');
@@ -9266,7 +9266,7 @@ window.saveCostListsToFirebase = async function(immediate){
             try {
                 // Add to state.products
                 if (!state.products) state.products = [];
-                const chocoRePack = /chocolate|????????|????????/i;
+                const chocoRePack = /chocolate|شيكولاتة|شوكولاتة/i;
                 const vatRatePack = chocoRePack.test(name) ? 14 : 0;
                 state.products.push({
                     id: code,
@@ -11747,22 +11747,75 @@ window.saveCostListsToFirebase = async function(immediate){
             const password = loginPasswordInput.value;
             const loginButton = e.submitter;
             loginButton.disabled = true;
-            loginButton.textContent = '???? ????? ??????...';
+loginButton.textContent = 'جارٍ تسجيل الدخول...';
 
             try {
                 // Use new service-based login (hybrid mode)
                 const result = await (typeof window.loginUsingServices === 'function'
                     ? window.loginUsingServices(email, password, { showAlertOnError: false })
                     : auth.signInWithEmailAndPassword(email, password).then(() => ({ ok: true })));
-                if (!result.ok) throw new Error(result.error || '??? ????? ??????');
+                if (!result.ok) throw new Error(result.error || 'خطأ تسجيل الدخول');
                 // onAuthStateChanged will handle the rest
                 closeModal(loginModal);
             } catch (error) {
-                alert('??? ????? ??????: ' + error.message);
+                alert('خطأ تسجيل الدخول: ' + error.message);
             } finally {
                 loginButton.disabled = false;
-                loginButton.textContent = '????? ??????';
+                loginButton.textContent = 'تسجيل الدخول';
             }
         });
+
+        // === Cloud Helper Functions ===
+        window.ensureRawAndPackFromState = function(){
+            const products = Array.isArray(window.state?.products) ? window.state.products : [];
+            window.costPack = Array.isArray(window.costPack) ? window.costPack : [];
+            const packRe = /تعبئة|تغليف|عبوة|ورق|كيس/i;
+            const existIds = new Set(window.costPack.map(x => x.id));
+            let added = 0;
+            for (const p of products) {
+                if (!p || !p.id || !p.name || p.category !== 'packaging') continue;
+                if (!packRe.test(p.name)) continue;
+                if (existIds.has(p.id)) continue;
+                window.costPack.push({ id: p.id, name: p.name, stock: 0, price: p.price || 0 });
+                existIds.add(p.id);
+                added++;
+            }
+            if (added > 0) console.log('Added packaging items:', added);
+        };
+
+        window.saveCostListsToFirebase = async function(immediate){
+            if (!immediate && Date.now() - (window._lastCloudSave || 0) < 3000) {
+                console.log('⏳ saveCostListsToFirebase: skipping (debounced)');
+                return;
+            }
+            window._lastCloudSave = Date.now();
+            
+            const rawMaterials = Array.isArray(window.costRaw) ? window.costRaw : [];
+            const packaging = Array.isArray(window.costPack) ? window.costPack : [];
+            const finished = Array.isArray(window.costFinished) ? window.costFinished : [];
+            const operations = Array.isArray(window.costOps) ? window.costOps : [];
+            
+            if (rawMaterials.length === 0 && packaging.length === 0 && finished.length === 0 && operations.length === 0) {
+                if (!window._appStartupComplete) {
+                    console.log('⏸ saveCostListsToFirebase: Startup not ready; skipping zero-save.');
+                    return;
+                }
+            }
+            
+            if (!window.db || !window.auth?.currentUser) {
+                console.log('⚠ saveCostListsToFirebase: Firebase not ready or not logged in');
+                return;
+            }
+            
+            try {
+                const serverTs = () => firebase.firestore.FieldValue.serverTimestamp();
+                const ref = window.db.collection('settings').doc('costLists');
+                const payload = { rawMaterials, packaging, finished, operations, updatedAt: serverTs() };
+                await ref.set(payload, { merge: true });
+                console.log('✅ Cost lists saved to Firestore');
+            } catch (err) {
+                console.error('❌ saveCostListsToFirebase failed:', err);
+            }
+        };
 
     
