@@ -5493,9 +5493,22 @@
 
             // ??? ??????? ???????
             showApp() {
-                document.getElementById('login-page').classList.add('hidden');
-                document.getElementById('register-page').classList.add('hidden');
-                document.getElementById('app-container').classList.remove('hidden');
+                const loginPage = document.getElementById('login-page');
+                const registerPage = document.getElementById('register-page');
+                const appContainer = document.getElementById('app-container');
+                
+                if (!loginPage || !registerPage || !appContainer) {
+                    console.error('showApp: Required DOM elements not found', { 
+                        loginPage: !!loginPage, 
+                        registerPage: !!registerPage, 
+                        appContainer: !!appContainer 
+                    });
+                    return;
+                }
+                
+                loginPage.classList.add('hidden');
+                registerPage.classList.add('hidden');
+                appContainer.classList.remove('hidden');
                 this.updateCurrentUserDisplay();
             },
 
