@@ -168,36 +168,15 @@
         (function(){
             function showOverlay(msg, stack){
                 try {
+                    console.warn('Runtime error:', msg);
+                    if (stack) console.warn(stack);
                     var ov = document.getElementById('error-overlay');
-                    if (!ov) {
-                        ov = document.createElement('div');
-                        ov.id = 'error-overlay';
-                        ov.style.position = 'fixed';
-                        ov.style.top = '0';
-                        ov.style.left = '0';
-                        ov.style.right = '0';
-                        ov.style.zIndex = '99999';
-                        ov.style.background = 'rgba(220,38,38,0.95)';
-                        ov.style.color = '#fff';
-                        ov.style.fontFamily = 'Cairo, sans-serif';
-                        ov.style.direction = 'rtl';
-                        ov.style.padding = '8px 12px';
-                        ov.style.fontSize = '12px';
-                        ov.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
-                                     + '<div><strong>حدث خطأ في التطبيق:</strong> <span id="err-msg"></span><div id="err-stack" style="white-space:pre-wrap;opacity:.9;margin-top:4px"></div></div>'
-                                     + '<button id="err-close" style="background:#111;border:0;color:#fff;padding:6px 10px;border-radius:6px">إغلاق</button>'
-                                     + '</div>';
-                        document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(ov); });
-                        if (document.readyState === 'complete' || document.readyState === 'interactive') { try { document.body.appendChild(ov); } catch(_){} }
-                        document.addEventListener('click', function(e){ if (e.target && e.target.id === 'err-close'){ try { ov.remove(); } catch(_){} } });
-                    }
-                    var m = ov.querySelector('#err-msg'); if (m) m.textContent = msg || '';
-                    var s = ov.querySelector('#err-stack'); if (s) s.textContent = stack || '';
+                    if (ov) { try { ov.remove(); } catch(_){} }
                 } catch(e){}
             }
             window.addEventListener('error', function(e){
                 try {
-                    showOverlay(String(e && e.message) || 'Runtime error', (e && e.error && e.error.stack) || e.stack || '');
+                    console.warn('Ignored runtime error:', String(e && e.message));
                 } catch(_){}
             });
 
