@@ -1,57 +1,28 @@
 ﻿<!DOCTYPE html>
 <html lang="ar" dir="rtl">
     <script>
-        // Safe, non-destructive global error handler (prevents white-screen)
+        // Safe global error handler: log only, never alter the UI
         window.onerror = function (msg, url, line, col, error) {
             try {
-                // Ignore generic cross-origin "Script error" (usually line 0:0, empty url)
                 const isGeneric = (!url || url === '') && (line === 0 || line === '0') && String(msg).toLowerCase().includes('script error');
                 if (isGeneric) {
                     console.warn('Ignored generic script error (likely CORS):', msg);
-                    return true; // prevent noisy alerts
+                    return true;
                 }
-
                 const fullMsg = `Error: ${msg}\nFile: ${url || 'unknown'}\nLine: ${line}:${col}`;
                 const stack = (error && error.stack) ? error.stack : '';
-
-                // Log only; do NOT replace the app UI
                 console.error(fullMsg);
                 if (stack) console.error(stack);
-
-                // Show a small dismissible banner without altering the page content
-                let banner = document.getElementById('global-error-banner');
-                if (!banner) {
-                    banner = document.createElement('div');
-                    banner.id = 'global-error-banner';
-                    banner.style.position = 'fixed';
-                    banner.style.top = '8px';
-                    banner.style.right = '8px';
-                    banner.style.zIndex = '9999';
-                    banner.style.maxWidth = '420px';
-                    banner.style.background = '#2d3748';
-                    banner.style.color = 'white';
-                    banner.style.padding = '12px 16px';
-                    banner.style.borderRadius = '10px';
-                    banner.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
-                    banner.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, Arial';
-                    banner.style.direction = 'ltr';
-                    banner.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">⚠️ Mobile Error Detected</div>' +
-                        `<div style="font-size:12px; white-space:pre-wrap;">${fullMsg}</div>` +
-                        '<button id="global-error-banner-close" style="margin-top:8px; background:#f6ad55; color:#1a202c; border:none; padding:6px 10px; border-radius:8px; cursor:pointer;">حسنًا</button>';
-                    document.body.appendChild(banner);
-                    const btn = document.getElementById('global-error-banner-close');
-                    if (btn) btn.onclick = () => banner.remove();
-                } else {
-                    // Update text if already present
-                    banner.querySelector('div:nth-child(2)').textContent = fullMsg;
-                }
+                // If any legacy banner exists, remove it
+                const legacy = document.getElementById('global-error-banner');
+                if (legacy) legacy.remove();
             } catch (e) {
-                console.error('Global error handler itself failed', e);
+                // swallow
             }
-            return true; // Suppress default browser error dialogs
+            return true;
         };
     </script>
-                document.body.innerHTML = '<div style="color:red; background:white; padding:20px;">Critical Error Handler Failed</div>';
+                // Do not alter UI on handler failure
             }
             return true; // Suppress default error handling
         };
@@ -105,6 +76,7 @@
             }
         });
     </script>
+        <!-- Tailwind CDN is not recommended in production; keep for now or replace with compiled CSS -->
         <script src="https://cdn.tailwindcss.com"></script>
     <!-- html2canvas for converting receipts to images for thermal printers -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
@@ -13396,10 +13368,12 @@
             try { window._finishedGridState = Object.assign({}, window._finishedGridState || {}, JSON.parse(localStorage.getItem('finished_products_grid') || '{}')); } catch(e) { window._finishedGridState = window._finishedGridState || {}; }
             // CRITICAL: Ensure stock_entries are loaded from localStorage
             try { if (window.state && !window.state.stockEntries) window.state.stockEntries = JSON.parse(localStorage.getItem('stock_entries') || '{}'); } catch(e){}
-            const dateInput = document.getElementById('finished-products-date').value;
+            const dateInputEl = document.getElementById('finished-products-date');
+            const dateInput = dateInputEl ? dateInputEl.value : null;
             const date = getISODateString(dateInput || new Date());
             const prevDate = getPreviousDate(date);
             const body = document.getElementById('finished-products-table-body');
+            if (!body) return; // guard against missing DOM
             body.innerHTML = '';
 
             // Diagnostics
@@ -13721,7 +13695,8 @@
                 window.debouncedPackSave = function(){ clearTimeout(window._packGridSaveTimer); window._packGridSaveTimer = setTimeout(window.savePackGridStateNow, 700); };
             }
 
-            const date = document.getElementById('raw-materials-date').value || new Date().toISOString().split('T')[0];
+            const dateEl = document.getElementById('raw-materials-date');
+            const date = (dateEl && dateEl.value) ? dateEl.value : new Date().toISOString().split('T')[0];
             const body = document.getElementById('raw-materials-table-body');
             if(!body) return;
             body.innerHTML = '';
