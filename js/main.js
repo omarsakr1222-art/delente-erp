@@ -10345,11 +10345,24 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // --- Loading Functions ---
 function showLoading(message = "جارٍ التحميل...") {
-    document.getElementById('loading-message').textContent = message;
-    openModal(loadingModal);
+    try {
+        const el = document.getElementById('loading-message');
+        if (el) el.textContent = message;
+        if (typeof openModal === 'function' && typeof loadingModal !== 'undefined' && loadingModal) {
+            openModal(loadingModal);
+        }
+    } catch (e) {
+        console.warn('showLoading failed:', e);
+    }
 }
 function hideLoading() {
-    closeModal(loadingModal);
+    try {
+        if (typeof closeModal === 'function' && typeof loadingModal !== 'undefined' && loadingModal) {
+            closeModal(loadingModal);
+        }
+    } catch (e) {
+        console.warn('hideLoading failed:', e);
+    }
 }
 
 // --- Event Listener Setup ---

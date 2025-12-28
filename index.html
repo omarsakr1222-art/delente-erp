@@ -1,24 +1,56 @@
 ﻿<!DOCTYPE html>
 <html lang="ar" dir="rtl">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delente ERP - نظام إدارة الأعمال</title>
-    <!-- Global Error Handler for Mobile Debugging -->
     <script>
-        window.onerror = function(msg, url, line, col, error) {
+        // Safe, non-destructive global error handler (prevents white-screen)
+        window.onerror = function (msg, url, line, col, error) {
             try {
-                const fullMsg = msg + '\n\nFile: ' + url + '\nLine: ' + line + ':' + col;
-                const errorText = (error && error.stack) ? error.stack : fullMsg;
-                
-                // Show alert with error details
-                alert('🚨 Mobile Error Detected:\n\n' + fullMsg + '\n\n' + (error && error.stack ? error.stack.substring(0, 200) : ''));
-                
-                // Replace page with error display
-                document.body.innerHTML = '<div style="color:red; background:white; font-size:18px; padding:20px; font-family:monospace; white-space:pre-wrap; direction:ltr; text-align:left;"><strong>⚠️ ERROR DETECTED:</strong>\n\n' + fullMsg + '\n\n<strong>Stack:</strong>\n' + (error && error.stack ? error.stack : 'No stack trace') + '</div>';
-                document.body.style.margin = '0';
-                document.body.style.height = '100vh';
-            } catch(e) {
+                // Ignore generic cross-origin "Script error" (usually line 0:0, empty url)
+                const isGeneric = (!url || url === '') && (line === 0 || line === '0') && String(msg).toLowerCase().includes('script error');
+                if (isGeneric) {
+                    console.warn('Ignored generic script error (likely CORS):', msg);
+                    return true; // prevent noisy alerts
+                }
+
+                const fullMsg = `Error: ${msg}\nFile: ${url || 'unknown'}\nLine: ${line}:${col}`;
+                const stack = (error && error.stack) ? error.stack : '';
+
+                // Log only; do NOT replace the app UI
+                console.error(fullMsg);
+                if (stack) console.error(stack);
+
+                // Show a small dismissible banner without altering the page content
+                let banner = document.getElementById('global-error-banner');
+                if (!banner) {
+                    banner = document.createElement('div');
+                    banner.id = 'global-error-banner';
+                    banner.style.position = 'fixed';
+                    banner.style.top = '8px';
+                    banner.style.right = '8px';
+                    banner.style.zIndex = '9999';
+                    banner.style.maxWidth = '420px';
+                    banner.style.background = '#2d3748';
+                    banner.style.color = 'white';
+                    banner.style.padding = '12px 16px';
+                    banner.style.borderRadius = '10px';
+                    banner.style.boxShadow = '0 4px 12px rgba(0,0,0,0.25)';
+                    banner.style.fontFamily = 'system-ui, -apple-system, Segoe UI, Roboto, Arial';
+                    banner.style.direction = 'ltr';
+                    banner.innerHTML = '<div style="font-weight:600; margin-bottom:6px;">⚠️ Mobile Error Detected</div>' +
+                        `<div style="font-size:12px; white-space:pre-wrap;">${fullMsg}</div>` +
+                        '<button id="global-error-banner-close" style="margin-top:8px; background:#f6ad55; color:#1a202c; border:none; padding:6px 10px; border-radius:8px; cursor:pointer;">حسنًا</button>';
+                    document.body.appendChild(banner);
+                    const btn = document.getElementById('global-error-banner-close');
+                    if (btn) btn.onclick = () => banner.remove();
+                } else {
+                    // Update text if already present
+                    banner.querySelector('div:nth-child(2)').textContent = fullMsg;
+                }
+            } catch (e) {
+                console.error('Global error handler itself failed', e);
+            }
+            return true; // Suppress default browser error dialogs
+        };
+    </script>
                 document.body.innerHTML = '<div style="color:red; background:white; padding:20px;">Critical Error Handler Failed</div>';
             }
             return true; // Suppress default error handling
