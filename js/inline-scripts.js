@@ -7285,6 +7285,11 @@
                             if (window.inventorySystem.loadInventoryData) {
                                 window.inventorySystem.loadInventoryData(tab);
                             }
+                            // Update the modal if open
+                            const stockEl = document.getElementById('modal-stock');
+                            const totalEl = document.getElementById('modal-total-value');
+                            if (stockEl) stockEl.textContent = String(newStock);
+                            if (totalEl) totalEl.textContent = String(Math.round(newStock * (window.inventorySystem.currentItem.avgCost || 0)));
                             closeEditModal();
                             alert(`✅ تم تحديث الرصيد: ${item.name} → ${newStock}`);
                         } catch(e) {
