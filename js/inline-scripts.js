@@ -678,9 +678,20 @@
                         return cached ? (JSON.parse(cached).data || []) : [];
                     }
 
-                    console.log('SalesService: Fetching recent ' + limit + ' sales...');
+                    // Calculate current month dates
+                    const now = new Date();
+                    const year = now.getFullYear();
+                    const month = String(now.getMonth() + 1).padStart(2, '0');
+                    const startOfMonth = `${year}-${month}-01`;
+                    const endOfMonth = new Date(year, now.getMonth() + 1, 0);
+                    const lastDay = String(endOfMonth.getDate()).padStart(2, '0');
+                    const endOfMonthStr = `${year}-${month}-${lastDay}`;
+
+                    console.log('SalesService: Fetching sales for current month ' + startOfMonth + ' to ' + endOfMonthStr + '...');
                     let query = window.db.collection('sales')
-                        .orderBy('createdAt', 'desc')
+                        .where('date', '>=', startOfMonth)
+                        .where('date', '<=', endOfMonthStr)
+                        .orderBy('date', 'desc')
                         .limit(limit);
 
                     if (forUserId) {
@@ -698,7 +709,7 @@
                         timestamp: Date.now()
                     }));
 
-                    console.log('SalesService: Fetched ' + sales.length + ' sales');
+                    console.log('SalesService: Fetched ' + sales.length + ' sales for current month');
                     return sales;
                 } catch (e) {
                     console.error('SalesService: getRecentSales failed:', e);
@@ -10444,7 +10455,7 @@
                                 if (costItem) {
                                     costItem.stock = actual;
                                     console.log('Updated costItem.stock to:', actual);
-                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true);
                                     console.log(`✅ Stock synced for Raw Material "${materialName}": ${actual}`);
                                 } else {
                                     console.warn('Cost item not found for:', materialName);
@@ -10603,7 +10614,7 @@
                                 if (costItem) {
                                     costItem.stock = actual;
                                     console.log('Updated costItem.stock to:', actual);
-                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true);
                                     console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
                                 } else {
                                     console.warn('Cost item not found for:', product.name);

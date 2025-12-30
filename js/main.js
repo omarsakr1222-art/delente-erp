@@ -3007,7 +3007,7 @@ function renderRawMaterials() {
                         let costItem = (Array.isArray(window.costRaw) && window.costRaw.find(i => i && i.name && i.name.toLowerCase() === materialName.toLowerCase()));
                         if (costItem) {
                             costItem.stock = actual;
-                            if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                            if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true);
                             console.log(`✅ Stock synced for Raw Material "${materialName}": ${actual}`);
                         }
                     } catch(e){ console.warn('Stock sync for raw materials failed', e); }
@@ -3162,7 +3162,7 @@ function renderPackaging() {
                         const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
                         if (costItem) {
                             costItem.stock = actual;
-                            if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                            if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true);
                             console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
                         }
                     } catch(e){ console.warn('Stock sync for packaging failed', e); }
