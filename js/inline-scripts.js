@@ -998,6 +998,7 @@
         }
 
         // Auto-restore sales from cloud when local cache is empty (runs on login)
+        // OPTIMIZED: Server-side filtering by month + limit to reduce Firebase quota usage
         window.autoRestoreSalesIfEmpty = async function(){
             try {
                 if (!window.auth || !auth.currentUser) return;
@@ -1009,24 +1010,42 @@
                 if (!email) return;
                 if (!window.db) { console.warn('autoRestoreSalesIfEmpty: Firestore not ready'); return; }
                 try {
-                    // Try loading all sales first (no filter)
-                    const allSnap = await db.collection('sales').limit(1000).get();
-                    const allCount = allSnap.size;
-                    console.log(`📊 autoRestoreSalesIfEmpty: Total sales in cloud: ${allCount}`);
+                    // Get start of current month (optimization to reduce quota)
+                    const now = new Date();
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+                    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
                     
-                    // Then load user's sales
-                    const snap = await db.collection('sales').where('repEmail','==', email).get();
+                    // OPTIMIZED QUERY: Load sales from current month only, ordered by date DESC, limited to 50
+                    const monthSnap = await db.collection('sales')
+                        .where('date', '>=', startOfMonth)
+                        .where('date', '<=', endOfMonth)
+                        .orderBy('date', 'desc')
+                        .limit(50)
+                        .get();
+                    
+                    const monthCount = monthSnap.size;
+                    console.log(`📊 autoRestoreSalesIfEmpty: Found ${monthCount} sales in current month (Server-side filtered)`);
+                    
+                    // Load user's sales from current month
+                    const userSnap = await db.collection('sales')
+                        .where('repEmail', '==', email)
+                        .where('date', '>=', startOfMonth)
+                        .where('date', '<=', endOfMonth)
+                        .orderBy('date', 'desc')
+                        .limit(50)
+                        .get();
+                    
                     const arr = [];
-                    snap.forEach(doc => {
+                    userSnap.forEach(doc => {
                         const s = doc.data() || {};
                         s._id = doc.id; if (!s.id) s.id = doc.id;
                         arr.push(s);
                     });
                     
-                    // If not enough user sales, load all sales
-                    if (arr.length < 50 && allCount > arr.length) {
-                        console.log(`⚠️ Only ${arr.length} sales for user, loading all ${allCount} sales from cloud`);
-                        allSnap.forEach(doc => {
+                    // If not enough user sales in current month, add other sales from month
+                    if (arr.length < 50 && monthCount > arr.length) {
+                        console.log(`⚠️ Only ${arr.length} user sales in month, adding ${monthCount - arr.length} other sales`);
+                        monthSnap.forEach(doc => {
                             const s = doc.data() || {};
                             s._id = doc.id; if (!s.id) s.id = doc.id;
                             if (!arr.find(x => x.id === s.id)) arr.push(s);
@@ -1037,18 +1056,19 @@
                         try { localStorage.setItem('cache_sales', JSON.stringify(arr)); } catch(e){}
                         try { localStorage.setItem('reps_local_ts', new Date().toISOString()); } catch(e){}
                         window.state = window.state || {};
-                        state.sales = arr.slice(0,500);
+                        state.sales = arr.slice(0, 50); // Limit to 50 in memory
                         try { if (typeof renderAllSales === 'function') renderAllSales('', '', 'all'); } catch(e){}
                         try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
                         console.log('✅ autoRestoreSalesIfEmpty: restored', arr.length, 'sales for', email);
                     } else {
-                        console.log('autoRestoreSalesIfEmpty: no sales found for', email);
+                        console.log('autoRestoreSalesIfEmpty: no sales found for', email, 'in current month');
                     }
                 } catch(e){ console.warn('autoRestoreSalesIfEmpty: query failed', e); }
             } catch(e){ console.warn('autoRestoreSalesIfEmpty failed', e); }
         };
 
         // Sync all sales from localStorage to cloud to prevent data loss
+        // OPTIMIZED: Check only current month to reduce Firebase quota usage
         window.syncAllSalesToCloud = async function(){
             try {
                 if (!window.auth || !auth.currentUser) return;
@@ -1066,8 +1086,17 @@
                     
                     console.log(`📦 syncAllSalesToCloud: syncing ${localSales.length} sales to cloud...`);
                     
-                    // Check which ones are already in cloud
-                    const cloudSnap = await db.collection('sales').limit(1000).get();
+                    // OPTIMIZED: Check only current month sales in cloud (not all 1000+)
+                    const now = new Date();
+                    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+                    const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+                    
+                    const cloudSnap = await db.collection('sales')
+                        .where('date', '>=', startOfMonth)
+                        .where('date', '<=', endOfMonth)
+                        .limit(50)
+                        .get();
+                    
                     const cloudIds = new Set();
                     cloudSnap.forEach(doc => {
                         cloudIds.add(doc.id);
@@ -1431,11 +1460,20 @@
                     } catch(e){ /* ignore */ }
                     db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => console.warn('user-invoices subcollection error', err));
                     function tryBroadSalesFallback(){
-                        // محاولة أخيرة: قراءة عامة محدودة تعتمد على السماح الانتقالي بالقواعس
-                        db.collection('sales').limit(500).onSnapshot(snap => {
-                            snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); });
-                            mergeAndRender();
-                        }, err => console.warn('broad sales fallback failed', err));
+                        // محاولة أخيرة: قراءة محدودة بالشهر الحالي لتقليل الاستهلاك
+                        const now = new Date();
+                        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
+                        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
+                        
+                        db.collection('sales')
+                            .where('date', '>=', startOfMonth)
+                            .where('date', '<=', endOfMonth)
+                            .orderBy('date', 'desc')
+                            .limit(50)
+                            .onSnapshot(snap => {
+                                snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); });
+                                mergeAndRender();
+                            }, err => console.warn('broad sales fallback failed', err));
                     }
                     // في حال الرفض كله استخدم الكاش المحلي
                     setTimeout(()=>{
