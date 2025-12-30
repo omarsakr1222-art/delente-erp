@@ -11718,6 +11718,14 @@ loginForm.addEventListener('submit', async (e) => {
             : auth.signInWithEmailAndPassword(email, password).then(() => ({ ok: true })));
         if (!result.ok) throw new Error(result.error || 'فشل تسجيل الدخول');
         // onAuthStateChanged will handle the rest
+    } catch (err) {
+        console.error('Login error:', err);
+        alert('خطأ في تسجيل الدخول: ' + (err.message || ''));
+        loginButton.disabled = false;
+        loginButton.textContent = 'دخول';
+    }
+});
+
 // === Cloud Helper Functions ===
 window.ensureRawAndPackFromState = function(){
     const products = Array.isArray(window.state?.products) ? window.state.products : [];
