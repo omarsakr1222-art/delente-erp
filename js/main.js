@@ -2168,7 +2168,8 @@ function navigateTo(pageId) {
     } else if (pageId === 'stock-control') {
         try { 
             if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
-                window.inventorySystem.loadInventoryData('raw');
+                // Render the visible default tab (finished) first
+                window.inventorySystem.loadInventoryData('finished');
             }
         } catch(e){ console.warn('loadInventoryData failed', e); }
     } else if (pageId === 'finished-products') {

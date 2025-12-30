@@ -1,0 +1,2301 @@
+﻿}
+function renderPriceListsPage() {
+const container=document.getElementById('all-price-lists-container');
+if (!container) return;
+try {
+const page=document.getElementById('page-price-lists');
+const hiddenByDisplay=page && (page.style.display==='none' || !page.classList.contains('active'));
+if (!page || hiddenByDisplay) { return; }
+} catch(_){}
+try { container.style.display=''; } catch(e) {}
+container.innerHTML='';
+try { console.log('renderPriceListsPage called — priceLists:', (state.priceLists || []).length, 'products:', (state.products || []).length); } catch(e) {}
+const customersWithoutPriceList=state.customers.filter(c=> !c.priceListId);
+if (customersWithoutPriceList.length > 0) {
+const noListEl=document.createElement('div');
+noListEl.className='bg-yellow-50 p-4 rounded-lg border border-yellow-200 shadow-sm mb-6';
+const customerNames=customersWithoutPriceList.map(c=> `<span class="bg-gray-200 text-gray-800 text-xs font-medium px-2.5 py-1 rounded-full">${c.name}</span>`).join('');
+noListEl.innerHTML=`
+<h3 class="font-bold text-lg text-yellow-800 mb-3">عملاء بدون قائمة أسعار محددة</h3>
+<p class="text-sm text-gray-600 mb-3">هؤلاء العملاء يستخدمون الأسعار الافتراضية للمنتجات. يمكنك تعيين قائمة أسعار لهم من صفحة "العملاء".</p>
+<div class="flex flex-wrap gap-2">
+${customerNames}
+</div>
+`;
+container.appendChild(noListEl);
+}
+if (!state.priceLists || state.priceLists.length===0) {
+container.innerHTML +='<p class="text-center text-gray-500 p-4 bg-gray-100 rounded-lg">لا توجد قوائم أسعار معرفة.</p>';
+return;
+}
+const customersByPriceList={};
+state.customers.forEach(customer=> {
+if (customer.priceListId) {
+if (!customersByPriceList[customer.priceListId]) {
+customersByPriceList[customer.priceListId]=[];
+}
+customersByPriceList[customer.priceListId].push(customer.name);
+}
+});
+state.priceLists.sort((a, b)=> a.name.localeCompare(b.name)).forEach(priceList=> {
+const productPrices=priceList.productPrices || {};
+const productItems=Object.keys(productPrices).map(productId=> {
+const product=findProduct(productId);
+const price=productPrices[productId];
+if (!product) return ''; 
+return `
+<li class="flex justify-between items-center py-2 px-3 hover:bg-gray-50 text-sm">
+<span>${product.name} <span class="text-xs text-gray-400">(${product.id})</span></span>
+<span class="font-bold text-blue-600">${formatCurrency(price)}</span>
+</li>
+`;
+}).join('');
+const associatedCustomers=customersByPriceList[priceList.id] || [];
+const customersHtml=associatedCustomers.length > 0
+? `<div class="mt-4 pt-3 border-t border-gray-100">
+<h4 class="font-semibold text-sm text-gray-700 mb-2">العملاء المطبق عليهم هذه القائمة:</h4>
+<div class="flex flex-wrap gap-2">
+${associatedCustomers.map(name=> `<span class="bg-gray-200 text-gray-800 text-xs font-medium px-2.5 py-1 rounded-full">${name}</span>`).join('')}
+</div>
+</div>`
+: '<p class="text-xs text-gray-400 mt-4 pt-3 border-t border-gray-100">هذه القائمة غير مطبقة على أي عميل حالياً.</p>';
+const el=document.createElement('div');
+el.className='bg-white p-4 rounded-lg border shadow-sm mb-4';
+el.innerHTML=`
+<h3 class="font-bold text-lg text-gray-800">${priceList.name}</h3>
+<div class="max-h-60 overflow-y-auto mt-3 pr-2">
+${productItems.length > 0 ? `<ul class="divide-y divide-gray-200">${productItems}</ul>` : '<p class="text-sm text-gray-500">لا توجد أسعار خاصة في هذه القائمة.</p>'}
+</div>
+${customersHtml}
+`;
+container.appendChild(el);
+});
+updateIcons();
+}
+function normalizeSpaces(s){ return (s||'').toString().replace(/\s+/g,' ').trim(); }
+function initPriceListsPage(){
+try {
+const modeSel=document.getElementById('pl-filter-mode');
+const sel=document.getElementById('pl-selector');
+const printBtn=document.getElementById('pl-print');
+const imageBtn=document.getElementById('pl-image');
+const discountInput=document.getElementById('pl-global-discount');
+if (!modeSel || !sel) return;
+populatePlSelector();
+modeSel.onchange=()=> populatePlSelector();
+sel.onchange=()=> renderSelectedPriceList();
+if (printBtn) printBtn.onclick=()=> printSection('pl-sheet-container');
+if (imageBtn) imageBtn.onclick=()=> generateReportImage('pl-sheet-container');
+if (discountInput){
+discountInput.addEventListener('input', ()=> renderSelectedPriceList());
+}
+renderSelectedPriceList();
+} catch(e){ console.warn('initPriceListsPage error', e); }
+}
+function populatePlSelector(){
+const modeSel=document.getElementById('pl-filter-mode');
+const sel=document.getElementById('pl-selector');
+if (!modeSel || !sel) return;
+const mode=modeSel.value || 'customer';
+if (mode==='customer'){
+const excluded=new Set(['عميل جمله واحد','عميل قطاعي اثنين','عميل قطاعي اثنين'].map(normalizeSpaces));
+const options=[];
+const list=(state.customers||[])
+.filter(c=> !excluded.has(normalizeSpaces(c.name)))
+.sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+options.push(...list.map(c=> `<option value="cust:${c.id}">${escapeHtml(c.name||'')}</option>`));
+const chains=loadChains();
+if (chains.length > 0) {
+options.push('<optgroup label="السلاسل">');
+chains.forEach(chain=> {
+options.push(`<option value="chain:${chain.id}">[سلسلة] ${escapeHtml(chain.name||'')}</option>`);
+});
+options.push('</optgroup>');
+}
+sel.innerHTML=options.join('');
+} else {
+const list=(state.priceLists||[]).slice().sort((a,b)=> (a.name||'').localeCompare(b.name||''));
+sel.innerHTML=list.map(pl=> `<option value="pl:${pl.id}">${escapeHtml(pl.name||pl.id)}</option>`).join('');
+}
+}
+function renderSelectedPriceList(){
+const modeSel=document.getElementById('pl-filter-mode');
+const sel=document.getElementById('pl-selector');
+const dateEl=document.getElementById('pl-date');
+const custNameEl=document.getElementById('pl-customer-name');
+if (!sel) return;
+const v=sel.value || '';
+if (dateEl) dateEl.textContent=new Date().toLocaleDateString('ar-EG');
+if (v.startsWith('cust:')){
+const cid=v.slice(5);
+const c=(state.customers||[]).find(x=> (x.id||x._id)===cid);
+const plId=c?.priceListId || '';
+if (custNameEl) custNameEl.textContent=c ? (c.name||'') : '';
+renderPriceListSheet(plId, c?.name||'');
+} else if (v.startsWith('chain:')){
+const chainId=v.slice(6);
+const chains=loadChains();
+const chain=chains.find(c=> c.id===chainId);
+if (custNameEl) custNameEl.textContent=chain ? '[سلسلة] ' + chain.name : '';
+if (chain && chain.customerIds.length > 0){
+const firstCustId=chain.customerIds[0];
+const firstCust=(state.customers||[]).find(x=> (x.id||x._id)===firstCustId);
+const plId=firstCust?.priceListId || '';
+renderPriceListSheet(plId, chain.name||'');
+} else {
+renderPriceListSheet('', chain?.name||'');
+}
+} else if (v.startsWith('pl:')){
+const plId=v.slice(3);
+if (custNameEl) custNameEl.textContent='';
+renderPriceListSheet(plId, '');
+}
+updateIcons();
+}
+function isBarcodeEditable(name){
+try {
+const n=(name||'').replace(/\s+/g,' ').trim();
+return /(زبادي|زبادى|أرز|رز|سمنة|موزاريلا|موزريلا|مورتة|المورتة|معلبات)/.test(n);
+} catch(e){ return false; }
+}
+function renderPriceListSheet(priceListId, customerName){
+const cont=document.getElementById('pl-sheet-container');
+if (!cont){ return; }
+cont.innerHTML='';
+const pl=(state.priceLists||[]).find(x=> x.id===priceListId) || null;
+if (!pl){
+cont.innerHTML='<div class="text-center text-gray-500 p-6">لا توجد قائمة أسعار محددة لهذا الاختيار.</div>';
+return;
+}
+const prices=pl.productPrices || {};
+const discountInput=document.getElementById('pl-global-discount');
+const discountPercent=discountInput ? Math.max(0, Number(discountInput.value||0)) : 0;
+const rows=Object.keys(prices).map(pid=> {
+const prod=findProduct(pid) || { id: pid, name: pid, unit: '', sku: '' };
+return { pid, name: prod.name||pid, unit: prod.unit||'', barcode: prod.barcode||prod.sku||'', price: Number(prices[pid]||0) };
+}).sort((a,b)=> a.name.localeCompare(b.name));
+const thead=`<thead><tr>
+<th>م</th>
+<th>الكود</th>
+<th>الصنف</th>
+<th>باركود</th>
+<th>الوحدة</th>
+<th>السعر</th>
+<th>ضريبة</th>
+<th>خصم</th>
+<th>صافي السعر</th>
+</tr></thead>`;
+let i=0; const tbody=rows.map(r=> {
+i++;
+const discountAmt=discountPercent ? (r.price * discountPercent / 100) : 0;
+const net=r.price - discountAmt;
+const editable=isBarcodeEditable(r.name);
+const barcodeCell=editable
+? `<input type="text" class="barcode-input border rounded px-1 py-0.5 text-sm w-32 focus:outline-none focus:ring-1 focus:ring-blue-400" data-pid="${escapeHtml(r.pid)}" value="${escapeHtml(r.barcode||'')}" placeholder="باركود" />`
+: `${escapeHtml(r.barcode||'')}`;
+return `<tr>
+<td>${i}</td>
+<td>${escapeHtml(r.pid)}</td>
+<td class="name">${escapeHtml(r.name)}</td>
+<td>${barcodeCell}</td>
+<td>${escapeHtml(r.unit||'')}</td>
+<td>${formatCurrency(r.price)}</td>
+<td></td>
+<td>${discountPercent ? formatCurrency(discountAmt) : ''}</td>
+<td>${formatCurrency(net)}</td>
+</tr>`;
+}).join('');
+cont.innerHTML=`<table class="price-sheet">${thead}<tbody>${tbody}</tbody></table>`;
+function handleBarcodeSave(e){
+const el=e.target;
+if (!el.classList.contains('barcode-input')) return;
+const val=el.value.trim();
+const pid=el.getAttribute('data-pid');
+if (!pid || !window.db) return;
+el.disabled=true;
+updateProduct(pid, { barcode: val }).then(()=>{
+try {
+const prod=(state.products||[]).find(p=> (p.id||p._id)===pid);
+if (prod) prod.barcode=val;
+} catch(e){}
+el.classList.remove('border-red-400');
+el.classList.add('border-green-400');
+}).catch(()=>{
+el.classList.add('border-red-400');
+}).finally(()=>{
+el.disabled=false;
+});
+}
+cont.querySelectorAll('input.barcode-input').forEach(inp=> {
+inp.addEventListener('change', handleBarcodeSave);
+inp.addEventListener('blur', handleBarcodeSave);
+});
+}
+async function attemptDeleteSpecificCustomersOnce(){
+try {
+if (!window.db) return;
+const FLAG_KEY='deleted_named_customers_v3';
+if (localStorage.getItem(FLAG_KEY)==='done') return;
+const variants=[
+'عميل جمله واحد','عميل جملة واحد','عميل جملة واحد','عميل جمله واحد',
+'عميل قطاعي اثنين','عميل قطاعي اثنين','عميل قطاعى اثنين','عميل قطاعى اثنين'
+];
+const normSet=new Set(variants.map(v=> normalizeSpaces(v)));
+const targets=(state.customers||[]).filter(c=> normSet.has(normalizeSpaces(c.name)));
+for (const c of targets){
+try { await db.collection('customers').doc(c.id||c._id).delete(); } catch(e){ }
+}
+if (targets.length) localStorage.setItem(FLAG_KEY,'done');
+} catch(e){ }
+}
+function initInquiryDropdown(){
+try {
+const multiSel=document.getElementById('inq-customers');
+if (!multiSel) return;
+const previous=new Set(Array.from(multiSel.selectedOptions).map(o=> o.value));
+const options=[];
+(state.customers||[])
+.filter(c=> !/اكسبشن/.test(c.name||'') || !/(حلواني|حلوانى)/.test(c.name||''))
+.forEach(c=> {
+options.push(`<option value="${c.id||c._id}" ${previous.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`);
+});
+const chains=loadChains();
+if (chains.length > 0) {
+options.push('<optgroup label="السلاسل">');
+chains.forEach(chain=> {
+options.push(`<option value="chain-${chain.id}" ${previous.has('chain-'+chain.id)?'selected':''}>[سلسلة] ${escapeHtml(chain.name||'')}</option>`);
+});
+options.push('</optgroup>');
+}
+multiSel.innerHTML=options.join('');
+} catch(e){ console.warn('initInquiryDropdown failed', e); }
+}
+function generateInquiryReport(){
+const fromStr=document.getElementById('inq-date-from')?.value || '';
+const toStr=document.getElementById('inq-date-to')?.value || '';
+const multiSel=document.getElementById('inq-customers');
+const selectedIds=multiSel ? Array.from(multiSel.selectedOptions).map(o=>o.value) : [];
+const headEl=document.getElementById('inq-report-head');
+const bodyEl=document.getElementById('inq-report-body');
+const summaryEl=document.getElementById('inq-summary');
+const breakdownEl=document.getElementById('inq-customers-breakdown');
+if (!headEl || !bodyEl) return;
+if (!fromStr || !toStr){ bodyEl.innerHTML='<tr><td colspan="5" class="text-center text-red-600">اختر تاريخ البداية والنهاية.</td></tr>'; return; }
+const start=new Date(fromStr+'T00:00:00');
+const end=new Date(toStr+'T23:59:59');
+if (start > end){ bodyEl.innerHTML='<tr><td colspan="5" class="text-center text-red-600">النطاق غير صحيح.</td></tr>'; return; }
+let expandedIds=[];
+const chains=loadChains();
+selectedIds.forEach(id=> {
+if (id.startsWith('chain-')) {
+const chainId=id.substring(6);
+const chain=chains.find(c=> c.id===chainId);
+if (chain) expandedIds.push(...(chain.customerIds || []));
+} else {
+expandedIds.push(id);
+}
+});
+const includeAll=selectedIds.length===0;
+const idSet=new Set(expandedIds);
+const prodAgg={}; 
+const filteredSales=(state.sales||[]).filter(s=> {
+const d=new Date(s.date);
+if (isNaN(d)) return false;
+if (d < start || d > end) return false;
+if (!includeAll && !idSet.has(s.customerId)) return false;
+return true;
+});
+filteredSales.forEach(s=> {
+(s.items||[]).forEach(it=> {
+const pid=it.productId || it.pid || it.productID; const prod=findProduct(pid); if (!prod) return;
+const qty=Number(it.quantity||it.qty||0);
+const price=Number(it.unitPrice||it.price||(prod.price||0));
+if (!prodAgg[pid]) prodAgg[pid]={ name: prod.name||pid, qty:0, totalValue:0, unitPrice: price };
+prodAgg[pid].qty +=qty;
+prodAgg[pid].totalValue +=qty * price;
+});
+});
+const productIds=Object.keys(prodAgg).sort((a,b)=> (prodAgg[a].name||'').localeCompare(prodAgg[b].name||''));
+headEl.innerHTML='<tr><th>الكود</th><th>اسم الصنف</th><th>الكمية الإجمالية</th><th>متوسط السعر</th><th>المبلغ الإجمالي</th></tr>';
+let totalAll=0, totalQtyAll=0;
+const rowsHtml=productIds.map(pid=> {
+const p=prodAgg[pid];
+totalAll +=p.totalValue; totalQtyAll +=p.qty;
+return `<tr><td>${escapeHtml(pid)}</td><td class='prod-name'>${escapeHtml(p.name)}</td><td class='qty-cell'>${p.qty}</td><td>${formatCurrency(p.unitPrice)}</td><td class='total-cell'>${formatCurrency(p.totalValue)}</td></tr>`;
+}).join('');
+bodyEl.innerHTML=rowsHtml || '<tr><td colspan="5" class="text-center text-gray-500">لا توجد بيانات في الفترة المختارة.</td></tr>';
+const distinctCustomers=new Set(filteredSales.map(s=>s.customerId)).size;
+summaryEl.innerHTML=`
+<div class='card'><span>عدد الأصناف</span><span class='val'>${productIds.length}</span></div>
+<div class='card'><span>إجمالي الكمية</span><span class='val'>${totalQtyAll}</span></div>
+<div class='card'><span>إجمالي القيمة</span><span class='val'>${formatCurrency(totalAll)}</span></div>
+<div class='card'><span>عدد العملاء</span><span class='val'>${distinctCustomers}</span></div>`;
+if (breakdownEl){
+const custAgg={};
+filteredSales.forEach(s=> {
+if (!custAgg[s.customerId]) custAgg[s.customerId]={ qty:0, value:0 };
+(s.items||[]).forEach(it=> {
+const q=Number(it.quantity||it.qty||0);
+const pr=Number(it.unitPrice||it.price||0);
+custAgg[s.customerId].qty +=q;
+custAgg[s.customerId].value +=q * pr;
+});
+});
+const rowsCust=Object.entries(custAgg).map(([cid, data])=> {
+const cObj=(state.customers||[]).find(c=> (c.id||c._id)===cid);
+return `<tr><td>${escapeHtml(cObj?.name||cid||'')}</td><td class='text-center'>${data.qty}</td><td class='text-center'>${formatCurrency(data.value)}</td></tr>`;
+}).join('');
+breakdownEl.innerHTML=rowsCust ? `<h3 class='font-bold mb-2 text-sm'>تفصيل حسب العميل</h3><table class='text-xs w-full border-collapse'><thead><tr class='bg-gray-700 text-white'><th class='p-1 border'>العميل</th><th class='p-1 border'>إجمالي الكمية</th><th class='p-1 border'>إجمالي القيمة</th></tr></thead><tbody>${rowsCust}</tbody></table>` : '';
+}
+updateIcons();
+}
+document.addEventListener('DOMContentLoaded', function(){
+try { initPriceListsPage(); } catch(e){}
+try { initInquiryDropdown(); } catch(e){}
+const genBtn=document.getElementById('inq-generate-btn');
+const printBtn=document.getElementById('inq-print-btn');
+const imgBtn=document.getElementById('inq-image-btn');
+if (genBtn) genBtn.addEventListener('click', generateInquiryReport);
+if (printBtn) printBtn.addEventListener('click', ()=> printSection('page-inquiry'));
+if (imgBtn) imgBtn.addEventListener('click', ()=> generateReportImage('page-inquiry'));
+const filterInput=document.getElementById('inq-customer-filter');
+if (filterInput){
+filterInput.addEventListener('input', ()=> {
+const term=filterInput.value.trim();
+const multiSel=document.getElementById('inq-customers');
+if (!multiSel) return;
+const selected=new Set(Array.from(multiSel.selectedOptions).map(o=>o.value));
+multiSel.innerHTML=(state.customers||[])
+.filter(c=> !/اكسبشن/.test(c.name||'') || !/(حلواني|حلوانى)/.test(c.name||''))
+.filter(c=> !term || (c.name||'').includes(term))
+.map(c=> `<option value="${c.id||c._id}" ${selected.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`)
+.join('');
+});
+}
+});
+document.addEventListener('DOMContentLoaded', ()=> {
+const showRepsBtn=document.getElementById('debts-show-reps-btn');
+const showCustomersBtn=document.getElementById('debts-show-customers-btn');
+if (showRepsBtn) {
+showRepsBtn.addEventListener('click', (e)=> {
+e.preventDefault();
+if (typeof navigateTo==='function') navigateTo('rep-debts');
+});
+}
+if (showCustomersBtn) {
+showCustomersBtn.addEventListener('click', (e)=> {
+e.preventDefault();
+if (typeof navigateTo==='function') navigateTo('customers');
+});
+}
+});
+document.addEventListener('DOMContentLoaded', ()=> {
+const refreshBtn=document.getElementById('debts-refresh-btn');
+if (refreshBtn) {
+refreshBtn.addEventListener('click', (e)=> {
+e.preventDefault();
+try {
+if (typeof renderDebts==='function') renderDebts();
+} catch (err) {
+console.error('Failed to refresh debts:', err);
+}
+});
+}
+});
+function navigateTo(pageId) {
+if (pageId==='sales' || pageId==='reports' || pageId==='debts') {
+try { ensureDefaultActivePeriod(); } catch(e){}
+}
+try {
+if (!canAccessPage(pageId)) {
+if (typeof lastRequestedPage !=='undefined' && lastRequestedPage===pageId) {
+try { customDialog({ title:'غير مصرح', message:'صلاحياتك لا تسمح بفتح هذه الصفحة.' }); } catch(_) { alert('غير مصرح'); }
+}
+pageId='dashboard';
+}
+} catch(e){}
+try {
+if (window.__currentPage===pageId) { updateIcons(); return; }
+window.__currentPage=pageId;
+} catch(_){}
+document.querySelectorAll('.page').forEach(p=> { p.classList.remove('active'); p.style.display=''; }); 
+const pageEl=document.getElementById(`page-${pageId}`); 
+if (pageId==='reports') {
+pageEl.classList.add('active');
+reportsSubnav.classList.add('active');
+initializeReportsPage();
+} else {
+reportsSubnav.classList.remove('active'); 
+}
+if (pageEl) { pageEl.classList.add('active'); } else { console.error(`Page element not found for ID: page-${pageId}`); } 
+document.querySelectorAll('.bottom-nav-item').forEach(n=> n.classList.remove('active')); 
+const navButton=document.querySelector(`.bottom-nav-item[data-page="${pageId}"]`); 
+if (navButton) navButton.classList.add('active'); 
+const titles={ dashboard: 'لوحة المعلومات والتقارير', 'spreadsheet-entry': 'إدخال سريع', sales: 'جميع المبيعات', dispatch: 'أذونات الاستلام', reports: 'التقارير التفصيلية', promotions: 'العروض الترويجية', customers: 'العملاء', reps: 'إدارة المناديب', 'rep-debts': 'مديونات المناديب', 'total-bills': 'إجمالي الفواتير', 'price-lists': 'قوائم الأسعار', settings: 'الإعدادات', 'finished-products': 'الإنتاج التام', 'raw-materials': 'الخامات', packaging: 'مواد التعبئة والتغليف', 'stock-control': 'التحكم في المخزون', 'collection-receipt': 'كشف التحصيل', 'cash': 'الكاش', 'taxes': 'الضرائب', 'costs': 'التكاليف' }; 
+headerTitle.textContent=titles[pageId] || 'تطبيق مندوبي'; 
+if(pageId !=='stock-control'){
+try{
+document.querySelectorAll('.stock-subpage').forEach(s=>s.classList.add('hidden'));
+['stock-subbtn-finished-products','stock-subbtn-raw-materials','stock-subbtn-packaging'].forEach(id=>{const b=document.getElementById(id); if(b) b.classList.remove('ring','ring-2');});
+}catch(e){}
+}
+if (pageId==='dashboard') { 
+renderDashboard(); 
+renderSales7DaysChart(); 
+renderTopRepsChart(); 
+renderTopProductsChart(); 
+renderTopCustomersChart(); 
+} else if (pageId==='sales') {
+try { 
+renderAllSales('', '', 'all');
+console.log(`Sales page loaded with activePeriod: ${window.state?.activePeriod}`);
+} catch(e){ console.warn('renderAllSales failed', e); }
+} else if (pageId==='spreadsheet-entry') { 
+initializeSpreadsheetPage(); 
+} else if (pageId==='promotions') { 
+renderPromotions(); 
+} else if (pageId==='debts') { 
+renderDebts(); 
+} else if (pageId==='rep-debts') { 
+renderRepDebts(); 
+} else if (pageId==='total-bills'){
+initTotalBillsPage();
+} else if (pageId==='stock-control') {
+try { 
+if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
+window.inventorySystem.loadInventoryData('raw');
+}
+} catch(e){ console.warn('loadInventoryData failed', e); }
+} else if (pageId==='finished-products') {
+try { renderStockLedgerForFinishedProducts(); } catch(e){ console.warn('renderFinishedProducts failed', e); }
+} else if (pageId==='dispatch') {
+try { initializeNewDispatchGrid(); } catch(_){}
+try { renderDispatchPage(); } catch(_){}
+} else if (pageId==='price-lists') {
+initPriceListsPage();
+} else if (pageId==='production') {
+try { 
+if (window.loadProductionsFromFirebase) {
+window.loadProductionsFromFirebase().then(()=> {
+if (window.renderProductionsList) window.renderProductionsList();
+}).catch(err=> {
+console.warn('Firebase load failed, using local data:', err);
+if (window.renderProductionsList) window.renderProductionsList();
+});
+} else if (window.renderProductionsList) {
+window.renderProductionsList();
+}
+} catch(err) { 
+console.warn('renderProductionsList failed:', err); 
+}
+} else if (pageId==='cash') {
+try { renderCash(); } catch(e){ console.warn('renderCash failed', e); }
+} else if (pageId==='taxes') {
+try { renderTaxesPage(); } catch(e){ console.warn('renderTaxesPage failed', e); }
+} else if (pageId==='costs') {
+try { renderCostsPage(); } catch(e){ console.warn('renderCostsPage failed', e); }
+}
+updateIcons();
+}
+function applyRoleNavRestrictions(){
+try {
+const role=(typeof getUserRole==='function') ? getUserRole() : 'user';
+const buttons=Array.from(document.querySelectorAll('.bottom-nav .bottom-nav-item'));
+const allow=ROLE_PAGE_ALLOW[role];
+if (!allow || allow==='ALL') { buttons.forEach(btn=> btn.style.display=''); return; }
+buttons.forEach(btn=> {
+const p=btn.getAttribute('data-page');
+if (allow.has(p)) btn.style.display='';
+else btn.style.display='none';
+});
+} catch(_){ }
+}
+document.addEventListener('DOMContentLoaded', applyRoleNavRestrictions);
+setTimeout(applyRoleNavRestrictions, 1000);
+setTimeout(applyRoleNavRestrictions, 3000);
+function getISODateString(input){
+try {
+if (!input) return null;
+const d=(input instanceof Date) ? input : new Date(input);
+if (isNaN(d.getTime())) return null;
+const y=d.getFullYear();
+const m=String(d.getMonth() + 1).padStart(2, '0');
+const day=String(d.getDate()).padStart(2, '0');
+return y + '-' + m + '-' + day;
+} catch(_) { return null; }
+}
+function getPreviousDate(dateString) {
+const base=getISODateString(dateString) ? new Date(dateString) : new Date();
+base.setDate(base.getDate() - 1);
+return getISODateString(base);
+}
+function renderStockLedger() {
+const stockDateEl=document.getElementById('stock-control-date');
+const finishedDateEl=document.getElementById('finished-products-date');
+const date=getISODateString((stockDateEl && stockDateEl.value) ? stockDateEl.value : (finishedDateEl && finishedDateEl.value) ? finishedDateEl.value : new Date());
+const prevDate=getPreviousDate(date);
+const body=document.getElementById('stock-control-table-body') || document.getElementById('finished-products-table-body');
+if (!body) {
+try { updateStockControlIcons(); } catch(_){}
+return;
+}
+body.innerHTML='';
+const prevDayBalances=state.stockEntries[prevDate] || {};
+const currentDayEntries=state.stockEntries[date] || {};
+const dispatchesForDate=state.dispatchNotes.filter(d=> getISODateString(d && d.date ? d.date : null)===date);
+if (state.products.length===0) {
+body.innerHTML=`<tr><td colspan="10" class="text-center p-4 text-gray-500">الرجاء إضافة منتجات أولاً من صفحة الإعدادات.</td></tr>`;
+return;
+}
+state.products.forEach(product=> {
+let openingBalanceValue=currentDayEntries[product.id]?.opening;
+if (openingBalanceValue===undefined) {
+openingBalanceValue=(prevDayBalances[product.id]?.actual !==undefined) ? prevDayBalances[product.id].actual : 0;
+}
+const totalDispatched=dispatchesForDate.reduce((sum, dispatch)=> {
+const item=dispatch.items.find(i=> i.productId===product.id);
+return sum + (item ? (item.quantity || 0) : 0);
+}, 0);
+const totalGoodReturns=dispatchesForDate.reduce((sum, dispatch)=> {
+const item=dispatch.items.find(i=> i.productId===product.id);
+return sum + (item ? (item.goodReturn || 0) : 0);
+}, 0);
+const productionQty=currentDayEntries[product.id]?.production || 0;
+const netOutbound=totalDispatched - totalGoodReturns;
+const row=document.createElement('tr');
+row.dataset.productId=product.id;
+row.innerHTML=`
+<td class="px-2 py-2 text-sm font-medium text-gray-800 text-right">${product.name}</td>
+<td class="px-2 py-2 stock-col-initial"><input type="number" class="w-20 p-1 border rounded text-center opening-balance" value="${openingBalanceValue}"></td>
+<td class="px-2 py-2 text-center text-sm font-semibold text-blue-700 stock-col-production">${productionQty}</td>
+<td class="px-2 py-2 stock-col-production-input"><input type="number" class="w-20 p-1 border rounded text-center production-qty" value="${productionQty}"></td>
+<td class="px-2 py-2 text-center text-sm font-semibold text-orange-600 stock-col-dispatched">${totalDispatched}</td>
+<td class="px-2 py-2 text-center text-sm font-semibold text-green-700 stock-col-good-returns">${totalGoodReturns}</td>
+<td class="px-2 py-2 text-center text-sm font-bold stock-col-book">0</td>
+<td class="px-2 py-2 stock-col-actual"><input type="number" class="w-20 p-1 border rounded text-center actual-balance"></td>
+<td class="px-2 py-2 text-center text-sm font-bold stock-col-diff">0</td>
+<td class="px-2 py-2 text-center text-sm font-semibold stock-col-diff-text"></td>
+`;
+body.appendChild(row);
+const openingBalanceInput=row.querySelector('.opening-balance');
+const productionInput=row.querySelector('.production-qty');
+const actualBalanceInput=row.querySelector('.actual-balance');
+const bookBalanceCell=row.querySelector('.stock-col-book');
+const diffCell=row.querySelector('.stock-col-diff');
+const diffTextCell=row.querySelector('.stock-col-diff-text');
+function updateRowCalculations() {
+const openingBalance=parseInt(openingBalanceInput.value) || 0;
+const productionInputQty=parseInt(productionInput.value) || 0;
+const bookBalance=openingBalance + productionInputQty - netOutbound;
+bookBalanceCell.textContent=bookBalance;
+const actualBalance=parseInt(actualBalanceInput.value);
+if (!isNaN(actualBalance)) {
+const difference=actualBalance - bookBalance;
+diffCell.textContent=difference;
+if (difference > 0) {
+diffTextCell.textContent='زيادة';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-green-700 stock-col-diff-text';
+} else if (difference < 0) {
+diffTextCell.textContent='عجز';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-red-700 stock-col-diff-text';
+} else {
+diffTextCell.textContent='مطابق';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-gray-700 stock-col-diff-text';
+}
+} else {
+diffCell.textContent='-';
+diffTextCell.textContent='';
+}
+}
+openingBalanceInput.addEventListener('focus', (e)=> {
+e.target.dataset.previousValue=e.target.value;
+});
+openingBalanceInput.addEventListener('change', async (e)=> {
+const confirmed=await customDialog({
+title: 'تأكيد تعديل الرصيد',
+message: 'هل أنت متأكد أنك تريد تعديل الرصيد المبدئي يدوياً؟',
+isConfirm: true,
+confirmText: 'نعم، عدل',
+confirmClass: 'bg-orange-500 hover:bg-orange-600'
+});
+if (confirmed) {
+const newValue=parseInt(e.target.value);
+if (!isNaN(newValue)) {
+if (!state.stockEntries[date]) state.stockEntries[date]={};
+if (!state.stockEntries[date][product.id]) state.stockEntries[date][product.id]={};
+state.stockEntries[date][product.id].opening=newValue;
+window._finishedGridState=window._finishedGridState || {};
+window._finishedGridState[product.id]=Object.assign(window._finishedGridState[product.id]||{}, { opening: newValue });
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState)); } catch(e){}
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(e){}
+try { saveFinishedProductsDebounced(); } catch(e){}
+updateRowCalculations();
+}
+} else {
+e.target.value=e.target.dataset.previousValue;
+}
+});
+const saved=(window._finishedGridState && window._finishedGridState[product.id]) ? window._finishedGridState[product.id] : {};
+if (saved.production !==undefined) productionInput.value=saved.production; else productionInput.value=currentDayEntries[product.id]?.production || 0;
+const bookBalance=parseInt(bookBalanceCell.textContent);
+if (saved.actual !==undefined && saved.actual !==null) actualBalanceInput.value=saved.actual; else actualBalanceInput.value=currentDayEntries[product.id]?.actual ?? bookBalance;
+const saveFinishedProductsDebounced=(typeof window.debouncedFinishedSave==='function') ? window.debouncedFinishedSave : function(){};
+function persistFinishedRow() {
+try {
+window._finishedGridState=window._finishedGridState || {};
+window._finishedGridState[product.id]=Object.assign(window._finishedGridState[product.id]||{}, {
+production: (productionInput && productionInput.value) ? Number(productionInput.value) : 0,
+actual: (actualBalanceInput && actualBalanceInput.value) ? Number(actualBalanceInput.value) : null,
+opening: (openingBalanceInput && openingBalanceInput.value) ? Number(openingBalanceInput.value) : 0,
+updatedAt: new Date().toISOString()
+});
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(e){}
+if (typeof window.debouncedFinishedSave==='function') window.debouncedFinishedSave();
+} catch(e){ console.warn('persist finished row failed', e); }
+}
+productionInput.addEventListener('input', function(e){
+updateRowCalculations();
+window.__finishedTouched=true; 
+try { persistFinishedRow(); } catch(e){ console.warn('persistFinishedRow failed', e); }
+try {
+const productId=product.id;
+const value=(productionInput && productionInput.value) ? Number(productionInput.value) : 0;
+const finishedState=window._finishedGridState || {};
+finishedState[productId]=Object.assign(finishedState[productId]||{}, { production: value, updatedAt: new Date().toISOString() });
+try { localStorage.setItem('finished_products_grid', JSON.stringify(finishedState)); } catch(e){}
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(e){}
+try { saveFinishedProductsDebounced(); } catch(e){}
+} catch(e){ console.warn('forced local save (production) failed', e); }
+});
+actualBalanceInput.addEventListener('input', function(e){
+updateRowCalculations();
+window.__finishedTouched=true; 
+try { persistFinishedRow(); } catch(e){ console.warn('persistFinishedRow failed', e); }
+try {
+const productId=product.id;
+const val=(actualBalanceInput && actualBalanceInput.value) ? Number(actualBalanceInput.value) : null;
+const finishedState=window._finishedGridState || {};
+finishedState[productId]=Object.assign(finishedState[productId]||{}, { actual: val, updatedAt: new Date().toISOString() });
+try { localStorage.setItem('finished_products_grid', JSON.stringify(finishedState)); } catch(e){}
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(e){}
+try { saveFinishedProductsDebounced(); } catch(e){}
+} catch(e){ console.warn('forced local save (actual) failed', e); }
+});
+updateRowCalculations();
+updateRowCalculations();
+});
+updateStockControlIcons();
+}
+function saveStockBalances() {
+const dateEl=document.getElementById('stock-control-date') || document.getElementById('finished-products-date');
+const date=dateEl ? dateEl.value : null;
+if (!date) {
+customDialog({ title: 'خطأ', message: 'الرجاء تحديد تاريخ أولاً.' });
+return;
+}
+if (!state.stockEntries[date]) {
+state.stockEntries[date]={};
+}
+let rows=document.querySelectorAll('#stock-control-table-body tr');
+if (!rows || rows.length===0) {
+rows=document.querySelectorAll('#finished-products-table-body tr');
+}
+rows.forEach(row=> {
+const productId=row.dataset.productId;
+const actualBalanceInput=row.querySelector('.actual-balance');
+const productionInput=row.querySelector('.production-qty');
+if (productId) {
+if (!state.stockEntries[date][productId]) {
+state.stockEntries[date][productId]={};
+}
+const actualBalance=parseInt(actualBalanceInput.value);
+if (!isNaN(actualBalance)) {
+state.stockEntries[date][productId].actual=actualBalance;
+}
+const productionQty=parseInt(productionInput.value);
+if (!isNaN(productionQty)) {
+state.stockEntries[date][productId].production=productionQty;
+}
+}
+});
+try {
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(e){}
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(e){}
+} catch(e){ }
+saveState();
+customDialog({ title: 'تم الحفظ', message: `تم حفظ الرصيد الفعلي والإنتاج لليوم التالي بتاريخ ${formatArabicDate(date)}.` });
+try { alert('تم حفظ بيانات الإنتاج التام بنجاح ✅'); } catch(e){}
+updateStockControlIcons();
+}
+function updateStockControlIcons() {
+const finishedProductsCount=state.products.filter(p=> p.category && p.category.toLowerCase().includes('انتاج|تام|منتج')).length;
+const rawMaterialsCount=state.products.filter(p=> p.category && p.category.toLowerCase().includes('خامة|مواد خام|مادة خام')).length;
+const packagingCount=state.products.filter(p=> p.category && (p.category.toLowerCase().includes('تعبئة') || p.category.toLowerCase().includes('تغليف') || p.category.toLowerCase().includes('عبوة') || p.category.toLowerCase().includes('ورق') || p.category.toLowerCase().includes('كيس'))).length;
+document.getElementById('stock-finished-products-count').textContent=finishedProductsCount;
+document.getElementById('stock-raw-materials-count').textContent=rawMaterialsCount;
+document.getElementById('stock-packaging-count').textContent=packagingCount;
+updateIcons();
+}
+function scrollToStockTable() {
+const table=document.getElementById('stock-control-table');
+if (table) {
+table.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+}
+function showStockSubview(name){
+try{
+try {
+const visible=Array.from(document.querySelectorAll('.stock-subpage')).find(s=> !s.classList.contains('hidden'));
+if (visible) {
+const id=visible.id || '';
+if (id.includes('raw') && typeof window.saveRawGridStateNow==='function') {
+try { window.saveRawGridStateNow(); } catch(e){ console.warn('flush raw save failed', e); }
+}
+if (id.includes('pack') && typeof window.savePackGridStateNow==='function') {
+try { window.savePackGridStateNow(); } catch(e){ console.warn('flush pack save failed', e); }
+}
+if (id.includes('finished') && typeof window.saveFinishedProductsNow==='function') {
+try { window.saveFinishedProductsNow(); } catch(e){ }
+}
+}
+} catch(e){ }
+document.querySelectorAll('.stock-subpage').forEach(s=>s.classList.add('hidden'));
+['stock-subbtn-finished-products','stock-subbtn-raw-materials','stock-subbtn-packaging'].forEach(id=>{const b=document.getElementById(id); if(b) b.classList.remove('ring','ring-2');});
+if(!name) return;
+const map={
+'finished-products':'subpage-finished-products',
+'raw-materials':'subpage-raw-materials',
+'packaging':'subpage-packaging'
+};
+const subId=map[name];
+const subEl=subId ? document.getElementById(subId) : null;
+if(subEl) subEl.classList.remove('hidden');
+const btn=document.getElementById('stock-subbtn-'+name);
+if(btn) btn.classList.add('ring','ring-2');
+if(name==='finished-products') renderStockLedgerForFinishedProducts();
+if(name==='raw-materials') renderRawMaterials();
+if(name==='packaging') renderPackaging();
+}catch(e){console.warn('showStockSubview', e)}
+}
+function renderFinishedProducts() {
+if (typeof renderStockLedgerForFinishedProducts==='function') {
+renderStockLedgerForFinishedProducts();
+}
+}
+function renderStockLedgerForFinishedProducts() {
+try { window._finishedGridState=Object.assign({}, window._finishedGridState || {}, JSON.parse(localStorage.getItem('finished_products_grid') || '{}')); } catch(e) { window._finishedGridState=window._finishedGridState || {}; }
+try { if (window.state && !window.state.stockEntries) window.state.stockEntries=JSON.parse(localStorage.getItem('stock_entries') || '{}'); } catch(e){}
+const dateInputEl=document.getElementById('finished-products-date');
+const dateInput=dateInputEl ? dateInputEl.value : null;
+const date=getISODateString(dateInput || new Date());
+const prevDate=getPreviousDate(date);
+const body=document.getElementById('finished-products-table-body');
+if (!body) return; 
+body.innerHTML='';
+try {
+const prodCount=Array.isArray(state.products) ? state.products.length : 0;
+const prevCount=state.stockEntries[prevDate] ? Object.keys(state.stockEntries[prevDate]).length : 0;
+const curCount=state.stockEntries[date] ? Object.keys(state.stockEntries[date]).length : 0;
+console.log('🧪 Finished Render → date:', date, '| products:', prodCount, '| prev entries:', prevCount, '| today entries:', curCount);
+} catch(_){ }
+const prevDayBalances=state.stockEntries[prevDate] || {};
+const currentDayEntries=state.stockEntries[date] || {};
+const salesForDate=(Array.isArray(state.sales) ? state.sales : []).filter(s=> {
+try { return getISODateString(s && s.date ? s.date : null)===date; } catch(_) { return false; }
+});
+const dispatchesForDate=(Array.isArray(state.dispatchNotes) ? state.dispatchNotes : []).filter(d=> {
+try { return getISODateString(d && d.date ? d.date : null)===date; } catch(_) { return false; }
+});
+try { console.log('🧪 Finished Render → sales:', salesForDate.length, '| dispatches:', dispatchesForDate.length); } catch(_){ }
+if (state.products.length===0) {
+body.innerHTML=`<tr><td colspan="9" class="text-center p-4 text-gray-500">الرجاء إضافة منتجات أولاً من صفحة الإعدادات.</td></tr>`;
+return;
+}
+state.products.forEach(product=> {
+let openingBalanceValue=currentDayEntries[product.id]?.opening;
+if (openingBalanceValue===undefined) {
+const prevActual=(prevDayBalances[product.id]?.actual !==undefined) ? prevDayBalances[product.id].actual : undefined;
+openingBalanceValue=(prevActual !==undefined) ? prevActual : 0;
+try {
+if (!state.stockEntries[date]) state.stockEntries[date]={};
+if (!state.stockEntries[date][product.id]) state.stockEntries[date][product.id]={};
+if (prevActual !==undefined) {
+state.stockEntries[date][product.id].opening=prevActual;
+window._finishedGridState=window._finishedGridState || {};
+window._finishedGridState[product.id]=Object.assign(window._finishedGridState[product.id]||{}, { opening: prevActual, updatedAt: new Date().toISOString() });
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(_){ }
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(_){ }
+try { if (typeof window.debouncedFinishedSave==='function') window.debouncedFinishedSave(); } catch(_){ }
+}
+} catch(_){ }
+}
+const totalInward=dispatchesForDate.reduce((sum, dispatch)=> {
+const item=dispatch.items.find(i=> i.productId===product.id);
+return sum + (item ? (item.quantity || 0) : 0);
+}, 0);
+const totalOutbound=salesForDate.reduce((sum, sale)=> {
+const item=sale.items.find(i=> i.productId===product.id);
+return sum + (item ? (item.quantity || 0) : 0);
+}, 0);
+try { console.log('🧪 Row', product.id, product.name, '→ open:', openingBalanceValue, 'in:', totalInward, 'out:', totalOutbound); } catch(_){ }
+const row=document.createElement('tr');
+row.dataset.productId=product.id;
+row.innerHTML=`
+<td class="px-2 py-2 text-sm font-medium text-gray-800 text-right">${product.name}</td>
+<td class="px-2 py-2 stock-col-initial"><input type="number" class="w-20 p-1 border rounded text-center opening-balance" value="${openingBalanceValue}"></td>
+<td class="px-2 py-2 text-center text-sm stock-col-inward">${totalInward}</td>
+<td class="px-2 py-2 stock-col-production"><input type="number" class="w-20 p-1 border rounded text-center production-qty" value="${currentDayEntries[product.id]?.production || 0}"></td>
+<td class="px-2 py-2 text-center text-sm stock-col-outbound">${totalOutbound}</td>
+<td class="px-2 py-2 text-center text-sm font-bold stock-col-book">0</td>
+<td class="px-2 py-2 stock-col-actual"><input type="number" class="w-20 p-1 border rounded text-center actual-balance"></td>
+<td class="px-2 py-2 text-center text-sm font-bold stock-col-diff">0</td>
+<td class="px-2 py-2 text-center text-sm font-semibold stock-col-diff"></td>
+`;
+body.appendChild(row);
+const openingBalanceInput=row.querySelector('.opening-balance');
+const productionInput=row.querySelector('.production-qty');
+const actualBalanceInput=row.querySelector('.actual-balance');
+const bookBalanceCell=row.querySelector('.stock-col-book');
+const diffCell=row.querySelector('.stock-col-diff');
+const diffTextCell=row.querySelectorAll('.stock-col-diff')[1];
+function updateRowCalculations() {
+const openingBalance=parseInt(openingBalanceInput.value) || 0;
+const productionQty=parseInt(productionInput.value) || 0;
+const bookBalance=openingBalance + totalInward + productionQty - totalOutbound;
+bookBalanceCell.textContent=bookBalance;
+const actualBalance=parseInt(actualBalanceInput.value);
+if (!isNaN(actualBalance)) {
+const difference=actualBalance - bookBalance;
+diffCell.textContent=difference;
+if (difference > 0) {
+diffTextCell.textContent='زيادة';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-green-700 stock-col-diff';
+} else if (difference < 0) {
+diffTextCell.textContent='عجز';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-red-700 stock-col-diff';
+} else {
+diffTextCell.textContent='مطابق';
+diffTextCell.className='px-2 py-2 text-center text-sm font-semibold text-gray-700 stock-col-diff';
+}
+} else {
+diffCell.textContent='-';
+diffTextCell.textContent='';
+}
+}
+openingBalanceInput.addEventListener('focus', (e)=> {
+e.target.dataset.previousValue=e.target.value;
+});
+openingBalanceInput.addEventListener('change', async (e)=> {
+const confirmed=await customDialog({
+title: 'تأكيد تعديل الرصيد',
+message: 'هل أنت متأكد أنك تريد تعديل الرصيد المبدئي يدوياً؟',
+isConfirm: true,
+confirmText: 'نعم، عدل',
+confirmClass: 'bg-orange-500 hover:bg-orange-600'
+});
+if (confirmed) {
+const newValue=parseInt(e.target.value);
+if (!isNaN(newValue)) {
+if (!state.stockEntries[date]) state.stockEntries[date]={};
+if (!state.stockEntries[date][product.id]) state.stockEntries[date][product.id]={};
+state.stockEntries[date][product.id].opening=newValue;
+try {
+window.__finishedTouched=true; 
+window._finishedGridState=window._finishedGridState || {};
+window._finishedGridState[product.id]=Object.assign(window._finishedGridState[product.id]||{}, { opening: newValue, updatedAt: new Date().toISOString() });
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(e){}
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries || {})); } catch(e){}
+if (typeof window.debouncedFinishedSave==='function') window.debouncedFinishedSave();
+} catch(e){ console.warn('persist finished opening failed', e); }
+updateRowCalculations();
+}
+} else {
+e.target.value=e.target.dataset.previousValue;
+}
+});
+productionInput.addEventListener('input', updateRowCalculations);
+actualBalanceInput.addEventListener('input', updateRowCalculations);
+updateRowCalculations();
+const bookBalance=parseInt(bookBalanceCell.textContent);
+actualBalanceInput.value=currentDayEntries[product.id]?.actual ?? bookBalance;
+updateRowCalculations();
+});
+}
+function saveStockBalancesForFinishedProducts() {
+const rawDateVal=document.getElementById('finished-products-date').value;
+const date=getISODateString(rawDateVal || new Date());
+if (!date) {
+customDialog({ title: 'خطأ', message: 'الرجاء تحديد تاريخ أولاً.' });
+return;
+}
+if (!state.stockEntries[date]) {
+state.stockEntries[date]={};
+}
+const rows=document.querySelectorAll('#finished-products-table-body tr');
+rows.forEach(row=> {
+const productId=row.dataset.productId;
+const actualBalanceInput=row.querySelector('.actual-balance');
+const productionInput=row.querySelector('.production-qty');
+const openingBalanceInput=row.querySelector('.opening-balance');
+if (productId) {
+if (!state.stockEntries[date][productId]) {
+state.stockEntries[date][productId]={};
+}
+const actualBalance=actualBalanceInput ? parseInt(actualBalanceInput.value) : 0;
+state.stockEntries[date][productId].actual=!isNaN(actualBalance) ? actualBalance : 0;
+const productionQty=productionInput ? parseInt(productionInput.value) : 0;
+state.stockEntries[date][productId].production=!isNaN(productionQty) ? productionQty : 0;
+const openingVal=openingBalanceInput ? parseInt(openingBalanceInput.value) : 0;
+state.stockEntries[date][productId].opening=!isNaN(openingVal) ? openingVal : 0;
+try {
+window._finishedGridState=window._finishedGridState || {};
+if (!window._finishedGridState[productId]) window._finishedGridState[productId]={};
+window._finishedGridState[productId].actual=!isNaN(actualBalance) ? actualBalance : 0;
+window._finishedGridState[productId].production=!isNaN(productionQty) ? productionQty : 0;
+window._finishedGridState[productId].opening=!isNaN(openingVal) ? openingVal : 0;
+window._finishedGridState[productId].updatedAt=new Date().toISOString();
+} catch(e){ console.warn('Update _finishedGridState failed', e); }
+}
+});
+console.log('💾 saveStockBalancesForFinishedProducts → date:', date, '| entries count:', Object.keys(state.stockEntries[date] || {}).length);
+try {
+const sampleEntries=Object.entries(state.stockEntries[date] || {}).slice(0, 3);
+sampleEntries.forEach(([k, v])=> console.log(' Entry', k, '→', v));
+} catch(_){ }
+try { localStorage.setItem('stock_entries', JSON.stringify(state.stockEntries)); } catch(e){}
+try { localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState || {})); } catch(e){}
+window.__finishedTouched=true;
+try { 
+if (typeof window.debouncedFinishedSave==='function') {
+window.debouncedFinishedSave();
+} else if (typeof saveFinishedProductsDebounced==='function') {
+saveFinishedProductsDebounced();
+}
+} catch(e){ console.warn('Cloud sync failed', e); }
+try { if (typeof window.saveStockEntriesToCloud==='function') window.saveStockEntriesToCloud(String(date)); } catch(e){ console.warn('saveStockEntriesToCloud failed', e); }
+customDialog({ title: 'تم الحفظ', message: `تم حفظ الرصيد الفعلي والإنتاج لليوم التالي بتاريخ ${formatArabicDate(date)}.` });
+updateStockControlIcons();
+}
+(function(){
+if (window.__stockEntriesHelpersInstalled) return;
+window.__stockEntriesHelpersInstalled=true;
+window.__stockEntriesUnsub=null;
+window.__stockEntriesDocId=null;
+window.installStockEntriesListenerForDate=function(date){
+try {
+const dayId=getISODateString(date || new Date());
+if (!dayId || !window.db) return;
+if (window.__stockEntriesDocId===dayId && typeof window.__stockEntriesUnsub==='function') return; 
+try { if (typeof window.__stockEntriesUnsub==='function') { window.__stockEntriesUnsub(); } } catch(_){ }
+window.__stockEntriesUnsub=null; window.__stockEntriesDocId=null;
+const ref=db.collection('stockEntries').doc(String(dayId));
+window.__stockEntriesUnsub=ref.onSnapshot(function(snap){
+try {
+if (!snap || !snap.exists) return;
+if (snap.metadata && snap.metadata.hasPendingWrites) return; 
+const d=snap.data() || {};
+const entries=(d && d.entries && typeof d.entries==='object') ? d.entries : {};
+try {
+if (!window.state) window.state={};
+if (!window.state.stockEntries) window.state.stockEntries={};
+window.state.stockEntries[dayId]=entries;
+try { localStorage.setItem('stock_entries', JSON.stringify(window.state.stockEntries || {})); } catch(_){ }
+} catch(e){ console.warn('apply stockEntries/day failed', e); }
+try {
+const cur=document.getElementById('finished-products-date');
+const curDay=getISODateString(cur && cur.value ? cur.value : new Date());
+if (curDay===dayId && typeof renderStockLedgerForFinishedProducts==='function') {
+renderStockLedgerForFinishedProducts();
+}
+} catch(_){ }
+} catch(e){ console.warn('stockEntries onSnapshot failed', e); }
+}, function(err){ console.warn('stockEntries listener error', err); });
+window.__stockEntriesDocId=dayId;
+} catch(e){ console.warn('installStockEntriesListenerForDate failed', e); }
+};
+window.saveStockEntriesToCloud=async function(date){
+try {
+const dayId=getISODateString(date || new Date());
+if (!dayId) return false;
+const entries=(window.state && window.state.stockEntries && window.state.stockEntries[dayId]) ? window.state.stockEntries[dayId] : {};
+try { localStorage.setItem('stock_entries', JSON.stringify(window.state && window.state.stockEntries || {})); } catch(_){ }
+if (!window.db) { console.warn('saveStockEntriesToCloud: db not ready'); return false; }
+const meta={ updatedAt: serverTs() };
+try {
+const user=(window.auth && auth.currentUser) ? auth.currentUser : null;
+if (user) { meta.updatedBy=(user.email||user.uid||'user'); }
+} catch(_){ }
+await db.collection('stockEntries').doc(String(dayId)).set({ date: String(dayId), entries: entries || {}, ...meta }, { merge: true });
+try {
+await db.collection('settings').doc('costLists').set({ stockEntries: (window.state && window.state.stockEntries) || {}, updatedAt: serverTs() }, { merge: true });
+} catch(_){ }
+console.log('✅ stockEntries saved to cloud (stockEntries/'+dayId+')', { products: Object.keys(entries||{}).length });
+return true;
+} catch(e){ console.warn('saveStockEntriesToCloud failed', e); return false; }
+};
+})();
+function renderRawMaterials() {
+try { window._rawGridState=JSON.parse(localStorage.getItem('raw_materials_grid') || '{}'); } catch(e){ window._rawGridState=window._rawGridState || {}; }
+try { window._packGridState=JSON.parse(localStorage.getItem('packaging_grid') || '{}'); } catch(e){ window._packGridState=window._packGridState || {}; }
+if (!window._gridHelpersInstalled) {
+window._gridHelpersInstalled=true;
+window._rawGridSaveTimer=null;
+window._packGridSaveTimer=null;
+window.saveRawGridStateNow=async function(){
+try { localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState || {})); } catch(e){}
+try { if (window.db) await db.collection('settings').doc('costLists').set({ rawMaterials: window._rawGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){}
+};
+window.debouncedRawSave=function(){ clearTimeout(window._rawGridSaveTimer); window._rawGridSaveTimer=setTimeout(window.saveRawGridStateNow, 700); };
+window.savePackGridStateNow=async function(){
+try { localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState || {})); } catch(e){}
+try { if (window.db) await db.collection('settings').doc('costLists').set({ packaging: window._packGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){}
+};
+window.debouncedPackSave=function(){ clearTimeout(window._packGridSaveTimer); window._packGridSaveTimer=setTimeout(window.savePackGridStateNow, 700); };
+}
+const dateEl=document.getElementById('raw-materials-date');
+const date=(dateEl && dateEl.value) ? dateEl.value : new Date().toISOString().split('T')[0];
+const body=document.getElementById('raw-materials-table-body');
+if(!body) return;
+body.innerHTML='';
+console.log('renderRawMaterials - Loaded State:', window._rawGridState);
+const rawMaterialsList=[
+'لبن بودرة', 'بروتين مركز', 'بديل زبدة', 'هاى كريم 200', 'هاى كريم 100', 'اناتو', 'كلورفيل',
+'S20', 'B3', 'نياسين', 'نتاميسين', 'سوربات بوتاسيوم', 'كلوريد كالسيوم', 'منفحة ميكروبية',
+'GDL', 'ديرى جيل 121', 'ملح طعام', 'انتى فوم', 'نشا', 'مياه', 'كريمة جاموسى', 'كريمة بقرى',
+'CR 15', 'فانيليا', 'مستكة', 'مياه ورد', 'هاى كريم 21', 'لاكته 810', 'ايس كريم بودرة',
+'كريم شانتيه بودر', 'سكر', 'ارز', 'طعم الشيدر', 'طعم الرومى', 'طعم جودة', 'طعم النستو',
+'ملح ليمون', 'خامات حفظ المش', 'صوص مش', 'صودا كاوية', 'طعم زبدة', 'طعم كريمة', 'لاكتة 815',
+'لاكتة 825', 'اكسجين', 'كربونات', 'طعم حليب', 'بادى زبادى', 'هاى كريم 500', 'طعم قشطة',
+'لبن خالى الدسم', 'طعم جبنة قديمة', 'حامض', 'سلفات صوديوم', 'طعم امنتال', 'طعم شيدر زبدة',
+'بروكسايد', 'شطة حمراء', 'جبنه رومى مبشور', 'كريموس200', 'زيت عباد', 'لاكتة s33', 'طعم سمن بلدى',
+'ستريك اسيد', 'معقم يد', 'اسيتون', 'مكسب طعم كريمة', 'لون شيكولاتة غامق'
+];
+if (rawMaterialsList.length===0) {
+body.innerHTML=`<tr><td colspan="7" class="text-center p-4 text-gray-500">لا توجد خامات معرّفة.</td></tr>`;
+return;
+}
+rawMaterialsList.forEach((materialName, index)=> {
+const row=document.createElement('tr');
+const materialId='raw-' + index;
+row.dataset.productId=materialId;
+const saved=(window._rawGridState && window._rawGridState[materialName]) ? window._rawGridState[materialName] : {};
+const unitPriceVal=(saved.unitPrice !==undefined) ? saved.unitPrice : 0;
+const openingVal=(saved.opening !==undefined) ? saved.opening : 0;
+const inboundVal=(saved.inbound !==undefined) ? saved.inbound : 0;
+const usageVal=(saved.usage !==undefined) ? saved.usage : 0;
+const actualVal=(saved.actual !==undefined && saved.actual !==null) ? saved.actual : '';
+row.innerHTML=`
+<td class="px-2 py-2 text-sm font-medium text-gray-800 text-right">${materialName}</td>
+<td class="px-2 py-2 text-center bg-blue-50"><input type="number" class="w-24 p-1 border rounded text-center unit-price" step="any" value="${unitPriceVal}"></td>
+<td class="px-2 py-2 text-center bg-blue-50"><input type="number" class="w-20 p-1 border rounded text-center opening-balance" value="${openingVal}"></td>
+<td class="px-2 py-2 text-center bg-blue-50"><input type="number" class="w-20 p-1 border rounded text-center inbound-qty" value="${inboundVal}"></td>
+<td class="px-2 py-2 text-center bg-blue-50"><input type="number" class="w-20 p-1 border rounded text-center usage-qty" value="${usageVal}"></td>
+<td class="px-2 py-2 text-center bg-blue-50 font-bold book-balance">0</td>
+<td class="px-2 py-2 bg-blue-50"><input type="number" class="w-20 p-1 border rounded text-center actual-balance" value="${actualVal}"></td>
+<td class="px-2 py-2 text-center font-bold difference">0</td>
+`;
+body.appendChild(row);
+const unitPriceInput=row.querySelector('.unit-price');
+const openingInput=row.querySelector('.opening-balance');
+const inboundInput=row.querySelector('.inbound-qty');
+const usageInput=row.querySelector('.usage-qty');
+const bookBalanceCell=row.querySelector('.book-balance');
+const actualBalanceInput=row.querySelector('.actual-balance');
+const differenceCell=row.querySelector('.difference');
+function updateCalculations() {
+const opening=parseInt(openingInput.value) || 0;
+const inbound=parseInt(inboundInput.value) || 0;
+const usage=parseInt(usageInput.value) || 0;
+const bookBalance=opening + inbound - usage;
+bookBalanceCell.textContent=bookBalance;
+const actual=parseInt(actualBalanceInput.value);
+if (!isNaN(actual)) {
+differenceCell.textContent=actual - bookBalance;
+} else {
+differenceCell.textContent='-';
+}
+try {
+window._rawGridState=window._rawGridState || {};
+const newUnitPrice=(unitPriceInput && unitPriceInput.value) ? Number(unitPriceInput.value) : 0;
+const oldPrice=(window._rawGridState[materialName] && window._rawGridState[materialName].unitPrice) || 0;
+window._rawGridState[materialName]={
+unitPrice: newUnitPrice,
+opening: opening,
+inbound: inbound,
+usage: usage,
+actual: (!isNaN(actual) ? actual : null),
+bookBalance: bookBalance,
+updatedAt: new Date().toISOString()
+};
+try { window.__rawTouched=true; } catch(_){}
+if (typeof window.debouncedRawSave==='function') window.debouncedRawSave();
+if (newUnitPrice !==oldPrice && newUnitPrice !==0) {
+try {
+let costItem=(Array.isArray(window.costRaw) && window.costRaw.find(i=> i && i.name && i.name.toLowerCase()===materialName.toLowerCase()));
+if (costItem) {
+costItem.cost=newUnitPrice;
+costItem.lastPrice=newUnitPrice;
+costItem.lastPriceDate=new Date().toISOString();
+if (typeof window.saveCostListsToFirebase==='function') window.saveCostListsToFirebase();
+console.log(`✅ Price synced for Raw Material "${materialName}": ${newUnitPrice}`);
+}
+} catch(e){ console.warn('Price sync for raw materials failed', e); }
+}
+} catch(e){ console.warn('persist raw grid failed', e); }
+}
+openingInput.addEventListener('input', updateCalculations);
+inboundInput.addEventListener('input', updateCalculations);
+usageInput.addEventListener('input', updateCalculations);
+actualBalanceInput.addEventListener('input', updateCalculations);
+if (unitPriceInput) unitPriceInput.addEventListener('input', updateCalculations);
+updateCalculations();
+});
+}
+function renderPackaging() {
+try { window._rawGridState=JSON.parse(localStorage.getItem('raw_materials_grid') || '{}'); } catch(e){ window._rawGridState=window._rawGridState || {}; }
+try { window._packGridState=JSON.parse(localStorage.getItem('packaging_grid') || '{}'); } catch(e){ window._packGridState=window._packGridState || {}; }
+if (!window._gridHelpersInstalled) {
+window._rawGridSaveTimer=window._rawGridSaveTimer || null;
+window._packGridSaveTimer=window._packGridSaveTimer || null;
+window.savePackGridStateNow=window.savePackGridStateNow || (async function(){ try { localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ packaging: window._packGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} });
+window.debouncedPackSave=window.debouncedPackSave || function(){ clearTimeout(window._packGridSaveTimer); window._packGridSaveTimer=setTimeout(window.savePackGridStateNow, 700); };
+}
+const dateEl=document.getElementById('packaging-date');
+const date=dateEl ? (dateEl.value || new Date().toISOString().split('T')[0]) : new Date().toISOString().split('T')[0];
+const body=document.getElementById('packaging-table-body');
+if(!body) return;
+body.innerHTML='';
+console.log('renderPackaging - Loaded State:', window._packGridState);
+const prodPack=Array.isArray(state.products) ? state.products.filter(p=> p && p.category && (p.category.toString().toLowerCase().includes('تعبئة') || p.category.toString().toLowerCase().includes('تغليف') || p.category.toString().toLowerCase().includes('عبوة') || p.category.toString().toLowerCase().includes('ورق') || p.category.toString().toLowerCase().includes('كيس'))) : [];
+const costPackArr=Array.isArray(window.costPack) ? window.costPack : [];
+const seen=new Set();
+const combined=[];
+prodPack.forEach(p=> {
+const name=(p && (p.name||p.title||p.code)) ? String(p.name||p.title||p.code).trim() : '';
+const key=name.toLowerCase();
+if(!name) return;
+if(!seen.has(key)){
+seen.add(key);
+combined.push({ id: p.id || ('prod-' + Math.random().toString(36).slice(2,8)), name });
+}
+});
+costPackArr.forEach(cp=> {
+const name=(cp && (cp.name||cp.code)) ? String(cp.name||cp.code).trim() : '';
+const key=name.toLowerCase();
+if(!name) return;
+if(!seen.has(key)){
+seen.add(key);
+combined.push({ id: cp.id || ('costpack-' + Math.random().toString(36).slice(2,8)), name });
+}
+});
+if (combined.length===0) {
+body.innerHTML=`<tr><td colspan="7" class="text-center p-4 text-gray-500">لا توجد عناصر تعبئة/تغليف في قوائم التكاليف أو منتجات التطبيق.</td></tr>`;
+return;
+}
+combined.forEach(product=> {
+const row=document.createElement('tr');
+row.dataset.productId=product.id;
+const saved=(window._packGridState && window._packGridState[product.name]) ? window._packGridState[product.name] : {};
+const unitPriceVal=(saved.unitPrice !==undefined) ? saved.unitPrice : 0;
+const openingVal=(saved.opening !==undefined) ? saved.opening : 0;
+const inboundVal=(saved.inbound !==undefined) ? saved.inbound : 0;
+const usageVal=(saved.usage !==undefined) ? saved.usage : 0;
+const actualVal=(saved.actual !==undefined && saved.actual !==null) ? saved.actual : '';
+row.innerHTML=`
+<td class="px-2 py-2 text-sm font-medium text-gray-800 text-right">${product.name}</td>
+<td class="px-2 py-2 text-center bg-orange-50"><input type="number" class="w-24 p-1 border rounded text-center unit-price" step="any" value="${unitPriceVal}"></td>
+<td class="px-2 py-2 text-center bg-orange-50"><input type="number" class="w-20 p-1 border rounded text-center opening-balance" value="${openingVal}"></td>
+<td class="px-2 py-2 text-center bg-orange-50"><input type="number" class="w-20 p-1 border rounded text-center inbound-qty" value="${inboundVal}"></td>
+<td class="px-2 py-2 text-center bg-orange-50"><input type="number" class="w-20 p-1 border rounded text-center usage-qty" value="${usageVal}"></td>
+<td class="px-2 py-2 text-center bg-orange-50 font-bold book-balance">0</td>
+<td class="px-2 py-2 bg-orange-50"><input type="number" class="w-20 p-1 border rounded text-center actual-balance" value="${actualVal}"></td>
+<td class="px-2 py-2 text-center font-bold difference">0</td>
+`;
+body.appendChild(row);
+const unitPriceInput=row.querySelector('.unit-price');
+const openingInput=row.querySelector('.opening-balance');
+const inboundInput=row.querySelector('.inbound-qty');
+const usageInput=row.querySelector('.usage-qty');
+const bookBalanceCell=row.querySelector('.book-balance');
+const actualBalanceInput=row.querySelector('.actual-balance');
+const differenceCell=row.querySelector('.difference');
+function updateCalculations() {
+const opening=parseInt(openingInput.value) || 0;
+const inbound=parseInt(inboundInput.value) || 0;
+const usage=parseInt(usageInput.value) || 0;
+const bookBalance=opening + inbound - usage;
+bookBalanceCell.textContent=bookBalance;
+const actual=parseInt(actualBalanceInput.value);
+if (!isNaN(actual)) {
+differenceCell.textContent=actual - bookBalance;
+} else {
+differenceCell.textContent='-';
+}
+try {
+window._packGridState=window._packGridState || {};
+const newUnitPrice=(unitPriceInput && unitPriceInput.value) ? Number(unitPriceInput.value) : 0;
+const oldPrice=(window._packGridState[product.name] && window._packGridState[product.name].unitPrice) || 0;
+window._packGridState[product.name]={
+unitPrice: newUnitPrice,
+opening: opening,
+inbound: inbound,
+usage: usage,
+actual: (!isNaN(actual) ? actual : null),
+bookBalance: bookBalance,
+updatedAt: new Date().toISOString()
+};
+if (typeof window.debouncedPackSave==='function') window.debouncedPackSave();
+try { window.__packTouched=true; } catch(_){}
+if (newUnitPrice !==oldPrice && newUnitPrice !==0) {
+try {
+const costItem=(Array.isArray(window.costPack) && window.costPack.find(i=> i && i.name && i.name.toLowerCase()===product.name.toLowerCase()));
+if (costItem) {
+costItem.cost=newUnitPrice;
+costItem.lastPrice=newUnitPrice;
+costItem.lastPriceDate=new Date().toISOString();
+if (typeof window.saveCostListsToFirebase==='function') window.saveCostListsToFirebase();
+console.log(`✅ Price synced for Packaging "${product.name}": ${newUnitPrice}`);
+}
+} catch(e){ console.warn('Price sync for packaging failed', e); }
+}
+} catch(e){ console.warn('persist pack grid failed', e); }
+}
+openingInput.addEventListener('input', updateCalculations);
+inboundInput.addEventListener('input', updateCalculations);
+usageInput.addEventListener('input', updateCalculations);
+actualBalanceInput.addEventListener('input', updateCalculations);
+if (unitPriceInput) unitPriceInput.addEventListener('input', updateCalculations);
+updateCalculations();
+});
+}
+function setCurrentMonthDates() {
+const now=new Date();
+const year=now.getFullYear();
+const month=String(now.getMonth() + 1).padStart(2, '0');
+const firstDay=`${year}-${month}-01`;
+const lastDay=new Date(year, now.getMonth() + 1, 0);
+const lastDayStr=`${year}-${month}-${String(lastDay.getDate()).padStart(2, '0')}`;
+const fromDateEl=document.getElementById('filter-from-date');
+const toDateEl=document.getElementById('filter-to-date');
+if (fromDateEl) fromDateEl.value=firstDay;
+if (toDateEl) toDateEl.value=lastDayStr;
+}
+function initTotalBillsPage() {
+setCurrentMonthDates();
+renderTotalBills();
+}
+function renderTotalBills(sortKey, sortDirection) {
+const tableBody=document.getElementById('total-bills-table-body');
+const fromDate=document.getElementById('filter-from-date').value;
+const toDate=document.getElementById('filter-to-date').value;
+const customerName=document.getElementById('filter-customer-name').value.toLowerCase();
+const invoiceNumber=document.getElementById('filter-invoice-number').value;
+let filteredSales=state.sales.filter(sale=> {
+const sd=sale && sale.date ? new Date(sale.date) : null;
+const hasValidDate=sd && !isNaN(sd.getTime());
+const saleDay=hasValidDate ? sd.toISOString().split('T')[0] : null;
+if (fromDate && saleDay && saleDay < fromDate) return false;
+if (toDate && saleDay && saleDay > toDate) return false;
+const customer=findCustomer(sale.customerId);
+if (customerName && customer && !customer.name.toLowerCase().includes(customerName)) return false;
+if (invoiceNumber && String(sale.invoiceNumber || '') !==String(invoiceNumber)) return false;
+let role=typeof getUserRole==='function' ? getUserRole() : 'rep';
+let currentEmail=(window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null;
+if (role==='rep' && currentEmail) {
+const emailMatch=((sale.repEmail||'').toLowerCase()===currentEmail);
+const currentRep=(state.reps||[]).find(r=> (r.email||'').toLowerCase()===currentEmail);
+const repName=currentRep?.name;
+const nameMatch=repName && sale.repName===repName;
+if (!emailMatch && !nameMatch) return false;
+}
+return true;
+});
+const filteredTotal=filteredSales.reduce((sum, s)=> sum + s.total, 0);
+const totalAmountEl=document.getElementById('total-bills-summary-amount');
+if (totalAmountEl) {
+totalAmountEl.textContent=formatCurrency(filteredTotal);
+}
+if (sortKey && sortDirection) {
+filteredSales.sort((a, b)=> {
+let valA, valB;
+if (sortKey==='customerName') {
+valA=findCustomer(a.customerId)?.name || '';
+valB=findCustomer(b.customerId)?.name || '';
+} else {
+valA=a[sortKey];
+valB=b[sortKey];
+}
+if (valA < valB) return sortDirection==='asc' ? -1 : 1;
+if (valA > valB) return sortDirection==='asc' ? 1 : -1;
+return 0;
+});
+}
+const reviewState=loadReviewState();
+tableBody.innerHTML=filteredSales.map(sale=> {
+const customer=findCustomer(sale.customerId);
+const items=sale.items || [];
+const category=items.length > 0 ? (findProduct(items[0].productId)?.category || 'N/A') : 'N/A';
+const highlightClass=reviewState[sale.id] || '';
+return `
+<tr>
+<td class="p-4"><input type="checkbox" class="total-bill-row-checkbox" value="${sale.id}"></td>
+<td class="px-6 py-4 whitespace-nowrap text-center bg-slate-100">${new Date(sale.date).toLocaleDateString('ar-EG')}</td>
+<td class="px-6 py-4 whitespace-nowrap text-center font-bold invoice-cell ${highlightClass}" data-id="${sale.id}">${sale.invoiceNumber}</td>
+<td class="px-6 py-4 whitespace-nowrap text-right bg-purple-100">${customer ? customer.name : 'N/A'}</td>
+<td class="px-6 py-4 whitespace-nowrap text-right bg-pink-100">${sale.repName}</td>
+<td class="px-6 py-4 whitespace-nowrap text-center font-semibold bg-cyan-100">${formatCurrency(sale.total)}</td>
+<td class="px-6 py-4 whitespace-nowrap text-center">${getStatusBadge(sale.status)}</td>
+<td class="px-6 py-4 whitespace-nowrap text-right bg-orange-100">${category}</td>
+</tr>
+`;
+}).join('');
+}
+function populateChainsDropdown(selectEl) {
+if (!selectEl) return;
+const chains=loadChains();
+const currentValue=selectEl.value;
+selectEl.innerHTML='<option value="">جميع السلاسل</option>';
+chains.forEach(chain=> {
+const opt=document.createElement('option');
+opt.value=chain.id;
+opt.textContent=chain.name || 'بدون اسم';
+selectEl.appendChild(opt);
+});
+selectEl.value=currentValue;
+}
+function renderDashboard() {
+const selectedRepName=(document.getElementById('dashboard-rep-filter') || {}).value || '';
+console.debug('renderDashboard called with state.sales length:', (state.sales || []).length, 'activePeriod:', state.activePeriod);
+const getActivePeriodSalesLocal=()=> {
+const activePeriod=state.activePeriod || '';
+if (!activePeriod) return state.sales || [];
+return (state.sales || []).filter(sale=> {
+try {
+const saleDate=sale.date ? new Date(sale.date) : null;
+if (!saleDate || isNaN(saleDate.getTime())) return false;
+const saleYearMonth=`${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
+return saleYearMonth===activePeriod;
+} catch (_) {
+return false;
+}
+});
+};
+const currentMonthSales=getActivePeriodSalesLocal();
+let filteredMonthSales=currentMonthSales;
+let currentTarget=Number(state.settings?.salesTarget || 0);
+const targetTitleEl=document.getElementById('target-title');
+if (selectedRepName) {
+filteredMonthSales=currentMonthSales.filter(s=> s.repName===selectedRepName);
+const targetRep=findRep(selectedRepName);
+currentTarget=targetRep ? (targetRep.target || 0) : 0;
+if (targetTitleEl) targetTitleEl.innerHTML=`الهدف الشهري لـ <span class="text-blue-600">${selectedRepName}</span>`;
+} else {
+if (!currentTarget || currentTarget <=0) {
+currentTarget=state.reps.reduce((sum, rep)=> sum + (rep.target || 0), 0) || 0;
+}
+if (targetTitleEl) targetTitleEl.textContent=`الهدف الشهري (الإجمالي):`;
+}
+const totalSales=filteredMonthSales.reduce((sum, s)=> sum + (s.total || 0), 0);
+const totalCollected=filteredMonthSales.reduce((sum, s)=> {
+const paid=s.paidAmount ?? ((s.firstPayment || 0) + (s.secondPayment || 0));
+return sum + (Number(paid) || 0);
+}, 0);
+const totalDue=totalSales - totalCollected;
+console.debug('Dashboard calculated:', {totalSales, totalCollected, totalDue, filteredMonthSalesLength: filteredMonthSales.length, selectedRepName});
+if (document.getElementById('total-sales')) document.getElementById('total-sales').textContent=formatCurrency(totalSales);
+if (document.getElementById('total-collected')) document.getElementById('total-collected').textContent=formatCurrency(totalCollected);
+if (document.getElementById('total-due')) document.getElementById('total-due').textContent=formatCurrency(totalDue);
+if (document.getElementById('sales-count')) document.getElementById('sales-count').textContent=filteredMonthSales.length;
+const progress=currentTarget > 0 ? Math.min((totalSales / currentTarget) * 100, 100) : 0;
+if (document.getElementById('target-amount-display')) document.getElementById('target-amount-display').textContent=formatCurrency(currentTarget);
+const progressBar=document.getElementById('target-progress-bar'); if (progressBar) progressBar.style.width=`${progress}%`;
+if (document.getElementById('target-progress-text')) document.getElementById('target-progress-text').textContent=`${Math.round(progress)}%`;
+const recentSalesList=document.getElementById('recent-sales-list'); if (recentSalesList) recentSalesList.innerHTML='';
+let recentSales=[...currentMonthSales].reverse();
+if (selectedRepName) { recentSales=recentSales.filter(s=> s.repName===selectedRepName); }
+recentSales=recentSales.slice(0, 5);
+if (!recentSalesList) return;
+if (recentSales.length===0) { recentSalesList.innerHTML='<p class="text-gray-500 text-center">لا توجد عمليات بيع بعد.</p>'; return; }
+recentSales.forEach(sale=> { const customer=findCustomer(sale.customerId); 
+const isReturn=sale.total < 0;
+const totalAmountClass=isReturn ? 'text-red-700' : 'text-green-700';
+const el=document.createElement('div'); el.className='bg-gray-50 p-3 rounded-lg flex justify-between items-center'; 
+el.innerHTML=`<div><p class="font-bold">${customer && customer.name ? customer.name : (sale.customerName || 'غير معروف')}</p><p class="text-sm text-gray-500"><bdo dir="rtl">${formatArabicDateTime(sale.date)}</bdo></p><p class="text-xs text-blue-600 pt-1">${sale.repName || ''}</p></div><div class="text-left space-y-1"><p class="font-bold ${totalAmountClass}">${formatCurrency(sale.total)}</p>${getStatusBadge(sale.status)}</div>`; recentSalesList.appendChild(el); }); updateIcons();
+}
+function getActivePeriodSales() {
+const activePeriod=state.activePeriod || '';
+if (!activePeriod) return state.sales || [];
+return (state.sales || []).filter(sale=> {
+try {
+const saleDate=sale.date ? new Date(sale.date) : null;
+if (!saleDate || isNaN(saleDate.getTime())) return false;
+const saleYearMonth=`${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
+return saleYearMonth===activePeriod;
+} catch (_) {
+return false;
+}
+});
+}
+function getSalesDataForLast7Days() { 
+const activePeriod=state.activePeriod || '';
+if (!activePeriod) return { labels: [], data: [] };
+const [year, month]=activePeriod.split('-').map(Number);
+const daysInMonth=new Date(year, month, 0).getDate();
+const dataMap=new Map();
+const labels=[];
+for (let day=1; day <=daysInMonth; day++) {
+const dateString=`${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+labels.push(String(day));
+dataMap.set(dateString, 0);
+}
+const monthSales=getActivePeriodSales();
+monthSales.forEach(sale=> {
+try {
+const sd=sale.date ? new Date(sale.date) : null;
+if (!sd || isNaN(sd.getTime())) return;
+const saleDateString=sd.toISOString().split('T')[0];
+if (dataMap.has(saleDateString)) {
+dataMap.set(saleDateString, dataMap.get(saleDateString) + (Number(sale.total) || 0));
+}
+} catch (_) { }
+});
+return { labels, data: Array.from(dataMap.values()) }; 
+}
+function getTopRepsData(count=5) { 
+const monthSales=getActivePeriodSales();
+const repSalesMap=new Map(); 
+monthSales.forEach(sale=> { 
+const repName=sale.repName || 'غير محدد'; 
+repSalesMap.set(repName, (repSalesMap.get(repName) || 0) + sale.total); 
+}); 
+const sortedReps=Array.from(repSalesMap.entries()).sort((a, b)=> b[1] - a[1]).slice(0, count); 
+return { labels: sortedReps.map(r=> r[0]), data: sortedReps.map(r=> r[1]) }; 
+}
+function getTopProductsData(count=5) {
+const productQtyMap=new Map();
+const monthSales=getActivePeriodSales();
+monthSales.forEach(sale=> {
+try {
+const items=Array.isArray(sale.items) ? sale.items : [];
+items.forEach(item=> {
+try {
+const qty=Number(item && item.quantity ? item.quantity : 0) || 0;
+const product=findProduct(item && item.productId);
+const productName=product && product.name ? product.name : (item && item.name ? item.name : 'منتج محذوف');
+productQtyMap.set(productName, (productQtyMap.get(productName) || 0) + qty);
+} catch (_) { }
+});
+} catch (_) { }
+});
+const sortedProducts=Array.from(productQtyMap.entries()).sort((a, b)=> b[1] - a[1]).slice(0, count);
+return { labels: sortedProducts.map(p=> p[0]), data: sortedProducts.map(p=> p[1]) };
+}
+function getTopCustomersData(count=5) { 
+const monthSales=getActivePeriodSales();
+const customerSalesMap=new Map(); 
+monthSales.forEach(sale=> { 
+const customer=findCustomer(sale.customerId); 
+const customerName=customer ? customer.name : 'عميل محذوف'; 
+customerSalesMap.set(customerName, (customerSalesMap.get(customerName) || 0) + sale.total); 
+}); 
+const sortedCustomers=Array.from(customerSalesMap.entries()).sort((a, b)=> b[1] - a[1]).slice(0, count); 
+return { labels: sortedCustomers.map(c=> c[0]), data: sortedCustomers.map(c=> c[1]) }; 
+}
+function createOrUpdateChart(chartInstance, canvasId, type, data, options) { 
+if (chartInstance) { chartInstance.data.labels=data.labels; chartInstance.data.datasets[0].data=data.data; chartInstance.update(); return chartInstance; }
+const ctx=document.getElementById(canvasId)?.getContext('2d'); 
+if (!ctx) return null; 
+return new Chart(ctx, { type: type, data: { labels: data.labels, datasets: [{ label: options.label || 'القيمة', data: data.data, backgroundColor: options.backgroundColor || 'rgba(59, 130, 246, 0.5)', borderColor: options.borderColor || 'rgba(59, 130, 246, 1)', borderWidth: options.borderWidth || 1, tension: 0.3, ...options.datasetOverrides }] }, options: { responsive: true, maintainAspectRatio: false, rtl: true, plugins: { legend: { labels: { font: { family: 'Cairo' } } } }, scales: { x: { reverse: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.xTitle, text: options.xTitle, font: { family: 'Cairo' } } }, y: { beginAtZero: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.yTitle, text: options.yTitle, font: { family: 'Cairo' } } } }, ...options.overrides } }); 
+}
+function renderSales7DaysChart() { const data=getSalesDataForLast7Days(); sales7DaysChart=createOrUpdateChart(sales7DaysChart, 'sales-7-days-chart', 'line', data, { label: 'إجمالي المبيعات (ج.م)', backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: 'rgba(59, 130, 246, 1)', yTitle: 'المبيعات (ج.م)', datasetOverrides: { fill: true } }); }
+function renderTopRepsChart() { const data=getTopRepsData(5); topRepsChart=createOrUpdateChart(topRepsChart, 'top-reps-chart', 'bar', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: 'rgba(16, 185, 129, 0.7)', borderColor: 'rgba(16, 185, 129, 1)', yTitle: 'قيمة المبيعات', overrides: { indexAxis: 'y' } }); }
+function renderTopProductsChart() { const data=getTopProductsData(5); topProductsChart=createOrUpdateChart(topProductsChart, 'top-products-chart', 'bar', data, { label: 'الكمية (قطع)', backgroundColor: 'rgba(234, 179, 8, 0.7)', borderColor: 'rgba(234, 179, 8, 1)', yTitle: 'الكمية', overrides: { indexAxis: 'y' } }); }
+function renderTopCustomersChart() { const data=getTopCustomersData(5); topCustomersChart=createOrUpdateChart(topCustomersChart, 'top-customers-chart', 'doughnut', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'], borderColor: '#fff', overrides: { parsing: { key: 'data' } }, datasetOverrides: { hoverOffset: 4 } }); }
+async function salesListClickHandler(e) {
+const role=(typeof getUserRole==='function') ? getUserRole() : 'user';
+const reviewCell=e.target.closest('.invoice-cell'); 
+if (reviewCell) {
+const invoiceSpan=reviewCell.closest('.invoice-review-span');
+if (invoiceSpan) {
+const saleId=invoiceSpan.dataset.id;
+toggleReviewColor(saleId, reviewCell);
+return; 
+}
+}
+const editBtn=e.target.closest('.edit-sale-btn');
+const deleteBtn=e.target.closest('.delete-sale-btn');
+const printBtn=e.target.closest('.print-sale-btn');
+const shareImageBtn=e.target.closest('.share-sale-image-btn');
+const etaUploadBtn=e.target.closest('.eta-upload-btn');
+const approveBtn=e.target.closest('.review-sale-btn');
+const reviewOpenBtn=e.target.closest('.review-open-btn');
+const taxToggleBtn=e.target.closest('.tax-status-toggle-btn');
+if (approveBtn) {
+if (role !=='admin') { await customDialog({ title:'غير مصرح', message:'اعتماد الفاتورة من صلاحيات المشرف فقط.' }); return; }
+try {
+const saleId=approveBtn.getAttribute('data-id');
+await updateSale(saleId, { reviewStatus: 'reviewed' });
+} catch(err){ console.warn('approve review failed', err); }
+return;
+}
+if (reviewOpenBtn) {
+const saleId=reviewOpenBtn.getAttribute('data-id');
+openSaleModal(saleId);
+setTimeout(()=> {
+try {
+const role=(typeof getUserRole==='function') ? getUserRole() : 'user';
+const sale=(state.sales||[]).find(s=>s.id===saleId);
+if (sale && sale.reviewStatus==='pending' && (role==='admin')) {
+const modal=document.getElementById('sale-modal');
+if (modal && !modal.querySelector('.modal-review-approve-btn')) {
+const footer=modal.querySelector('form') || modal;
+const btn=document.createElement('button');
+btn.type='button';
+btn.className='modal-review-approve-btn mt-3 bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded text-sm flex items-center gap-1';
+btn.innerHTML='<i data-lucide="check-circle" class="w-4 h-4"></i> اعتماد الفاتورة';
+footer.appendChild(btn);
+btn.addEventListener('click', async ()=>{
+try { await updateSale(saleId, { reviewStatus: 'reviewed' }); closeModal(modal); } catch(e){ alert('تعذر الاعتماد'); }
+});
+updateIcons();
+}
+}
+} catch(_){ }
+}, 120);
+return;
+}
+if (editBtn) {
+const saleId=editBtn.dataset.id;
+if (role==='rep') {
+try {
+const current=AuthSystem.getCurrentUser();
+const sale=(state.sales||[]).find(s=>s.id===saleId);
+const mine=sale && (String(sale.createdBy||'')===String(current?.id||'') || String(sale.repId||'')===String(current?.id||''));
+if (!mine) {
+await customDialog({ title:'غير مصرح', message:'ليست هذه فاتورتك.' });
+return;
+}
+let createdTime=null;
+if (sale && sale.createdAt) {
+if (typeof sale.createdAt.toDate==='function') {
+createdTime=sale.createdAt.toDate();
+} else {
+createdTime=new Date(sale.createdAt);
+}
+}
+const ageMs=createdTime ? (Date.now() - createdTime.getTime()) : Infinity;
+const EDIT_WINDOW_MS=15 * 60 * 1000; 
+if (ageMs > EDIT_WINDOW_MS) {
+await customDialog({ title:'انتهت مهلة التعديل', message:'انتهت فترة التعديل (15 دقيقة). لا يمكن تعديل الفاتورة بعد ذلك.' });
+return;
+}
+if (sale.reviewStatus==='reviewed') {
+await customDialog({ title:'فاتورة معتمدة', message:'لا يمكن تعديل فاتورة معتمدة بالفعل.' });
+return;
+}
+openSaleModal(saleId);
+} catch(err) {
+console.warn('Edit button error:', err);
+await customDialog({ title:'خطأ', message:'حدث خطأ أثناء فتح الفاتورة. حاول مرة أخرى.' });
+}
+return;
+}
+openSaleModal(saleId);
+}
+if (deleteBtn) {
+if (role==='rep') { await customDialog({ title:'صلاحيات', message:'المندوب لا يملك صلاحية حذف الفواتير.' }); return; }
+const saleId=deleteBtn.dataset.id;
+const confirmed=await customDialog({
+title: 'تأكيد الحذف',
+message: 'هل أنت متأكد أنك تريد حذف هذه الفاتورة؟ لا يمكن التراجع عن هذا الإجراء.',
+isConfirm: true,
+confirmText: 'نعم، احذف',
+confirmClass: 'bg-red-600 hover:bg-red-700'
+});
+if (confirmed) {
+try {
+await deleteSale(saleId);
+await customDialog({ message: 'تم حذف الفاتورة نهائياً من السحابة.' });
+} catch (err) {
+console.warn('Delete failed', err);
+await customDialog({ message: 'تعذر حذف الفاتورة من السحابة. تحقق من الصلاحيات/الاتصال.' });
+}
+}
+}
+if (printBtn) {
+const saleId=printBtn.getAttribute('data-id');
+try { await window.printSaleById(saleId); } catch(e){ console.warn('printSaleById failed', e); }
+return;
+}
+if (shareImageBtn) {
+const saleId=shareImageBtn.getAttribute('data-id');
+try { await window.shareSaleReceiptImage(saleId); } catch(e){ console.warn('shareSaleReceiptImage failed', e); }
+return;
+}
+if (etaUploadBtn) {
+const roleNow=(typeof getUserRole==='function') ? getUserRole() : 'user';
+if (roleNow !=='admin') { await customDialog({ title:'غير مصرح', message:'هذا الإجراء مخصص للمشرف فقط.' }); return; }
+const saleId=etaUploadBtn.getAttribute('data-id');
+try { await window.uploadSaleToEta(saleId); } catch(e){ console.warn('uploadSaleToEta failed', e); }
+return;
+}
+if (taxToggleBtn) {
+const saleId=taxToggleBtn.dataset.id;
+const sale=state.sales.find(s=> s.id===saleId);
+if (sale) {
+const currentStatus=sale.taxFilingStatus || '';
+const isFiled=currentStatus.trim().toLowerCase()==='تم';
+const newStatus=isFiled ? '' : 'تم'; 
+sale.taxFilingStatus=newStatus;
+sale.updatedAt=new Date().toISOString();
+renderAll(); 
+saveState(); 
+}
+}
+}
+document.addEventListener('click', async function(e){
+const btn=e.target && (e.target.id==='sales-quick-print-btn' || (e.target.closest && e.target.closest('#sales-quick-print-btn')));
+if (!btn) return;
+try {
+await window.printAsImageForThermal();
+} catch(err){ 
+console.error('quick print failed', err); 
+alert('فشل الطباعة: ' + (err && err.message ? err.message : err));
+}
+});
+function renderAllSales(textFilter='', dateFilter='', taxStatusFilter='all', reviewFilterArg=null) {
+if (!window.allSales) window.allSales=[];
+if (!window.sales) window.sales=[];
+if (!window.state) window.state={};
+if (!Array.isArray(state.sales)) state.sales=[];
+const salesList=document.getElementById('sales-list'); 
+salesList.innerHTML='';
+try {
+console.debug('renderAllSales called', { textFilter, dateFilter, taxStatusFilter, stateSalesLength: Array.isArray(state.sales) ? state.sales.length : state.sales });
+} catch (e) { }
+if (!Array.isArray(state.sales)) state.sales=[];
+textFilter=(textFilter || '').toString().trim();
+dateFilter=(dateFilter || '').toString().trim();
+let filteredSales=[...state.sales];
+let role=typeof getUserRole==='function' ? getUserRole() : 'rep';
+let currentEmail=(window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null;
+if (role==='rep' && currentEmail) {
+const currentRep=(state.reps||[]).find(r=> (r.email||'').toLowerCase()===currentEmail);
+const repName=currentRep?.name;
+filteredSales=filteredSales.filter(sale=> {
+const matchByEmail=(sale.repEmail||'').toLowerCase()===currentEmail;
+const matchByName=repName && sale.repName===repName;
+return matchByEmail || matchByName;
+});
+}
+const reviewStatusFilter=reviewFilterArg || (document.getElementById('review-status-filter')?.value || 'all');
+const activePeriod=(state && state.activePeriod) ? String(state.activePeriod) : '';
+if (activePeriod) {
+filteredSales=filteredSales.filter(sale=> {
+try { return new Date(sale.date).toISOString().slice(0,7)===activePeriod; } catch(e){ return false; }
+});
+try { document.getElementById('daily-total-container').classList.add('hidden'); } catch(e){}
+} else if (dateFilter) {
+const dailyFilteredSales=filteredSales.filter(sale=> new Date(sale.date).toLocaleDateString('en-CA')===dateFilter);
+const dailyTotal=dailyFilteredSales.reduce((sum, s)=> sum + s.total, 0);
+try {
+document.getElementById('daily-total-amount').textContent=formatCurrency(dailyTotal);
+document.getElementById('daily-total-container').classList.remove('hidden');
+} catch(e){}
+filteredSales=dailyFilteredSales;
+} else {
+try { document.getElementById('daily-total-container').classList.add('hidden'); } catch(e){}
+}
+if (activePeriod && filteredSales.length===0) {
+console.warn('Monthly filter returned no sales; showing all sales until data loads');
+filteredSales=[...state.sales];
+}
+if (filteredSales.length===0) {
+try {
+const cached=JSON.parse(localStorage.getItem('cache_sales')||'[]');
+if (Array.isArray(cached) && cached.length) filteredSales=cached;
+} catch(_){}
+}
+if (textFilter) { 
+const lowerCaseFilter=textFilter.toLowerCase(); 
+filteredSales=filteredSales.filter(sale=> { 
+const customer=findCustomer(sale.customerId); 
+const customerNameMatch=customer && customer.name.toLowerCase().includes(lowerCaseFilter); 
+const invoiceNumberMatch=sale.invoiceNumber.toString().includes(lowerCaseFilter); 
+const totalMatch=sale.total.toString().includes(lowerCaseFilter) || formatCurrency(sale.total).includes(lowerCaseFilter); 
+return customerNameMatch || invoiceNumberMatch || totalMatch; 
+}); 
+}
+if (reviewStatusFilter==='pending') {
+filteredSales=filteredSales.filter(s=> String(s.reviewStatus||'').toLowerCase()==='pending');
+} else if (reviewStatusFilter==='reviewed') {
+filteredSales=filteredSales.filter(s=> String(s.reviewStatus||'').toLowerCase()==='reviewed');
+}
+if (taxStatusFilter==='filed') {
+filteredSales=filteredSales.filter(sale=> {
+const customer=findCustomer(sale.customerId);
+if (!customer || !customer.requiresTaxFiling) return false;
+return sale.taxFilingStatus && sale.taxFilingStatus.trim().toLowerCase()==='تم';
+});
+} else if (taxStatusFilter==='not-filed') {
+filteredSales=filteredSales.filter(sale=> {
+const customer=findCustomer(sale.customerId);
+if (!customer || !customer.requiresTaxFiling) return false;
+return !sale.taxFilingStatus || sale.taxFilingStatus.trim().toLowerCase() !=='تم';
+});
+}
+const filteredTotal=filteredSales.reduce((sum, s)=> sum + s.total, 0);
+const filteredTotalAmountEl=document.getElementById('filtered-total-amount');
+if (filteredTotalAmountEl) {
+filteredTotalAmountEl.textContent=formatCurrency(filteredTotal);
+}
+const filteredCountEl=document.getElementById('filtered-total-count');
+if (filteredCountEl) {
+filteredCountEl.textContent=String(filteredSales.length);
+}
+try {
+filteredSales.sort((a,b)=>{
+const ta=new Date(a.date||0).getTime();
+const tb=new Date(b.date||0).getTime();
+return ta - tb;
+});
+} catch(_){ }
+if (filteredSales.length===0) { 
+const cached=JSON.parse(localStorage.getItem('cache_sales')||'[]');
+if (Array.isArray(cached) && cached.length > 0) {
+console.warn('⚠️ renderAllSales: No filtered results; loading from localStorage cache');
+filteredSales=cached;
+} else {
+salesList.innerHTML='<p class="text-gray-500 text-center mt-8">لا توجد فواتير تطابق بحثك.</p>'; 
+return; 
+}
+}
+const reviewState=loadReviewState();
+filteredSales.forEach((sale, index)=> { 
+const customer=findCustomer(sale.customerId); 
+const isReturn=sale.total < 0;
+const badgeText=isReturn ? 'مرتجع' : 'فاتورة';
+const badgeColor=isReturn ? 'bg-red-600 text-white' : 'bg-blue-600 text-white';
+const saleBgColor=isReturn ? 'bg-red-50 border-red-200' : 'bg-white border-gray-200';
+const totalAmountClass=(String(sale.reviewStatus||'').toLowerCase()==='pending') ? 'text-red-700' : (isReturn ? 'text-red-700' : 'text-blue-700');
+const itemsList=(Array.isArray(sale.items) ? sale.items : []).map((item, itemIndex)=> { 
+const product=findProduct(item.productId); 
+const itemName=product ? product.name : 'منتج محذوف'; 
+const itemDiscountFactor=(1 - (item.discountPercent || 0) / 100);
+const itemBase=(item.quantity || 0) * (item.price || 0) * itemDiscountFactor;
+const productVatRate=(product && product.vat_rate) ? Number(product.vat_rate) / 100 : 0;
+const itemTax=round2(itemBase * productVatRate);
+const itemTotal=round2(itemBase + itemTax);
+const itemCode=product ? product.id : 'N/A'; 
+const itemTotalColorClass=isReturn ? 'text-red-700' : 'text-pink-700';
+try {
+const prodForCheck=findProduct(item.productId) || {};
+let expectedP=(prodForCheck.price !=null) ? Number(prodForCheck.price) : 0;
+try { const cust=findCustomer(sale.customerId); if (cust && cust.priceListId) { const pl=findPriceList(cust.priceListId); if (pl && pl.productPrices && pl.productPrices[item.productId] !==undefined) expectedP=Number(pl.productPrices[item.productId]); } } catch(_){ }
+try { const promo=getActivePromotionPrice(item.productId, sale.customerId); if (promo !==null && promo !==undefined) expectedP=Number(promo); } catch(_){ }
+const priceDiff=Math.abs((Number(item.price) || 0) - (Number(expectedP) || 0));
+const showAdjusted=(item && item.adjusted===true) || (String(sale.reviewReason||'').toLowerCase()==='adjusted');
+const priceCellClass=showAdjusted ? 'text-red-600 font-bold' : '';
+return `<tr class="text-xs border-b border-gray-100 last:border-b-0"><td class="text-right px-3 py-2 font-semibold sale-item-name-cell">${itemName}</td><td class="text-center px-3 py-2 sale-item-code-cell">${itemCode}</td><td class="text-center px-3 py-2 sale-item-qty-cell font-bold ${item.quantity < 0 ? 'text-red-600' : 'text-gray-800'}">${item.quantity}</td><td class="text-center px-3 py-2 sale-item-price-cell ${priceCellClass}">${formatCurrency(item.price)}</td><td class="text-center px-3 py-2 font-bold sale-item-total-cell ${itemTotalColorClass}">${formatCurrency(itemTotal)}</td></tr>`; 
+} catch(e) {
+return `<tr class="text-xs border-b border-gray-100 last:border-b-0"><td class="text-right px-3 py-2 font-semibold sale-item-name-cell">${itemName}</td><td class="text-center px-3 py-2 sale-item-code-cell">${itemCode}</td><td class="text-center px-3 py-2 sale-item-qty-cell font-bold ${item.quantity < 0 ? 'text-red-600' : 'text-gray-800'}">${item.quantity}</td><td class="text-center px-3 py-2 sale-item-price-cell">${formatCurrency(item.price)}</td><td class="text-center px-3 py-2 font-bold sale-item-total-cell ${itemTotalColorClass}">${formatCurrency(itemTotal)}</td></tr>`; 
+}
+}).join(''); 
+const customerRequiresFiling=customer?.requiresTaxFiling; 
+const customerTaxNumber=customer ? (customer.taxNumber || 'لا يوجد') : 'لا يوجد';
+const taxNumberHtml=`<div class="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-md text-center w-full">\r\n <p class="text-xs text-gray-700 font-semibold">الرقم الضريبي:</p>\r\n <p class="text-sm font-bold text-gray-900">${customerTaxNumber}</p>\r\n <a href="https://invoicing.eta.gov.eg/" target="_blank" class="text-xs text-blue-600 hover:underline">المنظومة الإلكترونية</a>\r\n\r\n </div>`;
+const el=document.createElement('div'); 
+el.className=`${saleBgColor} p-4 rounded-xl border shadow-md mb-6 transition duration-300 hover:shadow-lg`; 
+el.innerHTML=`<div class="grid grid-cols-1 md:grid-cols-4 gap-4">\r\n <div class="col-span-3">\r\n <p class="font-bold text-lg text-gray-800">\r\n ${customer ? customer.name : 'عميل محذوف'} \r\n <span class="text-xs font-semibold px-2 py-1 rounded-full ${badgeColor} mr-2">${badgeText}</span>\r\n ${sale.isAdminEntry ? `<span class="text-xs font-semibold px-2 py-1 rounded-full bg-purple-600 text-white mr-2" title="تم التسجيل بمعرفة: ${sale.recordedByName || 'إدارة'}"><i data-lucide="shield-check" class="w-3 h-3 inline ml-1"></i> إدارة</span>` : ''}\r\n ${customerRequiresFiling ? `<i data-lucide="file-text" class="w-4 h-4 inline text-orange-500 mr-2" title="يتطلب رفع ضريبي"></i>` : ''}\r\n </p>\r\n <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
+<span><i data-lucide="calendar" class="w-3 h-3 inline ml-1"></i> فاتورة بتاريخ: <span dir="ltr" style="unicode-bidi: bidi-override; display: inline;">${formatArabicDate(sale.date)}</span></span>
+<span class="invoice-review-span" data-id="${sale.id}" title="اضغط للتلوين">
+<i data-lucide="hash" class="w-3 h-3 inline ml-1"></i> رقم الفاتورة: 
+<span class="invoice-cell text-red-600 font-bold ${reviewState[sale.id] || ''}">
+${sale.invoiceNumber || 'N/A'}
+</span>
+</span>
+<span><i data-lucide="user" class="w-3 h-3 inline ml-1"></i> المندوب: <span class="text-blue-600 font-semibold">${sale.repName || 'غير محدد'}</span>${sale.isAdminEntry ? ` <span class="text-xs text-purple-600 font-semibold">(سجل بمعرفة: ${sale.recordedByName || 'إدارة'})</span>` : ''}</span>
+</div>\r\n <div class="overflow-x-auto mt-4 max-h-48 overflow-y-auto border border-gray-200 rounded-lg shadow-inner">\r\n <table class="sale-items-table min-w-full">\r\n <thead>\r\n <tr class="text-xs">\r\n <th class="w-2/6 px-3 py-2 text-right">الصنف</th>\r\n <th class="w-1/6 px-3 py-2 text-center">الكود</th>\r\n <th class="w-1/6 text-center px-3 py-2">الكمية</th>\r\n <th class="w-1/6 text-center px-3 py-2">السعر</th>\r\n <th class="w-1/6 text-center px-3 py-2">الإجمالي</th>\r\n </tr>\r\n </thead>\r\n <tbody>${itemsList}</tbody>\r\n </table>\r\n </div>\r\n <div class="flex gap-4 mt-3 pt-3 border-t">\r\n <button data-id="${sale.id}" class="edit-sale-btn text-sm flex items-center gap-1 text-blue-600 hover:text-blue-800"><i data-lucide="edit" class="w-4 h-4"></i> تعديل</button>\r\n <button data-id="${sale.id}" class="delete-sale-btn text-sm flex items-center gap-1 text-red-600 hover:text-red-800"><i data-lucide="trash-2" class="w-4 h-4"></i> حذف</button>\r\n </div>\r\n </div>\r\n <div class="col-span-1 border-r pr-4 flex flex-col justify-start items-center text-center pt-2">\r\n <h4 class="text-sm font-semibold text-gray-600 mb-1">الإجمالي النهائي</h4>\r\n <p class="font-bold text-2xl ${totalAmountClass}">${formatCurrency(sale.total)}</p>\r\n <div class="flex flex-col gap-1 items-center mt-3">\r\n ${getTaxStatusBadge(sale)}\r\n ${getStatusBadge(sale.status)}\r\n </div>\r\n ${taxNumberHtml} <!-- NEW: Inserted variable here -->\r\n ${sale.discount > 0 ? `<div class="mt-2 text-xs text-red-600">خصم: ${sale.discount}%</div>` : ''}\r\n </div>\r\n </div>`; 
+try {
+const sideCol=el.querySelector('.col-span-1.border-r.pr-4.flex.flex-col.justify-start.items-center.text-center.pt-2');
+const roleSide=(typeof getUserRole==='function') ? getUserRole() : 'user';
+if (sideCol) {
+const printBtnEl=document.createElement('button');
+printBtnEl.setAttribute('data-id', sale.id);
+printBtnEl.className='print-sale-btn mb-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+printBtnEl.innerHTML='<i data-lucide="printer" class="w-4 h-4"></i> طباعة';
+sideCol.insertBefore(printBtnEl, sideCol.firstChild);
+const shareBtnEl=document.createElement('button');
+shareBtnEl.setAttribute('data-id', sale.id);
+shareBtnEl.className='share-sale-image-btn mb-2 bg-teal-600 hover:bg-teal-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+shareBtnEl.innerHTML='<i data-lucide="share-2" class="w-4 h-4"></i> صورة';
+sideCol.insertBefore(shareBtnEl, sideCol.firstChild.nextSibling); 
+const usbPrintBtnEl=document.createElement('button');
+usbPrintBtnEl.setAttribute('data-id', sale.id);
+usbPrintBtnEl.className='usb-print-sale-btn mb-2 bg-green-600 hover:bg-green-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+usbPrintBtnEl.innerHTML='<i data-lucide="printer" class="w-4 h-4"></i> USB';
+sideCol.insertBefore(usbPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling); 
+const btPrintBtnEl=document.createElement('button');
+btPrintBtnEl.setAttribute('data-id', sale.id);
+btPrintBtnEl.className='bt-print-sale-btn mb-2 bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+btPrintBtnEl.innerHTML='<i class="bi bi-bluetooth"></i> بلوتوث';
+sideCol.insertBefore(btPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling); 
+const rawbtPrintBtnEl=document.createElement('button');
+rawbtPrintBtnEl.setAttribute('data-id', sale.id);
+rawbtPrintBtnEl.className='rawbt-print-sale-btn mb-2 bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+rawbtPrintBtnEl.innerHTML='<i class="bi bi-phone-vibrate"></i> هاتف';
+sideCol.insertBefore(rawbtPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling.nextSibling); 
+}
+} catch(e){}
+try {
+const role=(typeof getUserRole==='function') ? getUserRole() : 'user';
+if (sale && String(sale.reviewStatus||'').toLowerCase()==='pending') {
+const isAdjustedPending=(String(sale.reviewReason||'').toLowerCase()==='adjusted') || (Array.isArray(sale.items) && sale.items.some(it=> it && it.adjusted));
+if (isAdjustedPending) {
+try { el.classList.add('ring-2','ring-red-400'); } catch(_){ }
+} else {
+try { el.classList.add('ring-2','ring-yellow-300'); } catch(_){ }
+}
+const statusArea=el.querySelector('.flex.flex-col.gap-1.items-center.mt-3');
+if (statusArea) {
+const pendingTag=document.createElement('span');
+if (isAdjustedPending) {
+pendingTag.className='text-xs font-semibold bg-red-100 text-red-800 rounded-full px-2 py-0.5';
+pendingTag.setAttribute('title', 'قيد المراجعة — سعر معدل');
+} else {
+pendingTag.className='text-xs font-semibold bg-yellow-100 text-yellow-800 rounded-full px-2 py-0.5';
+pendingTag.setAttribute('title', 'قيد المراجعة');
+}
+pendingTag.innerHTML='<i data-lucide="clock" class="w-3 h-3 inline ml-1"></i> قيد المراجعة';
+statusArea.appendChild(pendingTag);
+}
+if (role==='admin') {
+const actions=el.querySelector('.flex.gap-4.mt-3.pt-3.border-t');
+if (actions) {
+const approve=document.createElement('button');
+approve.setAttribute('data-id', sale.id);
+approve.className='review-sale-btn text-sm flex items-center gap-1 text-green-700 hover:text-green-900';
+approve.innerHTML='<i data-lucide="check-circle" class="w-4 h-4"></i> اعتماد';
+actions.appendChild(approve);
+}
+}
+}
+try {
+const printBtn=el.querySelector('.print-sale-btn');
+if (printBtn) printBtn.addEventListener('click', async (evt)=> { 
+evt.preventDefault(); 
+try { 
+await window.printAsImageForThermal(sale);
+} catch(e){ 
+console.error('print error', e);
+alert('فشل الطباعة: ' + (e.message || e));
+}
+});
+const shareBtn=el.querySelector('.share-sale-image-btn');
+if (shareBtn) shareBtn.addEventListener('click', async (evt)=> { evt.preventDefault(); try { await window.exportSaleImageById(sale.id); } catch(e){ console.warn('exportSaleImageById error', e);} });
+const usbBtn=el.querySelector('.usb-print-sale-btn');
+if (usbBtn) usbBtn.addEventListener('click', async (evt)=> {
+evt.preventDefault();
+try {
+if (typeof printViaUSB==='function') {
+await printViaUSB(sale);
+} else {
+alert('دالة الطباعة عبر USB غير متوفرة');
+}
+} catch(e) {
+console.warn('USB print error', e);
+alert('خطأ في الطباعة عبر USB: ' + (e && e.message));
+}
+});
+const btBtn=el.querySelector('.bt-print-sale-btn');
+if (btBtn) btBtn.addEventListener('click', async (evt)=> { 
+evt.preventDefault(); 
+try { 
+showPrintPreviewModal(sale, ()=> { 
+if (typeof window.smartMobilePrintInvoice==='function') {
+window.smartMobilePrintInvoice(sale);
+} else if (typeof performBluetoothPrint==='function') {
+performBluetoothPrint(sale);
+} else if (typeof printInvoiceViaBluetooth==='function') {
+printInvoiceViaBluetooth(sale);
+} else if (typeof printInvoiceBluetooth==='function') {
+printInvoiceBluetooth(sale);
+} else {
+alert('دالة الطباعة عبر البلوتوث غير متوفرة');
+}
+}); 
+} catch(e){ console.warn('bt print error', e); alert('خطأ في الطباعة عبر البلوتوث: '+(e&&e.message)); } 
+});
+const rawbtBtn=el.querySelector('.rawbt-print-sale-btn');
+if (rawbtBtn) rawbtBtn.addEventListener('click', async (evt)=> { 
+evt.preventDefault(); 
+try { 
+if (typeof printInvoiceViaBluetooth==='function') {
+await printInvoiceViaBluetooth(sale);
+} else {
+alert('دالة طباعة البلوتوث غير متوفرة');
+}
+} catch(e){ 
+console.warn('bluetooth print error', e); 
+alert('خطأ في الطباعة عبر البلوتوث: '+(e&&e.message)); 
+} 
+});
+} catch(e){ console.warn('wiring sale action buttons failed', e); }
+try {
+const statusArea2=el.querySelector('.flex.flex-col.gap-1.items-center.mt-3');
+if (statusArea2 && sale) {
+if (sale.taxUploadStatus==='uploaded') {
+const uploadedTag=document.createElement('span');
+uploadedTag.className='text-xs font-semibold bg-green-100 text-green-800 rounded-full px-2 py-0.5 flex items-center gap-1';
+uploadedTag.innerHTML='<i data-lucide="check" class="w-3 h-3"></i> رفع ضريبي ناجح';
+statusArea2.appendChild(uploadedTag);
+} else if (sale.taxUploadStatus==='error') {
+const errorTag=document.createElement('span');
+errorTag.className='text-xs font-semibold bg-red-100 text-red-700 rounded-full px-2 py-0.5 flex items-center gap-1';
+errorTag.innerHTML='<i data-lucide="alert-triangle" class="w-3 h-3"></i> فشل الرفع';
+statusArea2.appendChild(errorTag);
+}
+}
+} catch(_){ }
+} catch(_){ }
+salesList.appendChild(el); 
+}); 
+updateIcons();
+}
+function renderCustomers(filter='') {
+const customersList=document.getElementById('customers-list');
+customersList.innerHTML='';
+const role=(typeof getUserRole==='function') ? getUserRole() : 'user';
+const currentUser=AuthSystem.getCurrentUser();
+const filteredCustomers=(state.customers||[]).filter(c=> {
+if (!c || !c.name) return false;
+if (!c.name.toLowerCase().includes(filter.toLowerCase())) return false;
+if (role==='admin') return true;
+if (role==='rep' && currentUser) {
+const assigned=c.assignedRepId || '';
+return !assigned || assigned===currentUser.id;
+}
+return true; 
+});
+if (filteredCustomers.length===0) {
+customersList.innerHTML='<p class="text-gray-500 text-center mt-8">لا يوجد عملاء. اضغط على زر "إضافة عميل" للبدء.</p>';
+return;
+}
+filteredCustomers.forEach(customer=> {
+const el=document.createElement('div');
+el.className='bg-white p-4 rounded-lg border shadow-sm';
+const address=customer.address || '';
+const isLink=address.startsWith('http');
+const priceList=findPriceList(customer.priceListId);
+const repName=customer.repName || 'غير محدد';
+const taxRequired=customer.requiresTaxFiling;
+const cid=customer.id || customer._id || '';
+const assignedRepId=customer.assignedRepId || '';
+const isMine=assignedRepId && currentUser && currentUser.id===assignedRepId;
+const assignedBadge=assignedRepId
+? (isMine ? '<span class="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">مخصص لك</span>' : '<span class="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">مخصص</span>')
+: '<span class="text-xs bg-yellow-100 text-yellow-700 rounded-full px-2 py-0.5">غير مُعيّن</span>';
+const manageAllowed=(typeof canManageCustomer==='function') ? canManageCustomer(customer) : true;
+let priceListInfoHTML=`<div class="mt-2"><span class="text-sm text-gray-800 bg-gray-100 rounded-full px-2 py-0.5">بدون قائمة أسعار</span></div>`;
+if (priceList) {
+const discountMatch=priceList.name.match(/\(خصم (.*?)%\)/);
+const baseName=discountMatch ? priceList.name.replace(discountMatch[0], '').trim() : priceList.name;
+let baseTag=`<span class="text-sm text-blue-800 bg-blue-100 rounded-full px-2 py-0.5">${baseName}</span>`;
+let discountTag=discountMatch ? ` <span class="text-sm text-red-800 bg-red-100 rounded-full px-2 py-0.5">خصم ${discountMatch[1]}%</span>` : '';
+priceListInfoHTML=`<div class="mt-2 flex flex-wrap gap-1 items-center">${baseTag}${discountTag}</div>`;
+}
+const taxTag=taxRequired ? `<span class="text-xs font-semibold bg-orange-100 text-orange-800 rounded-full px-2 py-0.5 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> يتطلب رفع ضريبي</span>` : '';
+const claimBtnHtml=(role==='rep') ? '' : (!assignedRepId ? `<button data-id="${cid}" class="claim-customer-btn text-xs bg-green-500 text-white px-2 py-1 rounded hover:bg-green-600">تعيين لي</button>` : '');
+const actionsHtml=(role !=='rep' && manageAllowed)
+? `<div class="flex"><button data-id="${cid}" class="edit-customer-btn p-2 text-gray-500 hover:text-blue-600" title="تعديل"><i data-lucide="edit" class="w-5 h-5"></i></button><button data-id="${cid}" class="delete-customer-btn p-2 text-gray-500 hover:text-red-600" title="حذف"><i data-lucide="trash-2" class="w-5 h-5"></i></button></div>`
+: `<div class="flex opacity-50 cursor-not-allowed" title="لا تملك صلاحية تعديل هذا العميل"><button data-id="${cid}" class="p-2 text-gray-400" disabled><i data-lucide="edit" class="w-5 h-5"></i></button><button data-id="${cid}" class="p-2 text-gray-400" disabled><i data-lucide="trash-2" class="w-5 h-5"></i></button></div>`;
+el.innerHTML=`<div class="flex justify-between items-start"><div><p class="font-bold text-lg">${customer.name} ${taxRequired ? `<i data-lucide=\"file-text\" class=\"w-4 h-4 inline text-orange-500 mr-2\" title=\"يتطلب رفع ضريبي\"></i>` : ''}</p><p class="text-sm text-gray-500 flex items-center gap-1 mt-1"><i data-lucide="landmark" class="w-3 h-3"></i> الرقم الضريبي: ${customer.taxNumber || 'لا يوجد'}</p><p class="text-sm text-gray-500 flex items-center gap-1 mt-1"><i data-lucide="phone" class="w-3 h-3"></i> ${customer.phone || 'لا يوجد'}</p><p class="text-sm text-gray-500 flex items-center gap-1 mt-1"><i data-lucide="map-pin" class="w-3 h-3"></i> ${isLink ? `<a href="${address}" target="_blank" class="text-blue-600 hover:underline">عرض على الخريطة</a>` : address || 'لا يوجد'}</p><p class="text-sm text-gray-500 flex items-center gap-1 mt-1"><i data-lucide="user" class="w-3 h-3"></i> المندوب: <span class="font-semibold text-gray-700">${repName}</span> ${assignedBadge}</p>${priceListInfoHTML}</div><div class="flex flex-col items-end gap-2">${taxTag}${claimBtnHtml}${actionsHtml}<button data-id="${cid}" class="ai-followup-btn text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded-md flex items-center gap-1 hover:bg-purple-200"><span>✨</span> رسالة متابعة</button></div></div>`;
+customersList.appendChild(el);
+});
+updateIcons();
+}
+const taxConfig={
+vatStandardRate: 0.14,
+taxCodes: {
+T1: { description: 'Value Added Tax', subTypes: { V009: 'General Item sales', V003: 'Exempted good or service' } },
+T4: { description: 'Withholding Tax', subTypes: { W004: 'Services' } }
+},
+uom: { EA: 'Each', KGM: 'Kilogram', LTR: 'Liter', BOX: 'Box', DZ: 'Dozen', M: 'Meter', H: 'Hour', MIN: 'Minute' }
+};
+const CHAINS_LS_KEY='customerChains';
+function loadChains() { 
+if (Array.isArray(state.chains)) return state.chains;
+try { 
+const raw=localStorage.getItem(CHAINS_LS_KEY); 
+const arr=raw ? JSON.parse(raw) : []; 
+if (Array.isArray(arr) && arr.length > 0) {
+state.chains=arr;
+saveState();
+console.log('📦 Migrated chains from localStorage to cloud');
+}
+return Array.isArray(arr) ? arr : []; 
+} catch(e){ return []; } 
+}
+function saveChains(chains){ 
+try{ 
+state.chains=chains || [];
+localStorage.setItem(CHAINS_LS_KEY, JSON.stringify(chains || [])); 
+saveState(); 
+console.log('✅ Chains saved to cloud and localStorage');
+} catch(e){ console.warn('saveChains failed', e); } 
+}
+function renderChainsDisplay(){
+const chains=loadChains();
+const container=document.getElementById('chains-display');
+if(!container) return;
+if(chains.length===0) { container.innerHTML=''; return; }
+container.innerHTML='<div class="bg-blue-50 border border-blue-200 rounded p-3"><div class="text-sm font-semibold mb-2">السلاسل المحفوظة:</div><div class="space-y-2"></div></div>';
+const chainList=container.querySelector('.space-y-2');
+chains.forEach(chain=> {
+const customerNames=chain.customerIds.map(cid=> { const c=findCustomer(cid); return c ? c.name : cid; }).join(', ');
+const badge=document.createElement('div');
+badge.className='flex justify-between items-center bg-white p-2 rounded border border-blue-200 text-sm';
+badge.innerHTML=`
+<div class="cursor-pointer flex-1" data-view-chain-id="${chain.id}"><span class="font-medium text-blue-600 hover:underline">${(chain.name||'').replace(/</g,'&lt;')}</span><br><span class="text-xs text-gray-600">${customerNames || 'بدون عملاء'}</span></div>
+<div class="flex gap-1">
+<button data-chain-id="${chain.id}" class="edit-chain-btn px-2 py-1 bg-blue-500 text-white text-xs rounded hover:bg-blue-600">تعديل</button>
+<button data-chain-id="${chain.id}" class="delete-chain-btn px-2 py-1 bg-red-500 text-white text-xs rounded hover:bg-red-600">حذف</button>
+</div>
+`;
+chainList.appendChild(badge);
+});
+}
+function openViewChainModal(chainId){
+const chains=loadChains();
+const chain=chains.find(c=> c.id===chainId);
+if(!chain) return;
+const modal=document.createElement('div');
+modal.id='view-chain-modal';
+modal.style.position='fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0'; modal.style.zIndex='9999';
+const customerNames=chain.customerIds.map(cid=> { const c=findCustomer(cid); return c ? c.name : cid; });
+modal.innerHTML=`
+<div class="fixed inset-0 bg-black/40" id="view-chain-backdrop"></div>
+<div class="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-11/12 md:w-2/3 lg:w-1/2 bg-white rounded shadow-lg p-4 z-50">
+<h3 class="font-semibold mb-3">السلسلة: ${(chain.name||'').replace(/</g,'&lt;')}</h3>
+<div class="mb-4"><label class="block text-sm font-medium mb-2">العملاء في هذه السلسلة:</label><div class="border rounded p-3 bg-gray-50">${customerNames.length > 0 ? customerNames.map(n=> `<div class="py-1 text-sm">• ${n}</div>`).join('') : '<div class="text-sm text-gray-500">بدون عملاء</div>'}</div></div>
+<div class="flex justify-end gap-2"><button id="view-chain-edit-btn" data-chain-id="${chainId}" class="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">تعديل</button><button id="view-chain-close-btn" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">إغلاق</button></div>
+</div>
+`;
+document.body.appendChild(modal);
+modal.querySelector('#view-chain-close-btn')?.addEventListener('click', ()=> modal.remove());
+modal.querySelector('#view-chain-backdrop')?.addEventListener('click', ()=> modal.remove());
+modal.querySelector('#view-chain-edit-btn')?.addEventListener('click', function(){ 
+modal.remove(); 
+openAddChainModal(chainId); 
+});
+}
+function openAddChainModal(chainId){
+const chains=loadChains();
+const editChain=chainId ? chains.find(c=> c.id===chainId) : null;
+const modal=document.createElement('div');
+modal.id='add-chain-modal';
+modal.style.position='fixed'; modal.style.left='0'; modal.style.top='0'; modal.style.right='0'; modal.style.bottom='0'; modal.style.zIndex='9999';
+const title=editChain ? 'تعديل السلسلة' : 'إضافة سلسلة جديدة';
+modal.innerHTML=`
+<div class="fixed inset-0 bg-black/40" id="add-chain-backdrop"></div>
+<div class="fixed left-1/2 top-1/2 transform -translate-x-1/2 -translate-y-1/2 w-11/12 md:w-2/3 lg:w-1/2 bg-white rounded shadow-lg p-4 z-50 max-h-80 overflow-y-auto">
+<h3 class="font-semibold mb-3">${title}</h3>
+<div class="mb-3"><label class="block text-sm font-medium mb-1">اسم السلسلة</label><input id="chain-name-input" class="w-full p-2 border rounded" placeholder="اسم السلسلة" value="${editChain ? (editChain.name||'').replace(/"/g,'&quot;') : ''}"></div>
+<div class="mb-3"><label class="block text-sm font-medium mb-1">العملاء:</label><div id="chain-customers-list" class="max-h-48 overflow-y-auto border rounded p-2 bg-gray-50"></div></div>
+<div class="flex justify-end gap-2"><button id="chain-cancel-btn" class="px-3 py-2 rounded bg-gray-200 hover:bg-gray-300">إلغاء</button><button id="chain-save-btn" class="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700">حفظ</button></div>
+</div>
+`;
+document.body.appendChild(modal);
+const listWrap=modal.querySelector('#chain-customers-list');
+const customers=Array.isArray(state.customers) ? state.customers : [];
+if (customers.length===0) listWrap.innerHTML='<div class="text-sm text-gray-500">لا يوجد عملاء</div>';
+else {
+const selected=editChain ? (editChain.customerIds || []) : [];
+listWrap.innerHTML=customers.map(c=> `<label class="flex items-center gap-2 p-2 hover:bg-blue-100 rounded"><input type="checkbox" data-cid="${c.id}" ${selected.includes(c.id) ? 'checked' : ''} /> <span class="text-sm">${(c.name||'').replace(/</g,'&lt;')}</span></label>`).join('');
+}
+modal.querySelector('#chain-cancel-btn').addEventListener('click', closeAddChainModal);
+modal.querySelector('#add-chain-backdrop')?.addEventListener('click', closeAddChainModal);
+modal.querySelector('#chain-save-btn').addEventListener('click', function(){
+const name=(modal.querySelector('#chain-name-input').value||'').trim();
+if (!name) { alert('الرجاء إدخال اسم السلسلة'); return; }
+const checked=Array.from(modal.querySelectorAll('input[type=checkbox][data-cid]:checked')).map(cb=>cb.getAttribute('data-cid'));
+const allChains=loadChains();
+if (editChain) {
+const idx=allChains.findIndex(c=> c.id===editChain.id);
+if(idx >=0) { allChains[idx].name=name; allChains[idx].customerIds=checked; }
+} else {
+const id='chain-' + Date.now().toString(36);
+allChains.push({ id, name, customerIds: checked });
+}
+saveChains(allChains);
+closeAddChainModal();
+renderChainsDisplay();
+});
+}
+function closeAddChainModal(){ const m=document.getElementById('add-chain-modal'); if(m) m.remove(); }
+document.addEventListener('click', function(e){
+if (e.target.closest && e.target.closest('#add-chain-btn')) { openAddChainModal(); }
+const viewDiv=e.target.closest('[data-view-chain-id]');
+if(viewDiv) { const chainId=viewDiv.getAttribute('data-view-chain-id'); openViewChainModal(chainId); }
+const editBtn=e.target.closest('.edit-chain-btn');
+if(editBtn) { const chainId=editBtn.getAttribute('data-chain-id'); openAddChainModal(chainId); }
+const delBtn=e.target.closest('.delete-chain-btn');
+if(delBtn) {
+const chainId=delBtn.getAttribute('data-chain-id');
+if(confirm('حذف هذه السلسلة؟')) {
+let chains=loadChains();
+chains=chains.filter(c=> c.id !==chainId);
+saveChains(chains);
+renderChainsDisplay();
+}
+}
+});
+function initializeChainsDisplay() { renderChainsDisplay(); }
+function stableCanonical(value) {
+if (value===null || value===undefined) return undefined;
+if (typeof value !=='object') {
+if (value==='') return undefined; 
+return value; 
+}
+if (Array.isArray(value)) {
+const arr=value.map(v=> stableCanonical(v)).filter(v=> v !==undefined);
+return arr;
+}
+const keys=Object.keys(value).sort();
+const out={};
+for (const k of keys) {
+const v=stableCanonical(value[k]);
+if (v !==undefined) out[k]=v;
+}
+return out;
+}
+async function sha256Utf8Canonical(obj) {
+const canonicalObj=stableCanonical(obj);
+const json=JSON.stringify(canonicalObj);
+const enc=new TextEncoder();
+const data=enc.encode(json);
+const hashBuf=await crypto.subtle.digest('SHA-256', data);
+const hashArr=Array.from(new Uint8Array(hashBuf));
+return hashArr.map(b=> b.toString(16).padStart(2, '0')).join('');
+}
+let discountRule='beforeVAT'; 
+function computeLineTotals(item, vatRate) {
+const qty=Number(item.quantity || 0);
+const unitPrice=Number(item.price || 0);
+const discountPercent=Number(item.discountPercent || 0);
+let base=unitPrice * qty;
+if (discountRule==='beforeVAT') {
+base=base * (1 - discountPercent/100);
+}
+const taxAmount=base * vatRate;
+const total=base + taxAmount;
+return { base: round2(base), taxAmount: round2(taxAmount), total: round2(total) };
+}
+function round2(n){ return Math.round((n + Number.EPSILON)*100)/100; }
+function transformSaleToEtaInvoice(sale) {
+const taxId='762878835'; 
+const customer=findCustomer(sale.customerId);
+const isReturn=sale.total < 0;
+const badgeText=isReturn ? 'مرتجع' : 'فاتورة';
+const badgeColor=isReturn ? 'bg-red-600 text-white' : 'bg-blue-600 text-white';
+const saleBgColor=isReturn ? 'bg-red-50 border-red-200' : `${(index % 2===0) ? 'bg-white' : 'bg-gray-50'} border-gray-200`;
+const totalAmountClass=isReturn ? 'text-red-700' : 'text-blue-700';
+const lines=(sale.items || []).map((item, itemIndex)=> {
+const product=findProduct(item.productId);
+const itemName=product && product.name ? product.name : (item.productName || 'منتج غير معروف');
+const itemTotal=item.quantity * (item.price || 0) * (1 - (item.discountPercent || 0) / 100);
+let itemCodeValue=product ? product.id : (item.productId || 'N/A');
+let finalItemCode=itemCodeValue;
+if (!finalItemCode.startsWith('EG-') && !finalItemCode.startsWith('622')) {
+finalItemCode=`EG-${taxId}-${finalItemCode}`;
+}
+return {
+internalCode: item.productId || String(itemIndex + 1),
+description: itemName,
+itemCode: finalItemCode,
+quantity: item.quantity || 0,
+unitPrice: item.price || 0,
+taxableAmount: round2(itemBase),
+taxAmount: itemTax,
+totalAmount: itemTotal
+};
+});
+const itemsList=lines.map((line, itemIndex)=> {
+const itemTotalColorClass=isReturn ? 'text-red-700' : 'text-pink-700';
+return `<tr class="text-xs border-b border-gray-100 last:border-b-0"><td class="text-right px-3 py-2 font-semibold sale-item-name-cell">${line.description}</td><td class="text-center px-3 py-2 sale-item-code-cell">${line.itemCode}</td><td class="text-center px-3 py-2 sale-item-qty-cell font-bold ${line.quantity < 0 ? 'text-red-600' : 'text-gray-800'}">${line.quantity}</td><td class="text-center px-3 py-2 sale-item-price-cell">${formatCurrency(line.unitPrice)}</td><td class="text-center px-3 py-2 font-bold sale-item-total-cell ${itemTotalColorClass}">${formatCurrency(line.totalAmount)}</td></tr>`;
+}).join('');
+const customerRequiresFiling=customer?.requiresTaxFiling;
+const customerTaxNumber=customer ? (customer.taxNumber || 'لا يوجد') : 'لا يوجد';
+const invoice={
+invoiceNumber: sale.invoiceNumber || sale.id,
+issueDateTime: new Date(sale.date).toISOString(),
+currency: 'EGP',
+seller: { name: state.companyName || 'الشركة', taxNumber: state.companyTaxId || '000000000' },
+buyer: { name: customer.name || 'عميل', taxNumber: customer.taxNumber || '', type: 'B2B' },
+totals: {
+totalLines: lines.length,
+totalTaxable: round2(lines.reduce((s,l)=> s + l.taxableAmount,0)),
+totalTax: round2(lines.reduce((s,l)=> s + l.taxAmount,0)),
+totalAmount: round2(lines.reduce((s,l)=> s + l.totalAmount,0))
+},
+lines: lines,
+signature: null 
+};
+return invoice;
+}
+function exportTaxInvoicesToJson(sales) {
+const invoices=sales.map(transformSaleToEtaInvoice);
+const blob=new Blob([JSON.stringify(invoices, null, 2)], { type: 'application/json' });
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a');
+a.href=url; a.download='eta_invoices.json'; a.click();
+setTimeout(()=> URL.revokeObjectURL(url), 2000);
+}
+function exportTaxInvoicesToCsv(sales) {
+const invoices=sales.map(transformSaleToEtaInvoice);
+const header=['invoiceNumber','issueDateTime','buyerName','buyerTaxNumber','lines','totalTaxable','totalTax','totalAmount'];
+const rows=invoices.map(inv=> {
+const lineSummary=inv.lines.map(l=> `${l.itemCode}:${l.quantity}x${l.unitPrice}=${l.totalAmount}`).join('|');
+return [inv.invoiceNumber, inv.issueDateTime, inv.buyer.name, inv.buyer.taxNumber, lineSummary, inv.totals.totalTaxable, inv.totals.totalTax, inv.totals.totalAmount];
+});
+const csv=[header.join(','), ...rows.map(r=> r.map(x=> '"'+String(x).replace(/"/g,'""')+'"').join(','))].join('\n');
+const blob=new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+const url=URL.createObjectURL(blob);
+const a=document.createElement('a'); a.href=url; a.download='eta_invoices.csv'; a.click();
+setTimeout(()=> URL.revokeObjectURL(url), 2000);
+}
+function getCandidateSalesForTaxExport(){
+return (state.sales||[]).filter(s=> {
+const c=findCustomer(s.customerId);
+return c && c.requiresTaxFiling;
+});
+}
+document.addEventListener('click', function(e){
+if (e.target.closest && e.target.closest('#tax-export-json-btn')) {
+const candidates=getCandidateSalesForTaxExport();
+if (!candidates.length) { alert('لا توجد فواتير لعملاء يتطلبون رفع ضريبي حالياً.'); return; }
+exportTaxInvoicesToJson(candidates);
+}
+if (e.target.closest && e.target.closest('#tax-export-csv-btn')) {
+const candidates=getCandidateSalesForTaxExport();
+if (!candidates.length) { alert('لا توجد فواتير لعملاء يتطلبون رفع ضريبي حالياً.'); return; }
+exportTaxInvoicesToCsv(candidates);
+}
+});
+function renderCustomerList(filter='') {
+try { return renderCustomers(filter); } catch(e){ console.warn('renderCustomerList alias failed', e); }
+}
+function renderReps() {
+const repsList=document.getElementById('reps-list');
+repsList.innerHTML='';
+if (state.reps.length===0) {
+repsList.innerHTML='<p class="text-gray-500 text-center mt-8">لا يوجد مناديب. اضغط على زر "إضافة مندوب" للبدء.</p>';
+return;
+}
+state.reps.forEach(rep=> {
+const el=document.createElement('div');
+el.className='bg-white p-4 rounded-lg border shadow-sm';
+el.innerHTML=`<div class="flex justify-between items-start">
+<div>
+<p class="font-bold text-lg">${rep.name}</p>
+<p class="text-sm text-gray-500 mt-1">السيريال: ${rep.serial || 'لا يوجد'}</p>
