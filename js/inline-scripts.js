@@ -10436,7 +10436,7 @@
                         };
                         // mark raw grid as touched so cloud writer knows to include it
                         try { window.__rawTouched = true; } catch(_){}
-                        if (typeof window.debouncedRawSave === 'function') window.debouncedRawSave();
+                        if (typeof window.debouncedRawSave === 'function') window.saveRawGridStateNow();
                         
                         // === PRICE SYNC: Raw Materials => Costing System ===
                         if (newUnitPrice !== oldPrice && newUnitPrice !== 0) {
@@ -10594,7 +10594,7 @@
                             bookBalance: bookBalance,
                             updatedAt: new Date().toISOString()
                         };
-                        if (typeof window.debouncedPackSave === 'function') window.debouncedPackSave();
+                        if (typeof window.debouncedPackSave === 'function') window.savePackGridStateNow();
                         // mark pack grid as touched so cloud writer knows to include it
                         try { window.__packTouched = true; } catch(_){}
                         
