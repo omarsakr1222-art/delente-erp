@@ -7263,7 +7263,13 @@
                                 if (idx >= 0) window.costRaw[idx].stock = newStock;
                             } else if (tab === 'pack' && window.costPack) {
                                 const idx = window.costPack.findIndex(x => x.id === item.id);
-                                if (idx >= 0) window.costPack[idx].stock = newStock;
+                                console.log('performStockAdjust pack - item.id:', item.id, 'costPack length:', window.costPack.length, 'ids:', window.costPack.map(x => x.id));
+                                if (idx >= 0) {
+                                    window.costPack[idx].stock = newStock;
+                                    console.log('Updated costPack stock to:', newStock);
+                                } else {
+                                    console.warn('Packaging item not found in costPack for id:', item.id);
+                                }
                             } else if (tab === 'finished' && window.costFinished) {
                                 const idx = window.costFinished.findIndex(x => x.id === item.id);
                                 if (idx >= 0) window.costFinished[idx].stock = newStock;
