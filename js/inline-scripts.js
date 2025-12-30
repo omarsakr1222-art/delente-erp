@@ -10440,10 +10440,14 @@
                         if (!isNaN(actual)) {
                             try {
                                 let costItem = (Array.isArray(window.costRaw) && window.costRaw.find(i => i && i.name && i.name.toLowerCase() === materialName.toLowerCase()));
+                                console.log('Stock sync debug - materialName:', materialName, 'actual:', actual, 'costRaw length:', window.costRaw ? window.costRaw.length : 0);
                                 if (costItem) {
                                     costItem.stock = actual;
+                                    console.log('Updated costItem.stock to:', actual);
                                     if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
                                     console.log(`✅ Stock synced for Raw Material "${materialName}": ${actual}`);
+                                } else {
+                                    console.warn('Cost item not found for:', materialName);
                                 }
                             } catch(e){ console.warn('Stock sync for raw materials failed', e); }
                         }
@@ -10595,10 +10599,14 @@
                         if (!isNaN(actual)) {
                             try {
                                 const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
+                                console.log('Stock sync debug - product.name:', product.name, 'actual:', actual, 'costPack length:', window.costPack ? window.costPack.length : 0);
                                 if (costItem) {
                                     costItem.stock = actual;
+                                    console.log('Updated costItem.stock to:', actual);
                                     if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
                                     console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
+                                } else {
+                                    console.warn('Cost item not found for:', product.name);
                                 }
                             } catch(e){ console.warn('Stock sync for packaging failed', e); }
                         }
