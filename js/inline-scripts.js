@@ -7172,6 +7172,12 @@
                         document.getElementById('edit-item-name').textContent = item.name || 'صنف';
                         document.getElementById('edit-current-stock').textContent = String(stock);
                         document.getElementById('edit-unit').textContent = String(unit);
+                        // Reset the quantity input
+                        const qtyInput = document.getElementById('editStockQuantity');
+                        if (qtyInput) {
+                            qtyInput.value = '';
+                            setTimeout(() => qtyInput.focus(), 100);
+                        }
                         document.getElementById('editItemModal').style.display = 'block';
                     };
                     
