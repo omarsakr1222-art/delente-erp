@@ -7037,7 +7037,7 @@
                             const map = {
                                 finished: document.getElementById('table-finished'),
                                 raw: document.getElementById('table-raw'),
-                                packing: document.getElementById('table-packing')
+                                pack: document.getElementById('table-packing')
                             };
                             const body = map[tab];
                             if (!body) return;
@@ -7126,7 +7126,7 @@
                                     });
                                     body.appendChild(tr);
                                 });
-                            } else if (tab === 'packing') {
+                            } else if (tab === 'pack') {
                                 const list = Array.isArray(window.costPack) ? window.costPack : [];
                                 if (!list.length) { body.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد مواد تغليف مُسجلة.</td></tr>'; window.updateTotalValue?.(); return; }
                                 list.forEach(item => {
