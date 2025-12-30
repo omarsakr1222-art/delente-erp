@@ -10435,6 +10435,18 @@
                                 }
                             } catch(e){ console.warn('Price sync for raw materials failed', e); }
                         }
+                        
+                        // === STOCK SYNC: Raw Materials => Costing System ===
+                        if (!isNaN(actual)) {
+                            try {
+                                let costItem = (Array.isArray(window.costRaw) && window.costRaw.find(i => i && i.name && i.name.toLowerCase() === materialName.toLowerCase()));
+                                if (costItem) {
+                                    costItem.stock = actual;
+                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                                    console.log(`✅ Stock synced for Raw Material "${materialName}": ${actual}`);
+                                }
+                            } catch(e){ console.warn('Stock sync for raw materials failed', e); }
+                        }
                     } catch(e){ console.warn('persist raw grid failed', e); }
                 }
 
@@ -10577,6 +10589,18 @@
                                     console.log(`✅ Price synced for Packaging "${product.name}": ${newUnitPrice}`);
                                 }
                             } catch(e){ console.warn('Price sync for packaging failed', e); }
+                        }
+                        
+                        // === STOCK SYNC: Packaging => Costing System ===
+                        if (!isNaN(actual)) {
+                            try {
+                                const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
+                                if (costItem) {
+                                    costItem.stock = actual;
+                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                                    console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
+                                }
+                            } catch(e){ console.warn('Stock sync for packaging failed', e); }
                         }
                     } catch(e){ console.warn('persist pack grid failed', e); }
                 }
