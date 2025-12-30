@@ -10598,15 +10598,15 @@
                         // === STOCK SYNC: Packaging => Costing System ===
                         if (!isNaN(actual)) {
                             try {
-                                const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.id === product.id));
-                                console.log('Stock sync debug - product.id:', product.id, 'actual:', actual, 'costPack length:', window.costPack ? window.costPack.length : 0);
+                                const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
+                                console.log('Stock sync debug - product.name:', product.name, 'actual:', actual, 'costPack length:', window.costPack ? window.costPack.length : 0);
                                 if (costItem) {
                                     costItem.stock = actual;
                                     console.log('Updated costItem.stock to:', actual);
                                     if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
                                     console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
                                 } else {
-                                    console.warn('Cost item not found for id:', product.id);
+                                    console.warn('Cost item not found for:', product.name);
                                 }
                             } catch(e){ console.warn('Stock sync for packaging failed', e); }
                         }

@@ -3159,7 +3159,7 @@ function renderPackaging() {
                 // === STOCK SYNC: Packaging => Costing System ===
                 if (!isNaN(actual)) {
                     try {
-                        const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.id === product.id));
+                        const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
                         if (costItem) {
                             costItem.stock = actual;
                             if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
