@@ -7186,9 +7186,9 @@
                                 return;
                             }
                             const item = window.inventorySystem.currentItem;
-                            const qtyInput = document.querySelector('input[placeholder*="الكمية"]') || document.querySelector('input[type="number"]');
-                            if (!qtyInput) {
-                                alert('⚠️ لم يتم إدخال كمية');
+                            const qtyInput = document.getElementById('editStockQuantity');
+                            if (!qtyInput || !qtyInput.value) {
+                                alert('⚠️ الرجاء ادخال رقم الكمية');
                                 return;
                             }
                             const qty = Number(qtyInput.value);
@@ -7199,6 +7199,7 @@
                             const currentStock = Number(item.stock || 0);
                             const newStock = action === 'add' ? currentStock + qty : Math.max(0, currentStock - qty);
                             item.stock = newStock;
+                            qtyInput.value = '';
                             if (window.inventorySystem.loadInventoryData) {
                                 window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab || 'finished');
                             }
