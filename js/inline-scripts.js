@@ -7206,8 +7206,29 @@
                             const newStock = action === 'add' ? currentStock + qty : Math.max(0, currentStock - qty);
                             item.stock = newStock;
                             qtyInput.value = '';
+                            
+                            // Save to localStorage and Firebase
+                            const tab = window.inventorySystem.currentTab || 'finished';
+                            if (tab === 'raw' && window.costRaw) {
+                                const idx = window.costRaw.findIndex(x => x.id === item.id);
+                                if (idx >= 0) window.costRaw[idx].stock = newStock;
+                            } else if (tab === 'pack' && window.costPack) {
+                                const idx = window.costPack.findIndex(x => x.id === item.id);
+                                if (idx >= 0) window.costPack[idx].stock = newStock;
+                            } else if (tab === 'finished' && window.costFinished) {
+                                const idx = window.costFinished.findIndex(x => x.id === item.id);
+                                if (idx >= 0) window.costFinished[idx].stock = newStock;
+                            }
+                            
+                            // Save to cloud and localStorage
+                            if (typeof window.saveLists === 'function') {
+                                window.saveLists();
+                            } else if (typeof window.saveCostListsToFirebase === 'function') {
+                                window.saveCostListsToFirebase();
+                            }
+                            
                             if (window.inventorySystem.loadInventoryData) {
-                                window.inventorySystem.loadInventoryData(window.inventorySystem.currentTab || 'finished');
+                                window.inventorySystem.loadInventoryData(tab);
                             }
                             closeEditModal();
                             alert(`✅ تم تحديث الرصيد: ${item.name} → ${newStock}`);
