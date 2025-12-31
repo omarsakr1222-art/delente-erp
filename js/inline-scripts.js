@@ -20291,7 +20291,7 @@
         function renderRawPriceTable(){
             const tbody = document.querySelector('#raw-price-table tbody'); if(!tbody) return;
             tbody.innerHTML = '';
-            (costRaw || []).forEach(it => {
+            (window.costRaw || []).forEach(it => {
                 const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.cost !== undefined ? it.cost : '');
                 const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
                 const tr = document.createElement('tr');
@@ -20303,7 +20303,7 @@
         function renderFinishedPriceTable(){
             const tbody = document.querySelector('#finished-price-table tbody'); if(!tbody) return;
             tbody.innerHTML = '';
-            (costFinished || []).forEach(it => {
+            (window.costFinished || []).forEach(it => {
                 const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.price !== undefined ? it.price : '');
                 const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
                 const tr = document.createElement('tr');
@@ -20315,7 +20315,7 @@
         function renderPackPriceTable(){
             const tbody = document.querySelector('#pack-price-table tbody'); if(!tbody) return;
             tbody.innerHTML = '';
-            (costPack || []).forEach(it => {
+            (window.costPack || []).forEach(it => {
                 const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.cost !== undefined ? it.cost : '');
                 const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
                 const tr = document.createElement('tr');
@@ -22791,3 +22791,67 @@
             });
             window.updateRawMaterialTotal = updateRawMaterialTotal;
         })();
+
+        // Define missing functions for costs page
+        window.closeAddModal = function() {
+            const modals = ['addItemModal', 'addRawModal', 'addPackModal', 'addFinishedModal'];
+            modals.forEach(id => {
+                const modal = document.getElementById(id);
+                if (modal) modal.style.display = 'none';
+            });
+        };
+
+        window.saveNewItemAction = function(type) {
+            try {
+                const nameEl = document.getElementById('newItemName');
+                const costEl = document.getElementById('newItemCost');
+                const unitEl = document.getElementById('newItemUnit');
+                if (!nameEl || !costEl) {
+                    alert('الرجاء إدخال الاسم والسعر');
+                    return;
+                }
+                const name = nameEl.value.trim();
+                const cost = Number(costEl.value);
+                const unit = unitEl ? unitEl.value.trim() : '';
+                if (!name || isNaN(cost)) {
+                    alert('الرجاء إدخال بيانات صحيحة');
+                    return;
+                }
+                const item = { name, cost, stock: 0 };
+                if (unit) item.unit = unit;
+                if (type === 'raw') {
+                    if (!window.costRaw) window.costRaw = [];
+                    window.costRaw.push(item);
+                    if (typeof renderRawPriceTable === 'function') renderRawPriceTable();
+                } else if (type === 'pack') {
+                    if (!window.costPack) window.costPack = [];
+                    window.costPack.push(item);
+                    if (typeof renderPackPriceTable === 'function') renderPackPriceTable();
+                } else if (type === 'finished') {
+                    if (!window.costFinished) window.costFinished = [];
+                    window.costFinished.push(item);
+                    if (typeof renderFinishedPriceTable === 'function') renderFinishedPriceTable();
+                }
+                if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
+                nameEl.value = '';
+                costEl.value = '';
+                if (unitEl) unitEl.value = '';
+                window.closeAddModal();
+                alert('تم إضافة الصنف بنجاح');
+            } catch(e) {
+                console.error('saveNewItemAction failed:', e);
+                alert('خطأ في الحفظ: ' + e.message);
+            }
+        };
+
+        // Define renderCostsPage
+        window.renderCostsPage = function() {
+            try {
+                if (typeof renderRawPriceTable === 'function') renderRawPriceTable();
+                if (typeof renderPackPriceTable === 'function') renderPackPriceTable();
+                if (typeof renderFinishedPriceTable === 'function') renderFinishedPriceTable();
+            } catch(e) {
+                console.warn('renderCostsPage failed:', e);
+            }
+        };
+    
