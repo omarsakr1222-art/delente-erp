@@ -22791,4 +22791,3 @@
             });
             window.updateRawMaterialTotal = updateRawMaterialTotal;
         })();
-    
