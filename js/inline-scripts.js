@@ -11214,16 +11214,10 @@
                      try { document.getElementById('daily-total-container').classList.add('hidden'); } catch(e){}
                  }
 
-                 // Fallbacks: if filtering yields nothing, show broader data
-                 if (activePeriod && filteredSales.length === 0) {
-                     console.warn('Monthly filter returned no sales; showing all sales until data loads');
-                     filteredSales = [...state.sales];
-                 }
+                 // إذا لم توجد نتائج بعد الفلترة الشهرية، لا تعرض أي فواتير ولا fallback
                  if (filteredSales.length === 0) {
-                     try {
-                         const cached = JSON.parse(localStorage.getItem('cache_sales')||'[]');
-                         if (Array.isArray(cached) && cached.length) filteredSales = cached;
-                     } catch(_){}
+                     salesList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد فواتير لهذا الشهر.</p>';
+                     return;
                  }
 
              if (textFilter) { 
