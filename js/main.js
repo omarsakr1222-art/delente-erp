@@ -2554,7 +2554,38 @@ function showStockSubview(name){
         // render content for visible subview
         if(name === 'finished-products') renderStockLedgerForFinishedProducts();
         if(name === 'raw-materials') renderRawMaterials();
-        if(name === 'packaging') renderPackaging();
+        if(name === 'packaging') {
+            // Render inventory for packaging
+            const body = document.getElementById('packaging-table-body') || document.getElementById('table-packing');
+            if (body) {
+                body.innerHTML = '';
+                const list = Array.isArray(window.costPack) ? window.costPack : [];
+                if (!list.length) {
+                    body.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد مواد تغليف مُسجلة.</td></tr>';
+                    return;
+                }
+                list.forEach(item => {
+                    const name = (item && (item.name||item.code)) ? String(item.name||item.code) : '';
+                    const stock = Number(item.stock) || 0;
+                    const unit = item.unit || item.unitName || '';
+                    const cost = Number(item.cost) || 0;
+                    const tr = document.createElement('tr');
+                    tr.innerHTML = `<td class="p-3 w-1/4 text-right">${name||'-'}</td><td class="p-3 w-1/4 text-center">${stock}</td><td class="p-3 w-1/4 text-right">${unit}</td><td class="p-3 w-1/4 text-center">${cost}</td>`;
+                    tr.addEventListener('click', function(){
+                        // Open modal
+                        const modal = document.getElementById('itemCardModal');
+                        if (modal) {
+                            const titleEl = document.getElementById('modal-title');
+                            const stockEl = document.getElementById('modal-stock');
+                            if (titleEl) titleEl.textContent = name||'صنف';
+                            if (stockEl) stockEl.textContent = String(stock||0);
+                            modal.style.display='block';
+                        }
+                    });
+                    body.appendChild(tr);
+                });
+            }
+        }
     }catch(e){console.warn('showStockSubview', e)}
 }
 
