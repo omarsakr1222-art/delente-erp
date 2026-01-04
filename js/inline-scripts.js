@@ -4408,85 +4408,107 @@
     
 
 
-        // --- USB/Thermal Print Function with RawBT Support ---
+        // --- USB/Thermal Print Function ---
         window.printViaUSB = async function(sale) {
             try {
                 if (!sale) {
                     return alert("❌ لا توجد فاتورة للطباعة");
                 }
 
-                // Build plain text receipt for thermal printer
-                const ESC = '\x1B';
-                const GS = '\x1D';
-                const INIT = ESC + '@';
-                const CENTER = ESC + 'a' + '1';
-                const LEFT = ESC + 'a' + '0';
-                const BOLD_ON = ESC + 'E' + '1';
-                const BOLD_OFF = ESC + 'E' + '0';
-                const CUT = GS + 'V' + '\x00';
-                const LINE = '--------------------------------';
-
-                const paidAmt = (sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                const paidAmt = (sale.paidAmount !== undefined && sale.paidAmount !== null) ? 
+                    sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0));
                 const remaining = (sale.total || 0) - (paidAmt || 0);
 
-                let receipt = INIT + CENTER + BOLD_ON;
-                receipt += 'Delente ERP\n';
-                receipt += 'فاتورة مبيعات\n' + BOLD_OFF;
-                receipt += LINE + '\n' + LEFT;
-                receipt += `رقم: ${sale.invoiceNumber || sale.id || ''}\n`;
-                receipt += `التاريخ: ${sale.date ? new Date(sale.date).toLocaleDateString('ar-EG') : ''}\n`;
-                receipt += `العميل: ${sale.customerName || 'عميل'}\n`;
-                receipt += LINE + '\n';
+                // Build plain text receipt (32 chars width for thermal printers)
+                let txt = '';
+                txt += '================================\n';
+                txt += '         Delente ERP\n';
+                txt += '        فاتورة مبيعات\n';
+                txt += '================================\n';
+                txt += `رقم الفاتورة: ${sale.invoiceNumber || sale.id || ''}\n`;
+                txt += `التاريخ: ${sale.date ? new Date(sale.date).toLocaleDateString('ar-EG') : ''}\n`;
+                txt += `العميل: ${sale.customerName || 'عميل'}\n`;
+                txt += '--------------------------------\n';
 
                 if (sale.items && Array.isArray(sale.items)) {
-                    receipt += 'الصنف       الكمية  السعر   الإجمالي\n';
-                    receipt += LINE + '\n';
+                    txt += 'الصنف          الكمية     السعر\n';
+                    txt += '--------------------------------\n';
                     sale.items.forEach(item => {
                         const qty = item.quantity || item.qty || 0;
                         const price = item.price || 0;
                         const total = qty * price;
-                        const name = (item.productName || item.name || '').substring(0, 12);
-                        receipt += `${name.padEnd(12)} x${String(qty).padEnd(3)} ${String(price.toFixed(2)).padEnd(7)} ${total.toFixed(2)}\n`;
+                        const name = (item.productName || item.name || '').substring(0, 15).padEnd(15);
+                        txt += `${name} x${String(qty).padStart(2)}  ${price.toFixed(2)}\n`;
+                        txt += `                الإجمالي: ${total.toFixed(2)}\n`;
                     });
-                    receipt += LINE + '\n';
+                    txt += '--------------------------------\n';
                 }
 
-                receipt += BOLD_ON;
-                receipt += `الإجمالي: ${(sale.total || 0).toFixed(2)} ج.م\n`;
-                receipt += BOLD_OFF;
-                receipt += `المدفوع: ${(paidAmt || 0).toFixed(2)} ج.م\n`;
-                receipt += `المتبقي: ${remaining.toFixed(2)} ج.م\n`;
-                receipt += LINE + '\n' + CENTER;
-                receipt += 'شكراً لتعاملكم معنا\n\n\n';
-                receipt += CUT;
+                txt += `الإجمالي:           ${(sale.total || 0).toFixed(2)} ج.م\n`;
+                txt += `المدفوع:            ${(paidAmt || 0).toFixed(2)} ج.م\n`;
+                txt += `المتبقي:            ${remaining.toFixed(2)} ج.م\n`;
+                txt += '================================\n';
+                txt += '      شكراً لتعاملكم معنا\n';
+                txt += '================================\n\n\n';
 
-                // Try RawBT for Android/Mobile first
+                // Try RawBT for Android/Mobile thermal printers
                 if (window.RawBT && typeof window.RawBT.write === 'function') {
                     try {
-                        await window.RawBT.write(receipt);
+                        const ESC = '\x1B';
+                        const INIT = ESC + '@';
+                        const CENTER = ESC + 'a1';
+                        const LEFT = ESC + 'a0';
+                        const CUT = '\x1D' + 'V' + '0';
+                        await window.RawBT.write(INIT + LEFT + txt + CUT);
+                        alert('✅ تم إرسال الفاتورة للطابعة');
                         return;
                     } catch(e) {
-                        console.warn('RawBT failed, falling back to window.print:', e);
+                        console.warn('RawBT failed:', e);
                     }
                 }
 
-                // Fallback: use window.print() with plain text
-                const printWin = window.open('', '', 'width=300,height=500');
-                printWin.document.write('<html><head><title>فاتورة</title>');
-                printWin.document.write('<style>body{font-family:monospace;font-size:12px;white-space:pre;margin:10px;}</style>');
-                printWin.document.write('</head><body>');
-                printWin.document.write(receipt.replace(/\x1B[@aE][\x00-\x02]/g, '').replace(/\x1D[V][\x00]/g, ''));
-                printWin.document.write('</body></html>');
+                // Fallback: create a simple printable page
+                const printWin = window.open('', '_blank', 'width=300,height=600');
+                if (!printWin) {
+                    alert('❌ فشل فتح نافذة الطباعة. تأكد من السماح بالنوافذ المنبثقة.');
+                    return;
+                }
+                
+                printWin.document.write(`
+                    <!DOCTYPE html>
+                    <html dir="rtl">
+                    <head>
+                        <meta charset="UTF-8">
+                        <title>فاتورة ${sale.invoiceNumber || ''}</title>
+                        <style>
+                            @page { size: 80mm auto; margin: 2mm; }
+                            body { 
+                                font-family: 'Courier New', monospace; 
+                                font-size: 11px; 
+                                white-space: pre-wrap; 
+                                margin: 0; 
+                                padding: 5px;
+                                direction: ltr;
+                            }
+                            @media print {
+                                body { margin: 0; }
+                            }
+                        </style>
+                    </head>
+                    <body>${txt}</body>
+                    </html>
+                `);
                 printWin.document.close();
-                printWin.focus();
+                
                 setTimeout(() => {
+                    printWin.focus();
                     printWin.print();
-                    printWin.close();
+                    setTimeout(() => printWin.close(), 500);
                 }, 250);
 
             } catch(e) {
                 console.error('Print Error:', e);
-                alert('❌ خطأ في الطباعة: ' + (e && e.message ? e.message : e));
+                alert('❌ خطأ في الطباعة: ' + e.message);
             }
         };
     
