@@ -4408,118 +4408,84 @@
     
 
 
-        // --- FIX: Define Missing USB Print Function ---
-        // Called from sales page with printViaUSB(sale)
+        // --- USB/Thermal Print Function with RawBT Support ---
         window.printViaUSB = async function(sale) {
             try {
                 if (!sale) {
                     return alert("❌ لا توجد فاتورة للطباعة");
                 }
 
-                // 1. Build Invoice HTML for printing
-                const invoiceHTML = `
-                    <div style="width: 80mm; font-family: Arial, sans-serif; direction: rtl; padding: 4mm; color: black; background: white;">
-                        <div style="text-align: center; border: 1px solid black; padding: 4mm;">
-                            <div style="font-weight: bold; font-size: 16px; margin-bottom: 4px;">Delente ERP</div>
-                            <div style="font-weight: bold; font-size: 14px; margin-bottom: 8px;">فاتورة مبيعات</div>
-                            <div style="border-top: 1px dashed black; border-bottom: 1px dashed black; padding: 4px 0; margin: 4px 0; font-size: 11px;">
-                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                                    <span>رقم:</span><span>${sale.invoiceNumber || sale.id || ''}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                                    <span>التاريخ:</span><span>${sale.date ? new Date(sale.date).toLocaleDateString('ar-EG') : ''}</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                                    <span>العميل:</span><span>${sale.customerName || 'عميل'}</span>
-                                </div>
-                            </div>
-                            ${sale.items && Array.isArray(sale.items) ? `
-                                <table style="width: 100%; font-size: 10px; border-collapse: collapse; margin: 4px 0;">
-                                    <thead>
-                                        <tr style="border-bottom: 1px solid black;">
-                                            <th style="text-align: right; padding: 2px;">الصنف</th>
-                                            <th style="text-align: center; padding: 2px;">الكمية</th>
-                                            <th style="text-align: center; padding: 2px;">السعر</th>
-                                            <th style="text-align: left; padding: 2px;">الإجمالي</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody>
-                                        ${sale.items.map(item => {
-                                            const qty = item.quantity || item.qty || 0;
-                                            const price = item.price || 0;
-                                            const total = qty * price;
-                                            return `<tr style="border-bottom: 1px dotted #ccc;">
-                                                <td style="text-align: right; padding: 2px;">${item.productName || item.name || ''}</td>
-                                                <td style="text-align: center; padding: 2px;">${qty}</td>
-                                                <td style="text-align: center; padding: 2px;">${price.toFixed(2)}</td>
-                                                <td style="text-align: left; padding: 2px;">${total.toFixed(2)}</td>
-                                            </tr>`;
-                                        }).join('')}
-                                    </tbody>
-                                </table>
-                            ` : ''}
-                            <div style="border-top: 1px solid black; border-bottom: 1px solid black; padding: 4px 0; margin: 4px 0; font-size: 12px; font-weight: bold;">
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span>الإجمالي:</span><span>${(sale.total || 0).toFixed(2)} ج.م</span>
-                                </div>
-                            </div>
-                            <div style="font-size: 10px; margin: 4px 0;">
-                                <div style="display: flex; justify-content: space-between; margin: 2px 0;">
-                                    <span>المدفوع:</span><span>${((((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0)).toFixed(2)} ج.م</span>
-                                </div>
-                                <div style="display: flex; justify-content: space-between;">
-                                    <span>المتبقي:</span><span>${(((sale.total || 0) - (((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0))).toFixed(2)} ج.م</span>
-                                </div>
-                            </div>
-                            <div style="border-top: 1px dashed black; padding: 4px 0; margin: 4px 0; font-size: 10px; text-align: center;">
-                                شكراً لتعاملكم معنا
-                            </div>
-                        </div>
-                    </div>
-                `;
+                // Build plain text receipt for thermal printer
+                const ESC = '\x1B';
+                const GS = '\x1D';
+                const INIT = ESC + '@';
+                const CENTER = ESC + 'a' + '1';
+                const LEFT = ESC + 'a' + '0';
+                const BOLD_ON = ESC + 'E' + '1';
+                const BOLD_OFF = ESC + 'E' + '0';
+                const CUT = GS + 'V' + '\x00';
+                const LINE = '--------------------------------';
 
-                // 2. Create a hidden container and inject HTML
-                const printContainer = document.createElement('div');
-                printContainer.id = 'usb-print-container';
-                printContainer.innerHTML = invoiceHTML;
-                printContainer.style.display = 'none';
-                document.body.appendChild(printContainer);
+                const paidAmt = (sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0));
+                const remaining = (sale.total || 0) - (paidAmt || 0);
 
-                // 3. Add print styles
-                const styleId = 'usb-thermal-print-style';
-                let style = document.getElementById(styleId);
-                if (!style) {
-                    style = document.createElement('style');
-                    style.id = styleId;
-                    style.innerHTML = `
-                        @media print {
-                            body * { visibility: hidden; }
-                            #usb-print-container, #usb-print-container * { visibility: visible; }
-                            #usb-print-container { 
-                                position: absolute; 
-                                left: 0; 
-                                top: 0; 
-                                width: 100%;
-                            }
-                            @page { size: 80mm auto; margin: 0; }
-                        }
-                    `;
-                    document.head.appendChild(style);
+                let receipt = INIT + CENTER + BOLD_ON;
+                receipt += 'Delente ERP\n';
+                receipt += 'فاتورة مبيعات\n' + BOLD_OFF;
+                receipt += LINE + '\n' + LEFT;
+                receipt += `رقم: ${sale.invoiceNumber || sale.id || ''}\n`;
+                receipt += `التاريخ: ${sale.date ? new Date(sale.date).toLocaleDateString('ar-EG') : ''}\n`;
+                receipt += `العميل: ${sale.customerName || 'عميل'}\n`;
+                receipt += LINE + '\n';
+
+                if (sale.items && Array.isArray(sale.items)) {
+                    receipt += 'الصنف       الكمية  السعر   الإجمالي\n';
+                    receipt += LINE + '\n';
+                    sale.items.forEach(item => {
+                        const qty = item.quantity || item.qty || 0;
+                        const price = item.price || 0;
+                        const total = qty * price;
+                        const name = (item.productName || item.name || '').substring(0, 12);
+                        receipt += `${name.padEnd(12)} x${String(qty).padEnd(3)} ${String(price.toFixed(2)).padEnd(7)} ${total.toFixed(2)}\n`;
+                    });
+                    receipt += LINE + '\n';
                 }
 
-                // 4. Trigger print and cleanup
+                receipt += BOLD_ON;
+                receipt += `الإجمالي: ${(sale.total || 0).toFixed(2)} ج.م\n`;
+                receipt += BOLD_OFF;
+                receipt += `المدفوع: ${(paidAmt || 0).toFixed(2)} ج.م\n`;
+                receipt += `المتبقي: ${remaining.toFixed(2)} ج.م\n`;
+                receipt += LINE + '\n' + CENTER;
+                receipt += 'شكراً لتعاملكم معنا\n\n\n';
+                receipt += CUT;
+
+                // Try RawBT for Android/Mobile first
+                if (window.RawBT && typeof window.RawBT.write === 'function') {
+                    try {
+                        await window.RawBT.write(receipt);
+                        return;
+                    } catch(e) {
+                        console.warn('RawBT failed, falling back to window.print:', e);
+                    }
+                }
+
+                // Fallback: use window.print() with plain text
+                const printWin = window.open('', '', 'width=300,height=500');
+                printWin.document.write('<html><head><title>فاتورة</title>');
+                printWin.document.write('<style>body{font-family:monospace;font-size:12px;white-space:pre;margin:10px;}</style>');
+                printWin.document.write('</head><body>');
+                printWin.document.write(receipt.replace(/\x1B[@aE][\x00-\x02]/g, '').replace(/\x1D[V][\x00]/g, ''));
+                printWin.document.write('</body></html>');
+                printWin.document.close();
+                printWin.focus();
                 setTimeout(() => {
-                    window.print();
-                    // Cleanup after print dialog closes
-                    setTimeout(() => {
-                        if (printContainer && printContainer.parentNode) {
-                            printContainer.parentNode.removeChild(printContainer);
-                        }
-                    }, 500);
-                }, 100);
+                    printWin.print();
+                    printWin.close();
+                }, 250);
 
             } catch(e) {
-                console.error('USB Print Error:', e);
+                console.error('Print Error:', e);
                 alert('❌ خطأ في الطباعة: ' + (e && e.message ? e.message : e));
             }
         };
@@ -11214,10 +11180,16 @@
                      try { document.getElementById('daily-total-container').classList.add('hidden'); } catch(e){}
                  }
 
-                 // إذا لم توجد نتائج بعد الفلترة الشهرية، لا تعرض أي فواتير ولا fallback
+                 // Fallbacks: if filtering yields nothing, show broader data
+                 if (activePeriod && filteredSales.length === 0) {
+                     console.warn('Monthly filter returned no sales; showing all sales until data loads');
+                     filteredSales = [...state.sales];
+                 }
                  if (filteredSales.length === 0) {
-                     salesList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا توجد فواتير لهذا الشهر.</p>';
-                     return;
+                     try {
+                         const cached = JSON.parse(localStorage.getItem('cache_sales')||'[]');
+                         if (Array.isArray(cached) && cached.length) filteredSales = cached;
+                     } catch(_){}
                  }
 
              if (textFilter) { 
