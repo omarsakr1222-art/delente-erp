@@ -4370,37 +4370,44 @@
         // 📱 RAWBT INTENT PRINT (Android Direct API)
         // ==========================================
         function printViaRawBT(invoice) {
-            // 1. Construct a Clean, Simple Receipt Text (ESC/POS style layout)
-            // We use plain text with special formatting characters for RawBT to interpret.
+            // بناء نص بسيط بدون أي وسوم HTML أو أكواد خاصة
             let text = "";
-            
-            // Header
-            text += "[C]<b><font size='big'>فاتورة مبيعات</font></b>\n";
-            text += "[C]================================\n";
-            text += `[L]<b>رقم الفاتورة:</b>[R]${invoice.id || 'N/A'}\n`;
-            text += `[L]<b>التاريخ:</b>[R]${invoice.date ? new Date(invoice.date).toLocaleDateString('ar-EG') : 'اليوم'}\n`;
-            text += "[C]--------------------------------\n";
-            
-            // Items
+            const line = "--------------------------------";
+            const totalVal = invoice.total || 0;
+            const paid = (invoice.paidAmount !== undefined && invoice.paidAmount !== null)
+                ? invoice.paidAmount
+                : ((invoice.firstPayment || 0) + (invoice.secondPayment || 0));
+            const remaining = totalVal - (paid || 0);
+
+            text += "            Delente ERP\n";
+            text += "           فاتورة مبيعات\n";
+            text += line + "\n";
+            text += `رقم: ${invoice.invoiceNumber || invoice.id || ''}\n`;
+            text += `تاريخ: ${invoice.date ? new Date(invoice.date).toLocaleDateString('ar-EG') : ''}\n`;
+            text += `عميل: ${invoice.customerName || 'عميل'}\n`;
+            text += line + "\n";
+
             if (invoice.items && Array.isArray(invoice.items)) {
+                text += "الصنف          ك    س\n";
+                text += line + "\n";
                 invoice.items.forEach(item => {
-                    const itemName = item.name || item.productId || 'منتج';
+                    const name = (item.productName || item.name || item.productId || 'صنف').substring(0, 14).padEnd(14);
                     const qty = item.quantity || item.qty || 0;
                     const price = item.price || 0;
                     const total = item.total || (qty * price);
-                    text += `[L]<b>${itemName}</b>\n`;
-                    text += `[L]${qty} x ${formatCurrency(price)}[R]${formatCurrency(total)}\n`;
+                    text += `${name} x${String(qty).padStart(2)} ${price.toFixed(2)}\n`;
+                    text += `                = ${total.toFixed(2)}\n`;
                 });
+                text += line + "\n";
             }
-            
-            text += "[C]--------------------------------\n";
-            text += `[R]<b><font size='big'>الإجمالي: ${formatCurrency(invoice.total || 0)}</font></b>\n`;
-            text += "[C]================================\n";
-            text += "[C]شكرا لتعاملكم معنا\n";
-            text += "\n\n"; // Feed
 
-            // 2. Encode and Trigger RawBT Intent
-            // This opens the RawBT app directly with the data
+            text += `الإجمالي: ${totalVal.toFixed(2)}\n`;
+            text += `المدفوع : ${(paid || 0).toFixed(2)}\n`;
+            text += `المتبقي : ${remaining.toFixed(2)}\n`;
+            text += line + "\n";
+            text += "شكراً لتعاملكم معنا\n\n\n";
+
+            // 2. Encode and Trigger RawBT Intent (plain text)
             const encodedData = encodeURIComponent(text);
             window.location.href = "rawbt:" + encodedData;
         }
