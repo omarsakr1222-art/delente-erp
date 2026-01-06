@@ -129,6 +129,16 @@
             if (typeof window.findCustomer !== 'function') {
                 window.findCustomer = function(id){ try { return (state.customers||[]).find(c => (c.id||c._id) === id) || null; } catch(e){ return null; } };
             }
+            if (typeof window.findProduct !== 'function') {
+                window.findProduct = function(id){
+                    try {
+                        const sid = id != null ? String(id) : '';
+                        return (state.products||[]).find(p => String(p.id) === sid)
+                            || (state.products||[]).find(p => String(p._id) === sid)
+                            || (state.products||[]).find(p => String(p.sku) === sid) || null;
+                    } catch(e){ return null; }
+                };
+            }
             if (typeof window.updateCustomerList !== 'function') {
                 window.updateCustomerList = function(){ /* noop safety */ };
             }
@@ -139,7 +149,15 @@
             if (typeof window.DEFAULT_COMPANY_LOGO_URL === 'undefined') {
                 window.DEFAULT_COMPANY_LOGO_URL = 'https://i.ibb.co/YT4114YW/image.jpg';
             }
+            if (!window.LOCAL_REVIEW_KEY) {
+                window.LOCAL_REVIEW_KEY = 'mandoobi_review_state';
+            }
         })();
+
+        // Global state bootstrap (prevents TDZ errors before later declarations)
+        // Ensure both `state` and `window.state` reference the same object early in startup.
+        var state = window.state || {};
+        window.state = state;
     
 
 
@@ -433,12 +451,13 @@
             return 'rep';
         }
 
+        // DISABLED: Auto-register test user - causes unnecessary Firebase calls and delays
         // إضافة بيانات اختبار إذا لم توجد
-        document.addEventListener('DOMContentLoaded', () => {
-            if (AuthSystem.getAllUsers().length === 0) {
-                AuthSystem.register('test@example.com', 'test123', 'مستخدم تجريبي');
-            }
-        });
+        // document.addEventListener('DOMContentLoaded', () => {
+        //     if (AuthSystem.getAllUsers().length === 0) {
+        //         AuthSystem.register('test@example.com', 'test123', 'مستخدم تجريبي');
+        //     }
+        // });
     
 
 
@@ -1102,11 +1121,27 @@
                     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
                     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
                     
-                    const cloudSnap = await db.collection('sales')
+                    // FIXED: Add timeout protection for slow queries
+                    const queryPromise = db.collection('sales')
                         .where('date', '>=', startOfMonth)
                         .where('date', '<=', endOfMonth)
-                        .limit(50)
+                        .limit(500)
                         .get();
+                    
+                    const timeoutPromise = new Promise((_, reject) => 
+                        setTimeout(() => reject(new Error('Query timeout')), 5000) // Reduced to 5s
+                    );
+                    
+                    const cloudSnap = await Promise.race([queryPromise, timeoutPromise])
+                        .catch(err => {
+                            console.warn('📦 syncAllSalesToCloud: Query failed or timed out, skipping:', err.message);
+                            return null;
+                        });
+                    
+                    if (!cloudSnap) {
+                        console.log('📦 syncAllSalesToCloud: Skipped due to query failure');
+                        return;
+                    }
                     
                     const cloudIds = new Set();
                     cloudSnap.forEach(doc => {
@@ -1115,11 +1150,19 @@
                         if (data.id) cloudIds.add(String(data.id));
                     });
                     
+                    // FIXED: Only sync sales from current month to avoid uploading old sales every login
+                    const currentMonthSales = localSales.filter(sale => {
+                        const saleDate = sale.date || '';
+                        return saleDate >= startOfMonth && saleDate <= endOfMonth;
+                    });
+                    
+                    console.log(`📦 Filtered to ${currentMonthSales.length} current month sales (from ${localSales.length} total)`);
+                    
                     let uploaded = 0;
                     let batch = db.batch();
                     let count = 0;
                     
-                    for (const sale of localSales) {
+                    for (const sale of currentMonthSales) {
                         const id = String(sale.id || sale._id || '');
                         if (!id || cloudIds.has(id)) continue; // already in cloud
                         
@@ -1214,10 +1257,18 @@
                             try { setupRealtimeListeners(); } catch(e){ console.error('setupRealtimeListeners error:', e); }
                             try { if (typeof autoRestoreSalesIfEmpty === 'function') autoRestoreSalesIfEmpty(); } catch(e){ console.error('autoRestoreSalesIfEmpty error:', e); }
                             
+                            // CRITICAL: Start realtime sync and load cost lists AFTER authentication
+                            setTimeout(() => {
+                                try { if (typeof loadLists === 'function') loadLists(); } catch(e){ console.error('loadLists error:', e); }
+                                try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.error('initRealtimeSync error:', e); }
+                                try { if (typeof tryLoadCostListsFromCloud === 'function') tryLoadCostListsFromCloud(); } catch(e){ console.error('tryLoadCostListsFromCloud error:', e); }
+                            }, 500);
+                            
                             // Sync all local sales to cloud to prevent data loss
+                            // OPTIMIZED: Delay to 5s to avoid blocking login UI
                             setTimeout(() => {
                                 try { if (typeof syncAllSalesToCloud === 'function') syncAllSalesToCloud(); } catch(e){ console.error('syncAllSalesToCloud error:', e); }
-                            }, 2000);
+                            }, 5000);
                             
                             // === تأخير الدوال الثقيلة لتجنب blocking UI على الموبايل ===
                             // Start real-time sync for cost lists
@@ -3690,9 +3741,30 @@
                         if (!snap || !snap.exists) return;
                         window.isUpdatingFromCloud = true;
                         var data = snap.data() || {};
-                        try { if (data.rawMaterials) { window._rawGridState = data.rawMaterials; localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState||{})); } } catch(e){ console.warn('apply raw failed', e); }
-                        try { if (data.packaging) { window._packGridState = data.packaging; localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState||{})); } } catch(e){ console.warn('apply pack failed', e); }
-                        try { if (data.finishedProducts) { window._finishedGridState = data.finishedProducts; localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState||{})); } } catch(e){ console.warn('apply finished failed', e); }
+                        try {
+                            if (data.rawMaterials && Object.keys(data.rawMaterials||{}).length > 0) {
+                                window._rawGridState = data.rawMaterials;
+                                localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState||{}));
+                            } else {
+                                console.log('⏭️ costLists RT: kept local raw grid (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply raw failed', e); }
+                        try {
+                            if (data.packaging && Object.keys(data.packaging||{}).length > 0) {
+                                window._packGridState = data.packaging;
+                                localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState||{}));
+                            } else {
+                                console.log('⏭️ costLists RT: kept local pack grid (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply pack failed', e); }
+                        try {
+                            if (data.finishedProducts && Object.keys(data.finishedProducts||{}).length > 0) {
+                                window._finishedGridState = data.finishedProducts;
+                                localStorage.setItem('finished_products_grid', JSON.stringify(window._finishedGridState||{}));
+                            } else {
+                                console.log('⏭️ costLists RT: kept local finished grid (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply finished failed', e); }
                         // FIXED: Restore stock_entries from cloud (avoid wiping local when cloud empty)
                         try {
                             if (data.stockEntries && typeof data.stockEntries === 'object' && Object.keys(data.stockEntries||{}).length > 0 && window.state) {
@@ -3702,9 +3774,27 @@
                                 console.log('⏭️ costLists RT: skipped stockEntries overlay (cloud empty)');
                             }
                         } catch(e){ console.warn('apply stockEntries failed', e); }
-                        try { if (data.costRaw) { window.costLists = window.costLists || {}; window.costLists.costRaw = data.costRaw; } } catch(e){ console.warn('apply costRaw failed', e); }
-                        try { if (data.costPack) { window.costLists = window.costLists || {}; window.costLists.costPack = data.costPack; } } catch(e){ console.warn('apply costPack failed', e); }
-                        try { if (data.costFinished) { window.costLists = window.costLists || {}; window.costLists.costFinished = data.costFinished; } } catch(e){ console.warn('apply costFinished failed', e); }
+                        try {
+                            if (data.costRaw && Array.isArray(data.costRaw) && data.costRaw.length > 0) {
+                                window.costLists = window.costLists || {}; window.costLists.costRaw = data.costRaw; window.costRaw = data.costRaw;
+                            } else {
+                                console.log('⏭️ costLists RT: kept local costRaw (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply costRaw failed', e); }
+                        try {
+                            if (data.costPack && Array.isArray(data.costPack) && data.costPack.length > 0) {
+                                window.costLists = window.costLists || {}; window.costLists.costPack = data.costPack; window.costPack = data.costPack;
+                            } else {
+                                console.log('⏭️ costLists RT: kept local costPack (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply costPack failed', e); }
+                        try {
+                            if (data.costFinished && Array.isArray(data.costFinished) && data.costFinished.length > 0) {
+                                window.costLists = window.costLists || {}; window.costLists.costFinished = data.costFinished; window.costFinished = data.costFinished;
+                            } else {
+                                console.log('⏭️ costLists RT: kept local costFinished (cloud empty)');
+                            }
+                        } catch(e){ console.warn('apply costFinished failed', e); }
                         try {
                             window._lastSavedCostListsJson = JSON.stringify({ rawMaterials: window._rawGridState, packaging: window._packGridState, finishedProducts: window._finishedGridState, costRaw: (window.costLists&&window.costLists.costRaw)||[], costPack: (window.costLists&&window.costLists.costPack)||[], costFinished: (window.costLists&&window.costLists.costFinished)||[] });
                         } catch(e){}
@@ -3774,9 +3864,12 @@
                     const raw = localStorage.getItem('cache_priceLists');
                     if (raw){ try { state.priceLists = JSON.parse(raw)||[]; } catch(e){} }
                 }
+                // Sales loading is handled by Phase 6 in initializeAppForUser
+                // Skip loading here to avoid conflicts
                 if (!state.sales || !state.sales.length){
-                    const s = getCachedSales();
-                    if (s && s.length) state.sales = s;
+                    // const s = getCachedSales();
+                    // if (s && s.length) state.sales = s;
+                    console.log('⏭️ preloadCachedCollections: Skipping sales (Phase 6 will handle it)');
                 }
                 // Render quickly if we hydrated anything
                 try { if (typeof renderCustomerList === 'function') renderCustomerList(document.getElementById('search-customers')?.value || ''); } catch(e){}
@@ -4860,25 +4953,50 @@
                 window.state.products = [];
             }
             
-            // === PHASE 5: Load Customers with Cache-First Strategy ===
+            // === PHASE 5: Load Customers - Direct from localStorage (Firebase returns empty) ===
+            // === PHASE 5: Load Customers - Direct from localStorage (Firebase returns empty) ===
             try {
-                if (typeof window.CustomersService === 'object' && typeof window.CustomersService.getCustomers === 'function') {
-                    console.log('Loading customers with Cache-First strategy...');
-                    const customers = await window.CustomersService.getCustomers({ maxAgeMs: 6 * 60 * 60 * 1000 });
-                    if (Array.isArray(customers) && customers.length > 0) {
-                        window.state.customers = customers;
-                        console.log(`✅ Loaded ${customers.length} customers from cache/server`);
+                console.log('Loading customers directly from localStorage (faster)...');
+                // Direct localStorage load - much faster than waiting for Firebase timeout
+                const cached = localStorage.getItem('cache_customers');
+                if (cached) {
+                    const parsed = JSON.parse(cached);
+                    if (Array.isArray(parsed) && parsed.length > 0) {
+                        window.state.customers = parsed;
+                        console.log(`✅ Loaded ${parsed.length} customers from localStorage`);
                     } else {
-                        console.warn('No customers loaded, using empty array');
                         window.state.customers = [];
                     }
                 } else {
-                    console.warn('CustomersService not available, using empty customers array');
                     window.state.customers = [];
                 }
             } catch(e) {
-                console.error('Failed to load customers:', e);
+                console.error('Failed to load customers from localStorage:', e);
                 window.state.customers = [];
+            }
+            
+            // === PHASE 6: Load Sales from Cache ===
+            try {
+                if (!window.state.sales || window.state.sales.length === 0) {
+                    console.log('📥 Phase 6: Loading sales from localStorage...');
+                    const cached = localStorage.getItem('cache_sales');
+                    if (cached) {
+                        const sales = JSON.parse(cached);
+                        if (Array.isArray(sales) && sales.length > 0) {
+                            window.state.sales = sales;
+                            console.log(`✅ Phase 6: Loaded ${sales.length} sales from cache`);
+                        } else {
+                            window.state.sales = [];
+                        }
+                    } else {
+                        window.state.sales = [];
+                    }
+                } else {
+                    console.log(`⏭️ Phase 6: Skipped (${window.state.sales.length} sales already loaded)`);
+                }
+            } catch(e) {
+                console.error('❌ Phase 6 failed:', e);
+                window.state.sales = window.state.sales || [];
             }
             
             // إجبار تحديث الفترة النشطة بعد قصير من التهيئة
@@ -5144,9 +5262,9 @@
                             }
                             if (!sale) throw new Error('لا توجد فواتير للطباعة');
                             
-                            // إنشاء عنصر مؤقت للفاتورة (تصميم مبسط وأسرع)
+                            // إنشاء عنصر مؤقت للفاتورة (تصميم محسّن للطابعات الحرارية)
                             const tempDiv = document.createElement('div');
-                            tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:280px;background:white;padding:8px;font-family:Cairo,Arial;direction:rtl;';
+                            tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:280px;background:white;padding:10px;font-family:Cairo,Arial;direction:rtl;';
                             
                             const customer = findCustomer(sale.customerId);
                             const dateStr = formatArabicDate(sale.date);
@@ -5155,36 +5273,48 @@
                             let itemsHtml = '';
                             (sale.items||[]).forEach(it => {
                                 const p = findProduct(it.productId);
-                                const name = (p ? p.name : (it.name || 'منتج')).substring(0, 20);
+                                const name = (p ? p.name : (it.name || 'منتج'));
                                 const qty = it.quantity || it.qty || 0;
                                 const price = Number(it.price||0);
                                 const total = qty * price * (1 - (it.discountPercent||0)/100);
-                                itemsHtml += `<div style="display:flex;justify-content:space-between;padding:1px 0;font-size:10px;"><span style="flex:1;">${name}</span><span style="width:30px;text-align:center;">${qty}</span><span style="width:60px;text-align:left;">${formatCurrency(total)}</span></div>`;
+                                
+                                // عرض اسم المنتج على سطر منفصل للوضوح
+                                itemsHtml += `<div style="padding:3px 0;border-bottom:1px dotted #ccc;">
+                                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">${name}</div>
+                                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#333;">
+                                        <span>الكمية: ${qty}</span>
+                                        <span>السعر: ${formatCurrency(price)}</span>
+                                        <span style="font-weight:700;">${formatCurrency(total)}</span>
+                                    </div>
+                                </div>`;
                             });
                             
-                            tempDiv.innerHTML = `<div style="text-align:center;border:2px solid #000;padding:6px;background:white;">
-                                <div style="font-size:16px;font-weight:800;margin-bottom:2px;">Delente</div>
-                                <div style="font-size:12px;font-weight:700;margin-bottom:6px;">فاتورة مبيعات</div>
-                                <div style="border-top:1px dashed #000;margin:4px 0;"></div>
-                                <div style="font-size:10px;text-align:right;line-height:1.4;">
-                                    <div style="display:flex;justify-content:space-between;"><span style="font-weight:600;">${sale.invoiceNumber || sale.id}</span><span>: رقم</span></div>
-                                    <div style="display:flex;justify-content:space-between;"><span>${dateStr}</span><span>: التاريخ</span></div>
-                                    <div style="display:flex;justify-content:space-between;"><span>${custName.substring(0,20)}</span><span>: العميل</span></div>
-                                </div>
-                                <div style="border-top:1px dashed #000;margin:4px 0;"></div>
-                                ${itemsHtml}
+                            tempDiv.innerHTML = `<div style="text-align:center;border:2px solid #000;padding:8px;background:white;">
+                                <div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:'Cinzel',serif;">Delente ERP</div>
+                                <div style="font-size:13px;font-weight:700;margin-bottom:8px;background:#000;color:#fff;padding:4px;border-radius:3px;">فاتورة مبيعات</div>
                                 <div style="border-top:2px solid #000;margin:6px 0;"></div>
-                                <div style="font-size:13px;font-weight:800;display:flex;justify-content:space-between;">
-                                    <span>${formatCurrency(sale.total||0)} ج.م</span><span>: الإجمالي</span>
+                                <div style="font-size:11px;text-align:right;line-height:1.6;background:#f5f5f5;padding:6px;border-radius:3px;">
+                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span style="font-weight:700;">${sale.invoiceNumber || sale.id}</span><span>: رقم الفاتورة</span></div>
+                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span>${dateStr}</span><span>: التاريخ</span></div>
+                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span style="font-weight:600;">${custName.substring(0,20)}</span><span>: العميل</span></div>
                                 </div>
-                                <div style="font-size:10px;display:flex;justify-content:space-between;margin:2px 0;">
-                                    <span>${formatCurrency((((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0))} ج.م</span><span>: المدفوع</span>
+                                <div style="border-top:2px solid #000;margin:6px 0;"></div>
+                                <div style="text-align:right;">
+                                    ${itemsHtml}
                                 </div>
-                                <div style="font-size:10px;display:flex;justify-content:space-between;">
-                                    <span>${formatCurrency(((sale.total||0) - (((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0)))} ج.م</span><span>: المتبقي</span>
+                                <div style="border-top:3px double #000;margin:8px 0;"></div>
+                                <div style="font-size:14px;font-weight:900;display:flex;justify-content:space-between;background:#000;color:#fff;padding:6px;border-radius:3px;">
+                                    <span>${formatCurrency(sale.total||0)} ج.م</span><span>الإجمالي</span>
                                 </div>
-                                <div style="border-top:1px dashed #000;margin:6px 0;"></div>
-                                <div style="font-size:9px;text-align:center;">شكراً لتعاملكم معنا</div>
+                                <div style="font-size:11px;display:flex;justify-content:space-between;margin:3px 0;padding:3px;background:#e8f5e9;">
+                                    <span style="font-weight:600;">${formatCurrency((((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0))} ج.م</span><span>المدفوع</span>
+                                </div>
+                                <div style="font-size:11px;display:flex;justify-content:space-between;padding:3px;background:#ffebee;">
+                                    <span style="font-weight:600;">${formatCurrency(((sale.total||0) - (((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0)))} ج.م</span><span>المتبقي</span>
+                                </div>
+                                <div style="border-top:1px dashed #000;margin:8px 0;"></div>
+                                <div style="font-size:10px;text-align:center;font-weight:600;">شكراً لتعاملكم معنا</div>
+                                <div style="font-size:8px;text-align:center;color:#666;margin-top:4px;">Delente ERP - نظام إدارة المبيعات</div>
                             </div>`;
                             
                             document.body.appendChild(tempDiv);
@@ -5199,7 +5329,8 @@
                                 backgroundColor: '#ffffff',
                                 scale: 2,
                                 logging: false,
-                                width: 280
+                                width: 280,
+                                useCORS: true
                             });
                             
                             document.body.removeChild(tempDiv);
@@ -5209,7 +5340,7 @@
                             if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
                             
                             w.document.open();
-                            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;}img{width:100%;display:block;}</style></head><body><img src="${canvas.toDataURL('image/png')}"/></body></html>`);
+                            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة فاتورة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;}img{width:100%;display:block;}</style></head><body><img src="${canvas.toDataURL('image/png')}"/></body></html>`);
                             w.document.close();
                             
                             setTimeout(() => { try{w.focus();w.print();}catch(_){} }, 300);
@@ -6013,14 +6144,22 @@
                     };
 
                     // Load Cash data from Firestore on startup
+                    // Skip if sales already loaded from Phase 6
                     window.loadCashFromCloud = async function(){
                         try {
                             if (!window.db || typeof db === 'undefined') { console.warn('💾 loadCashFromCloud: DB not ready'); return false; }
+                            
+                            // Skip if sales already loaded
+                            window.state = window.state || {};
+                            if (window.state.sales && window.state.sales.length > 0) {
+                                console.log(`⏭️ loadCashFromCloud: Skipped (${window.state.sales.length} sales already loaded)`);
+                                return true;
+                            }
+                            
                             const doc = await db.collection('settings').doc('cashData').get();
                             if (!doc.exists) { console.log('💾 loadCashFromCloud: no doc found'); return false; }
                             const data = doc.data() || {};
                             if (Array.isArray(data.sales) && data.sales.length > 0) {
-                                window.state = window.state || {};
                                 window.state.sales = data.sales;
                                 try { localStorage.setItem('cache_sales', JSON.stringify(data.sales)); } catch(_){ }
                                 console.log('✅ loadCashFromCloud: restored', data.sales.length, 'sales');
@@ -6305,14 +6444,22 @@
                     };
 
                     // Load Cash data from Firestore on startup
+                    // Only loads if state.sales is empty to avoid conflicts with Phase 6
                     window.loadCashFromCloud = async function(){
                         try {
                             if (!window.db || typeof db === 'undefined') { console.log('💾 loadCashFromCloud: DB not ready'); return false; }
+                            
+                            // Skip if we already have sales (from Phase 6)
+                            window.state = window.state || {};
+                            if (window.state.sales && window.state.sales.length > 0) {
+                                console.log(`⏭️ loadCashFromCloud: Skipped (${window.state.sales.length} sales already loaded)`);
+                                return true;
+                            }
+                            
                             const doc = await db.collection('settings').doc('cashData').get();
                             if (!doc.exists) { console.log('💾 loadCashFromCloud: no doc found'); return false; }
                             const data = doc.data() || {};
                             if (Array.isArray(data.sales) && data.sales.length > 0) {
-                                window.state = window.state || {};
                                 window.state.sales = data.sales;
                                 try { localStorage.setItem('cache_sales', JSON.stringify(data.sales)); } catch(_){ }
                                 console.log('✅ loadCashFromCloud: restored', data.sales.length, 'sales from cloud');
@@ -7012,7 +7159,13 @@
 
                     // Minimal inventory system to populate Stock Control tables
                     (function(){
-                        try { window.inventorySystem = window.inventorySystem || {}; } catch(_){ window.inventorySystem = {}; }
+                        try { 
+                            window.inventorySystem = window.inventorySystem || {}; 
+                            // Initialize to 'finished' tab by default (matches HTML active tab)
+                            if (!window.inventorySystem.currentTab) {
+                                window.inventorySystem.currentTab = 'finished';
+                            }
+                        } catch(_){ window.inventorySystem = {}; }
 
                         // Rehydrate arrays and grid snapshots from localStorage when needed
                         window.inventorySystem._syncFromLocalStorage = function(){
@@ -7024,36 +7177,82 @@
                             try { window._packGridState = Object.assign({}, window._packGridState || {}, JSON.parse(localStorage.getItem('packaging_grid')||'{}')); } catch(_){}
                         };
 
+                        // Helper: build list from grid snapshot when arrays are empty
+                        function buildFromGrid(grid, category){
+                            if (!grid || typeof grid !== 'object') return [];
+                            return Object.keys(grid).map(key => {
+                                const g = grid[key] || {};
+                                const qty = [g.actual, g.bookBalance, g.opening, g.count, g.qty].find(v => v !== undefined && v !== null);
+                                const price = [g.unitPrice, g.cost, g.avgCost, g.price].find(v => v !== undefined && v !== null);
+                                return {
+                                    id: key,
+                                    code: key,
+                                    name: g.name || key,
+                                    unit: g.unit || g.unitName || '',
+                                    stock: Number(qty || 0) || 0,
+                                    avgCost: Number(price || 0) || 0,
+                                    cost: Number(price || 0) || 0,
+                                    category
+                                };
+                            });
+                        }
+
+                        function pickGrid(grid, name){
+                            try {
+                                if (!grid || !name) return {};
+                                const direct = grid[name];
+                                if (direct) return direct;
+                                const norm = String(name||'').trim().toLowerCase();
+                                for (var k in grid){
+                                    if (!Object.prototype.hasOwnProperty.call(grid,k)) continue;
+                                    if (String(k||'').trim().toLowerCase() === norm) return grid[k];
+                                }
+                            } catch(_){ }
+                            return {};
+                        }
+
                         // Populate tables in Stock Control: finished/raw/packing
                         window.inventorySystem.loadInventoryData = function(tab){
-                            try { window.inventorySystem.currentTab = tab; } catch(_){}
-                            try { window.inventorySystem._syncFromLocalStorage(); } catch(_){}
+                            const normalizedTab = (tab === 'packing') ? 'pack' : tab;
+                            try { window.inventorySystem.currentTab = normalizedTab; } catch(_){ }
+                            try { window.inventorySystem._syncFromLocalStorage(); } catch(_){ }
 
                             const map = {
                                 finished: document.getElementById('table-finished'),
                                 raw: document.getElementById('table-raw'),
-                                pack: document.getElementById('table-packing')
+                                pack: document.getElementById('table-packing'),
+                                packing: document.getElementById('table-packing')
                             };
-                            const body = map[tab];
+                            const body = map[normalizedTab];
                             if (!body) return;
                             body.innerHTML = '';
 
-                            if (tab === 'finished') {
+                            if (normalizedTab === 'finished') {
                                 const list = Array.isArray(window.costFinished) ? window.costFinished : [];
+                                console.log('🔍 Finished tab: costFinished.length=', list.length, '_finishedGridState keys=', Object.keys(window._finishedGridState||{}).length);
                                 if (!list.length) { body.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد منتجات تامة مُسجلة.</td></tr>'; window.updateTotalValue?.(); return; }
                                 list.forEach(item => {
+                                    // Try multiple keys to find grid state: id, code, name
                                     const id = item.id || item.code || '';
-                                    const stObj = (window._finishedGridState||{})[id] || {};
+                                    const name = item.name || '';
+                                    const gridState = window._finishedGridState || {};
+                                    const stObj = gridState[id] || gridState[name] || gridState[item.code] || {};
+                                    
+                                    // Prefer non-zero item stock, otherwise fall back to grid values
                                     const sItem = Number(item.stock);
-                                    const sAct = Number(stObj.actual);
-                                    const sBook = Number(stObj.bookBalance);
-                                    const sOpen = Number(stObj.opening);
-                                    const stock = (!isNaN(sItem) ? sItem : (!isNaN(sAct) ? sAct : (!isNaN(sBook) ? sBook : (!isNaN(sOpen) ? sOpen : 0))));
+                                    const gridStock = [stObj.actual, stObj.bookBalance, stObj.opening, stObj.count, stObj.qty]
+                                        .map(v => Number(v))
+                                        .find(v => !isNaN(v));
+                                    const stock = (!isNaN(sItem) && sItem !== 0)
+                                        ? sItem
+                                        : (!isNaN(gridStock) ? gridStock : (!isNaN(sItem) ? sItem : 0));
+                                    
                                     const unit = item.unit || 'قطعة';
-                                    const cAvg = Number(item.avgCost);
-                                    const cCost = Number(item.cost);
-                                    const cPrice = Number(item.price);
-                                    const cost = (!isNaN(cAvg) ? cAvg : (!isNaN(cCost) ? cCost : (!isNaN(cPrice) ? cPrice : 0)));
+                                    const priceCandidates = [item.avgCost, item.cost, item.price, stObj.unitPrice, stObj.cost, stObj.avgCost, stObj.price]
+                                        .map(v => Number(v));
+                                    const nonZeroPrice = priceCandidates.find(v => !isNaN(v) && v !== 0);
+                                    const firstPrice = priceCandidates.find(v => !isNaN(v));
+                                    const cost = (typeof nonZeroPrice !== 'undefined') ? nonZeroPrice : (typeof firstPrice !== 'undefined' ? firstPrice : 0);
                                     const tr = document.createElement('tr');
                                     tr.innerHTML = `<td class="p-3 w-1/4 text-right">${item.name||item.code||'-'}</td><td class="p-3 w-1/4 text-center">${isNaN(stock)?0:stock}</td><td class="p-3 w-1/4 text-right">${unit}</td><td class="p-3 w-1/4 text-center">${isNaN(cost)?0:cost}</td>`;
                                     tr.addEventListener('click', function(){
@@ -7080,22 +7279,35 @@
                                     });
                                     body.appendChild(tr);
                                 });
-                            } else if (tab === 'raw') {
-                                const list = Array.isArray(window.costRaw) ? window.costRaw : [];
+                            } else if (normalizedTab === 'raw') {
+                                let list = Array.isArray(window.costRaw) ? window.costRaw : [];
+                                console.log('🔍 Raw tab: costRaw.length=', list.length, '_rawGridState keys=', Object.keys(window._rawGridState||{}).length);
+                                if (!list.length && window._rawGridState && Object.keys(window._rawGridState||{}).length) {
+                                    list = buildFromGrid(window._rawGridState, 'raw');
+                                    window.costRaw = list;
+                                    window.costLists = window.costLists || {}; window.costLists.costRaw = list;
+                                    try { localStorage.setItem('cost_raw', JSON.stringify(list)); } catch(_){ }
+                                }
                                 if (!list.length) { body.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد خامات مُسجلة.</td></tr>'; window.updateTotalValue?.(); return; }
                                 list.forEach(item => {
                                     const name = (item && (item.name||item.code)) ? String(item.name||item.code) : '';
                                     const snap = (window._rawGridState||{})[name] || {};
+
+                                    // Prefer non-zero item stock, otherwise fall back to grid values
                                     const sItem = Number(item.stock);
-                                    const actual = Number(snap.actual);
-                                    const book = Number(snap.bookBalance);
-                                    const opening = Number(snap.opening);
-                                    const stock = (!isNaN(sItem) ? sItem : (!isNaN(actual) && snap.actual !== '' ? actual : (!isNaN(book) ? book : (!isNaN(opening) ? opening : 0))));
+                                    const gridStock = [snap.actual, snap.bookBalance, snap.opening, snap.count, snap.qty]
+                                        .map(v => Number(v))
+                                        .find(v => !isNaN(v));
+                                    const stock = (!isNaN(sItem) && sItem !== 0)
+                                        ? sItem
+                                        : (!isNaN(gridStock) ? gridStock : (!isNaN(sItem) ? sItem : 0));
+
                                     const unit = item.unit || item.unitName || '';
-                                    const up = Number(snap.unitPrice);
-                                    const cAvg = Number(item.avgCost);
-                                    const cCost = Number(item.cost);
-                                    const cost = (!isNaN(cAvg) ? cAvg : (!isNaN(cCost) ? cCost : (!isNaN(up) ? up : 0)));
+                                    const priceCandidates = [item.avgCost, item.cost, snap.unitPrice, snap.cost, snap.avgCost, snap.price]
+                                        .map(v => Number(v));
+                                    const nonZeroPrice = priceCandidates.find(v => !isNaN(v) && v !== 0);
+                                    const firstPrice = priceCandidates.find(v => !isNaN(v));
+                                    const cost = (typeof nonZeroPrice !== 'undefined') ? nonZeroPrice : (typeof firstPrice !== 'undefined' ? firstPrice : 0);
                                     const tr = document.createElement('tr');
                                     tr.innerHTML = `<td class="p-3 w-1/4 text-right">${name||'-'}</td><td class="p-3 w-1/4 text-center">${isNaN(stock)?0:stock}</td><td class="p-3 w-1/4 text-right">${unit}</td><td class="p-3 w-1/4 text-center">${isNaN(cost)?0:cost}</td>`;
                                     tr.addEventListener('click', function(){
@@ -7121,22 +7333,41 @@
                                     });
                                     body.appendChild(tr);
                                 });
-                            } else if (tab === 'pack') {
-                                const list = Array.isArray(window.costPack) ? window.costPack : [];
+                            } else if (normalizedTab === 'pack') {
+                                let list = Array.isArray(window.costPack) ? window.costPack : [];
+                                console.log('🔍 Pack tab: costPack.length=', list.length, '_packGridState keys=', Object.keys(window._packGridState||{}).length, 'sample:', list[0]);
+                                if (!list.length && window._packGridState && Object.keys(window._packGridState||{}).length) {
+                                    list = buildFromGrid(window._packGridState, 'pack');
+                                    window.costPack = list;
+                                    window.costLists = window.costLists || {}; window.costLists.costPack = list;
+                                    try { localStorage.setItem('cost_pack', JSON.stringify(list)); } catch(_){ }
+                                } else if (list.length && window._packGridState && Object.keys(window._packGridState||{}).length) {
+                                    const allZero = list.every(i => (!i.stock || i.stock === 0) && (!i.cost && !i.avgCost));
+                                    if (allZero) {
+                                        console.log('⚠️ Pack has items but all zero; rebuilding from grid');
+                                        list = buildFromGrid(window._packGridState, 'pack');
+                                        window.costPack = list;
+                                        window.costLists = window.costLists || {}; window.costLists.costPack = list;
+                                        try { localStorage.setItem('cost_pack', JSON.stringify(list)); } catch(_){ }
+                                    }
+                                }
                                 if (!list.length) { body.innerHTML = '<tr><td colspan="4" class="text-center p-4 text-gray-500">لا توجد مواد تغليف مُسجلة.</td></tr>'; window.updateTotalValue?.(); return; }
                                 list.forEach(item => {
                                     const name = (item && (item.name||item.code)) ? String(item.name||item.code) : '';
-                                    const snap = (window._packGridState||{})[name] || {};
+                                    const snap = pickGrid(window._packGridState, name);
                                     const sItem = Number(item.stock);
-                                    const actual = Number(snap.actual);
-                                    const book = Number(snap.bookBalance);
-                                    const opening = Number(snap.opening);
-                                    const stock = (!isNaN(sItem) ? sItem : (!isNaN(actual) && snap.actual !== '' ? actual : (!isNaN(book) ? book : (!isNaN(opening) ? opening : 0))));
+                                    const gridStock = [snap.actual, snap.bookBalance, snap.opening, snap.count, snap.qty]
+                                        .map(v => Number(v))
+                                        .find(v => !isNaN(v));
+                                    const stock = (!isNaN(sItem) && sItem !== 0)
+                                        ? sItem
+                                        : (!isNaN(gridStock) ? gridStock : (!isNaN(sItem) ? sItem : 0));
                                     const unit = item.unit || item.unitName || '';
-                                    const up = Number(snap.unitPrice);
-                                    const cAvg = Number(item.avgCost);
-                                    const cCost = Number(item.cost);
-                                    const cost = (!isNaN(cAvg) ? cAvg : (!isNaN(cCost) ? cCost : (!isNaN(up) ? up : 0)));
+                                    const priceCandidates = [item.avgCost, item.cost, snap.unitPrice, snap.cost, snap.avgCost, snap.price]
+                                        .map(v => Number(v));
+                                    const nonZeroPrice = priceCandidates.find(v => !isNaN(v) && v !== 0);
+                                    const firstPrice = priceCandidates.find(v => !isNaN(v));
+                                    const cost = (typeof nonZeroPrice !== 'undefined') ? nonZeroPrice : (typeof firstPrice !== 'undefined' ? firstPrice : 0);
                                     const tr = document.createElement('tr');
                                     tr.innerHTML = `<td class="p-3 w-1/4 text-right">${name||'-'}</td><td class="p-3 w-1/4 text-center">${isNaN(stock)?0:stock}</td><td class="p-3 w-1/4 text-right">${unit}</td><td class="p-3 w-1/4 text-center">${isNaN(cost)?0:cost}</td>`;
                                     tr.addEventListener('click', function(){
@@ -7167,6 +7398,20 @@
                             // Update totals after render
                             try { if (typeof window.updateTotalValue === 'function') window.updateTotalValue(); } catch(_){}
                         };
+
+                        // Preload all tabs once after setup so الجداول لا تبدأ فارغة
+                        setTimeout(function(){
+                            try { window.inventorySystem.loadInventoryData('finished'); } catch(_){ }
+                            try { window.inventorySystem.loadInventoryData('raw'); } catch(_){ }
+                            try { window.inventorySystem.loadInventoryData('pack'); } catch(_){ }
+                        }, 400);
+
+                        // Refresh tables whenever يتم حفظ القوائم
+                        document.addEventListener('costListsSavedToCloud', function(){
+                            try { window.inventorySystem.loadInventoryData('finished'); } catch(_){ }
+                            try { window.inventorySystem.loadInventoryData('raw'); } catch(_){ }
+                            try { window.inventorySystem.loadInventoryData('pack'); } catch(_){ }
+                        });
 
                         // Simple search filter for current tab
                         window.filterInventory = function(){
@@ -7545,20 +7790,21 @@
              {id: '1', name: 'لبن جاموسى', price: 44.00, category: 'dairy'}, {id: '3', name: 'زبادى بلدى', price: 9.00, category: 'multi'}, {id: '4', name: 'ارز باللبن', price: 17.50, category: 'multi'}, {id: '18', name: 'قريش كاملة الدسم', price: 100.00, category: 'dairy'}, {id: '11', name: 'قريش خالية الدسم', price: 95.00, category: 'dairy'}, {id: '14', name: 'ذبدة جاموسي 900 جم', price: 315.00, category: 'multi'}, {id: '13', name: 'ذبدة بقرى 900', price: 280.00, category: 'multi'}, {id: '30', name: 'مش قطع', price: 150.00, category: 'dairy'}, {id: '32', name: 'مش كريمى', price: 120.00, category: 'dairy'}, {id: '200', name: 'صوص شيدر', price: 200.00, category: 'dairy'}, {id: '201', name: 'نستو', price: 190.00, category: 'dairy'}, {id: '56', name: 'فيتا سادة نباتى', price: 110.00, category: 'dairy'}, {id: '57', name: 'فيتا فلفل نباتى', price: 110.00, category: 'dairy'}, {id: '53', name: 'ملح خفيف نباتى', price: 110.00, category: 'dairy'}, {id: '153', name: 'ملح خفيف طبيعى', price: 170.00, category: 'dairy'}, {id: '156', name: 'فيتا سادة طبيعى', price: 170.00, category: 'dairy'}, {id: '157', name: 'فيتا فلفل طبيعى', price: 170.00, category: 'dairy'}, {id: '59', name: 'سمنة جاموسى 200 جم', price: 100.00, category: 'multi'}, {id: '60', name: 'سمنة بقرى 200 جم', price: 90.00, category: 'multi'}, {id: '154', name: 'جبنة كيري طبيعى', price: 150.00, category: 'dairy'}, {id: '12', name: 'قشطة بلدى', price: 200.00, category: 'dairy'}, {id: '42', name: 'مورتة وزن', price: 150.00, category: 'dairy'}, {id: '52', name: 'مورتة 300 جم', price: 65.00, category: 'multi'}, {id: '41', name: 'سمنة جاموسى 800 جم', price: 360.00, category: 'multi'}, {id: '43', name: 'سمنة جاموسى 500 جم', price: 230.00, category: 'multi'}, {id: '44', name: 'سمنة بقرى 800 جم', price: 340.00, category: 'multi'}, {id: '45', name: 'سمنةة بقرى 500 جم', price: 220.00, category: 'multi'}, {id: '20', name: 'موزوريلا 900 جم طبيعى', price: 190.00, category: 'multi'}, {id: '21', name: 'موزوريلا 350 جم طبيعى', price: 80.00, category: 'multi'}, {id: '61', name: 'موزوريلا وزن طبيعى', price: 170.00, category: 'multi'}, {id: '39', name: 'ارز فخار', price: 25.00, category: 'multi'}, {id: '40', name: 'زبادى فخار', price: 17.50, category: 'multi'}, {id: '98', name: 'لبنة تركى', price: 150.00, category: 'dairy'}
         ];
         
-        let state = { 
-            customers: [], 
-            products: [], 
-            sales: [], 
-            priceLists: [], 
-            dispatchNotes: [], 
-            reps: [], 
+        state = Object.assign({
+            customers: [],
+            products: [],
+            sales: [],
+            priceLists: [],
+            dispatchNotes: [],
+            reps: [],
             promotions: [],
             settings: { salesTarget: 10000 },
             stockEntries: {},
             lastSyncTimestamp: null,
             invoiceHighlights: {},
-            highlightCounter: 0 
-        };
+            highlightCounter: 0
+        }, state || {}, window.state || {});
+        window.state = state;
 
         // DOM Elements (defined here for wider scope access)
         const pages = document.querySelectorAll('.page');
@@ -7660,19 +7906,30 @@
             return `${day}/${month}/${year} ${hour}:${minute}`;
         }
 
-        const formatCurrency = (num) => new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP' }).format(num || 0);
-        const findCustomer = (id) => {
-            const sid = id != null ? String(id) : '';
-            return state.customers.find(c => String(c.id) === sid || String(c._id) === sid);
+        // Use global formatter if already defined to avoid TDZ errors on early calls
+        var formatCurrency = window.formatCurrency || function(num){
+            try { return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP' }).format(num || 0); }
+            catch(e){ return String(num||0); }
         };
-        const findProduct = (id) => {
-            const sid = id != null ? String(id) : '';
-            return state.products.find(p => String(p.id) === sid) ||
-                   state.products.find(p => String(p._id) === sid) ||
-                   state.products.find(p => String(p.sku) === sid);
+        window.formatCurrency = formatCurrency;
+        var findCustomer = window.findCustomer || function(id) {
+            try {
+                const sid = id != null ? String(id) : '';
+                return (state.customers||[]).find(c => String(c.id) === sid || String(c._id) === sid) || null;
+            } catch(_) { return null; }
         };
+        window.findCustomer = findCustomer;
+        var findProduct = window.findProduct || function(id){
+            try {
+                const sid = id != null ? String(id) : '';
+                return (state.products||[]).find(p => String(p.id) === sid)
+                    || (state.products||[]).find(p => String(p._id) === sid)
+                    || (state.products||[]).find(p => String(p.sku) === sid) || null;
+            } catch(_) { return null; }
+        };
+        window.findProduct = findProduct;
         const findPriceList = (id) => state.priceLists.find(pl => pl.id === id);
-        const findRep = (name) => state.reps.find(r => r.name === name);
+        const findRep = (name) => (state.reps||[]).find(r => r.name === name);
         const openModal = (modal) => {
             modal.classList.remove('modal-hidden');
             modal.classList.add('modal-visible');
@@ -7857,7 +8114,9 @@
 
         // --- NEW: Manual Review Highlighting Functions ---
         const REVIEW_COLORS = ['highlight-blue', 'highlight-green', 'highlight-purple', 'highlight-orange', 'highlight-teal'];
-        const LOCAL_REVIEW_KEY = 'mandoobi_review_state';
+        // Guard against TDZ by defining the key on window before any early calls
+        var LOCAL_REVIEW_KEY = window.LOCAL_REVIEW_KEY || 'mandoobi_review_state';
+        window.LOCAL_REVIEW_KEY = LOCAL_REVIEW_KEY;
 
         function loadReviewState() {
             try {
@@ -8084,7 +8343,8 @@
             dreams: ["دريمز فرع 1", "دريمز فرع 2"]
         };
 
-        const updateCustomerList = (filter = '', chain = 'all') => {
+        function updateCustomerList(filter = '', chain = 'all') {
+               try { if (!Array.isArray(state.customers)) state.customers = []; } catch(_){ state.customers = []; }
              const statementCustomerList = document.getElementById('statement-customer-list');
              if (!statementCustomerList) return;
              statementCustomerList.innerHTML = '';
@@ -8142,7 +8402,10 @@
                      });
                  }
              }
-        };
+        }
+
+        // Expose latest implementation globally for early callers
+        window.updateCustomerList = updateCustomerList;
 
         document.addEventListener('DOMContentLoaded', () => {
             // Event listener for the new select
@@ -9620,8 +9883,15 @@
                 initTotalBillsPage();
             } else if (pageId === 'stock-control') {
                 try { 
+                    // Load Stock Control data - default to 'finished' tab if not set
                     if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
-                        window.inventorySystem.loadInventoryData('raw');
+                        const currentTab = window.inventorySystem.currentTab || 'finished';
+                        console.log('📋 Loading Stock Control page, tab:', currentTab);
+                        window.inventorySystem.loadInventoryData(currentTab);
+                        // Also update total value
+                        if (typeof window.updateTotalValue === 'function') {
+                            window.updateTotalValue();
+                        }
                     }
                 } catch(e){ console.warn('loadInventoryData failed', e); }
             } else if (pageId === 'finished-products') {
@@ -10474,36 +10744,42 @@
                         try { window.__rawTouched = true; } catch(_){}
                         if (typeof window.debouncedRawSave === 'function') window.saveRawGridStateNow();
                         
-                        // === PRICE SYNC: Raw Materials => Costing System ===
+                        // === PRICE SYNC: Packaging => Costing System ===
                         if (newUnitPrice !== oldPrice && newUnitPrice !== 0) {
                             try {
-                                // Primary: Search in window.costRaw
-                                let costItem = (Array.isArray(window.costRaw) && window.costRaw.find(i => i && i.name && i.name.toLowerCase() === materialName.toLowerCase()));
+                                const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
                                 if (costItem) {
                                     costItem.cost = newUnitPrice;
+                                    costItem.avgCost = newUnitPrice;
                                     costItem.lastPrice = newUnitPrice;
                                     costItem.lastPriceDate = new Date().toISOString();
-                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase();
-                                    console.log(`✅ Price synced for Raw Material "${materialName}": ${newUnitPrice}`);
+                                    console.log(`✅ Price synced for Packaging "${product.name}": ${newUnitPrice}`);
                                 }
-                            } catch(e){ console.warn('Price sync for raw materials failed', e); }
+                            } catch(e){ console.warn('Price sync for packaging failed', e); }
                         }
                         
-                        // === STOCK SYNC: Raw Materials => Costing System ===
+                        // === STOCK SYNC: Packaging => Costing System ===
                         if (!isNaN(actual)) {
                             try {
-                                let costItem = (Array.isArray(window.costRaw) && window.costRaw.find(i => i && i.name && i.name.toLowerCase() === materialName.toLowerCase()));
-                                console.log('Stock sync debug - materialName:', materialName, 'actual:', actual, 'costRaw length:', window.costRaw ? window.costRaw.length : 0);
+                                const costItem = (Array.isArray(window.costPack) && window.costPack.find(i => i && i.name && i.name.toLowerCase() === product.name.toLowerCase()));
+                                console.log('Stock sync debug - packaging name:', product.name, 'actual:', actual, 'costPack length:', window.costPack ? window.costPack.length : 0);
                                 if (costItem) {
                                     costItem.stock = actual;
-                                    console.log('Updated costItem.stock to:', actual);
-                                    if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true);
-                                    console.log(`✅ Stock synced for Raw Material "${materialName}": ${actual}`);
+                                    console.log('Updated packaging costItem.stock to:', actual);
+                                    console.log(`✅ Stock synced for Packaging "${product.name}": ${actual}`);
                                 } else {
-                                    console.warn('Cost item not found for:', materialName);
+                                    console.warn('Packaging cost item not found for:', product.name);
                                 }
-                            } catch(e){ console.warn('Stock sync for raw materials failed', e); }
+                            } catch(e){ console.warn('Stock sync for packaging failed', e); }
                         }
+
+                        // Persist costPack locally after any change so reloads show the same values
+                        try {
+                            window.costLists = window.costLists || {}; window.costLists.costPack = window.costPack;
+                            localStorage.setItem('cost_pack', JSON.stringify(window.costPack || []));
+                        } catch(e){ console.warn('Persist cost_pack failed', e); }
+                        // Trigger cloud save once per change
+                        try { if (typeof window.saveCostListsToFirebase === 'function') window.saveCostListsToFirebase(true); } catch(_){ }
                     } catch(e){ console.warn('persist raw grid failed', e); }
                 }
 
@@ -10574,13 +10850,14 @@
                 const row = document.createElement('tr');
                 row.dataset.productId = product.id;
 
-                // load saved values first
+                // load saved values first, fallback to costPack data (stock/price)
                 const saved = (window._packGridState && window._packGridState[product.name]) ? window._packGridState[product.name] : {};
-                const unitPriceVal = (saved.unitPrice !== undefined) ? saved.unitPrice : 0;
-                const openingVal = (saved.opening !== undefined) ? saved.opening : 0;
+                const costItem = costPackArr.find(i => i && (i.name||i.code) && (String(i.name||i.code).toLowerCase() === product.name.toLowerCase()));
+                const unitPriceVal = (saved.unitPrice !== undefined) ? saved.unitPrice : (costItem ? (costItem.avgCost || costItem.cost || 0) : 0);
+                const openingVal = (saved.opening !== undefined) ? saved.opening : (costItem && costItem.stock ? costItem.stock : 0);
                 const inboundVal = (saved.inbound !== undefined) ? saved.inbound : 0;
                 const usageVal = (saved.usage !== undefined) ? saved.usage : 0;
-                const actualVal = (saved.actual !== undefined && saved.actual !== null) ? saved.actual : '';
+                const actualVal = (saved.actual !== undefined && saved.actual !== null) ? saved.actual : (costItem && costItem.stock ? costItem.stock : '');
 
                 row.innerHTML = `
                     <td class="px-2 py-2 text-sm font-medium text-gray-800 text-right">${product.name}</td>
@@ -10801,10 +11078,11 @@
              
              // Helper function للحصول على مبيعات الشهر النشط
              const getActivePeriodSalesLocal = () => {
-                 const activePeriod = state.activePeriod || '';
-                 if (!activePeriod) return state.sales || [];
+                state.sales = state.sales || [];
+                const activePeriod = state.activePeriod || '';
+                if (!activePeriod) return state.sales;
                  
-                 return (state.sales || []).filter(sale => {
+                return state.sales.filter(sale => {
                      try {
                          const saleDate = sale.date ? new Date(sale.date) : null;
                          if (!saleDate || isNaN(saleDate.getTime())) return false;
@@ -10820,6 +11098,7 @@
              let filteredMonthSales = currentMonthSales;
             
             // Prefer the global target from settings when no rep is selected. If settings target is missing/zero, fall back to sum of rep targets.
+            state.reps = state.reps || [];
             let currentTarget = Number(state.settings?.salesTarget || 0);
             const targetTitleEl = document.getElementById('target-title');
             if (selectedRepName) {
@@ -19293,9 +19572,99 @@
             // Try overlay-from-cloud after local load
             console.log('loadLists: about to call tryLoadCostListsFromCloud...');
             try { tryLoadCostListsFromCloud(); } catch(e){ console.warn('loadLists: tryLoadCostListsFromCloud failed', e); }
+
+            // NEW: If arrays ما زالت فاضية لكن عندنا grid state، أعد البناء واحفظ فوراً
+            try {
+                const hasRawGrid = window._rawGridState && Object.keys(window._rawGridState||{}).length;
+                const hasPackGrid = window._packGridState && Object.keys(window._packGridState||{}).length;
+                const hasFinGrid = window._finishedGridState && Object.keys(window._finishedGridState||{}).length;
+                const rawEmpty = !Array.isArray(window.costRaw) || window.costRaw.length === 0;
+                const packEmpty = !Array.isArray(window.costPack) || window.costPack.length === 0;
+                const finEmpty = !Array.isArray(window.costFinished) || window.costFinished.length === 0;
+                if ((rawEmpty && hasRawGrid) || (packEmpty && hasPackGrid) || (finEmpty && hasFinGrid)) {
+                    setTimeout(() => {
+                        try { window.rebuildCostListsFromGrids?.(true, true); } catch(err){ console.warn('rebuildCostListsFromGrids auto failed', err); }
+                    }, 300);
+                }
+            } catch(err){ console.warn('post-load rebuild check failed', err); }
         }
 
+        // Helper: rebuild local cost lists from grid snapshots (raw/pack/finished)
+        window.rebuildCostListsFromGrids = async function(forceRender, persist){
+            const rebuildFromGrid = (grid, category) => {
+                if (!grid || typeof grid !== 'object') return [];
+                return Object.keys(grid).map(key => {
+                    const g = grid[key] || {};
+                    const qty = [g.actual, g.bookBalance, g.opening].find(v => v !== undefined && v !== null);
+                    const price = [g.unitPrice, g.cost, g.avgCost, g.price].find(v => v !== undefined && v !== null);
+                    return {
+                        id: key,
+                        code: key,
+                        name: g.name || key,
+                        unit: g.unit || g.unitName || '',
+                        stock: Number(qty || 0) || 0,
+                        avgCost: Number(price || 0) || 0,
+                        cost: Number(price || 0) || 0,
+                        category
+                    };
+                });
+            };
+            try {
+                if (window._rawGridState && Object.keys(window._rawGridState).length) {
+                    window.costRaw = rebuildFromGrid(window._rawGridState, 'raw');
+                    localStorage.setItem('cost_raw', JSON.stringify(window.costRaw));
+                }
+            } catch(e){ console.warn('rebuild raw from grid failed', e); }
+            try {
+                if (window._packGridState && Object.keys(window._packGridState).length) {
+                    window.costPack = rebuildFromGrid(window._packGridState, 'pack');
+                    localStorage.setItem('cost_pack', JSON.stringify(window.costPack));
+                }
+            } catch(e){ console.warn('rebuild pack from grid failed', e); }
+            try {
+                if (window._finishedGridState && Object.keys(window._finishedGridState).length) {
+                    window.costFinished = rebuildFromGrid(window._finishedGridState, 'finished');
+                    localStorage.setItem('cost_finished', JSON.stringify(window.costFinished));
+                }
+            } catch(e){ console.warn('rebuild finished from grid failed', e); }
+
+            window.costLists = window.costLists || {};
+            window.costLists.costRaw = window.costRaw || [];
+            window.costLists.costPack = window.costPack || [];
+            window.costLists.costFinished = window.costFinished || [];
+
+            if (forceRender) {
+                try { window.inventorySystem?.loadInventoryData?.('raw'); } catch(_){ }
+                try { window.inventorySystem?.loadInventoryData?.('pack'); } catch(_){ }
+                try { window.inventorySystem?.loadInventoryData?.('finished'); } catch(_){ }
+                try { window.updateTotalValue?.(); } catch(_){ }
+            }
+            console.log('✅ Rebuilt cost lists from grid snapshots', { raw: (window.costRaw||[]).length, pack: (window.costPack||[]).length, finished: (window.costFinished||[]).length });
+
+            if (persist) {
+                try { await window.saveCostListsToFirebase?.('force'); console.log('☁️ Saved rebuilt lists to cloud'); } catch(e){ console.warn('saveCostListsToFirebase after rebuild failed', e); }
+            }
+            return true;
+        };
+
         function saveLists(suppressCloud){
+            // SAFETY: لا تحفظ أي شيء قبل أن نتأكد أن لدينا بيانات فعلية
+            try {
+                const finCount = Array.isArray(window.costFinished) ? window.costFinished.length : 0;
+                const rawCount = Array.isArray(window.costRaw) ? window.costRaw.length : 0;
+                const packCount = Array.isArray(window.costPack) ? window.costPack.length : 0;
+                const allZero = (finCount === 0 && rawCount === 0 && packCount === 0);
+                const cloudKnown = !!window.__hasCloudCostDoc || !!window.__costListsCloudLoaded;
+                if (allZero && !cloudKnown && !window.__allowZeroLocalSave) {
+                    console.warn('🛑 saveLists: skip writing zero lists before cloud/local data is ready');
+                    return false;
+                }
+                if (allZero && cloudKnown && !window.__allowZeroLocalSave) {
+                    console.warn('🛑 saveLists: skip overwriting existing cloud data with empty lists');
+                    return false;
+                }
+            } catch(_){ }
+
             // ===== 1. Ensure we're using window globals =====
             try { 
                 costFinished = window.costFinished || costFinished; 
@@ -19441,6 +19810,12 @@
                     return;
                 }
                 
+                // CRITICAL FIX: Don't start realtime sync before user authentication
+                if (!window.auth || !window.auth.currentUser) {
+                    console.log('⏭️ initRealtimeSync: No authenticated user, skipping');
+                    return;
+                }
+                
                 console.log('🔌 Connecting to Real-time Data Stream (onSnapshot - Safe)...');
                 if (!window.firebase || !window.firebase.firestore) {
                     console.warn('Firebase not ready for realtime sync');
@@ -19556,12 +19931,22 @@
             }
         }
 
-        // Start realtime sync on Firebase initialization
-        setTimeout(() => {
-            try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.error('initRealtimeSync error:', e); }
-        }, 500);
+        // REMOVED: Old auto-start of realtime sync - now starts after authentication
+        // Start realtime sync is now triggered after user login (see initFirebase auth handler)
 
         async function tryLoadCostListsFromCloud(){
+            // FIXED: Prevent duplicate cloud loading during same session
+            if (window.__costListsCloudLoaded) {
+                console.log('⏭️ tryLoadCostListsFromCloud: Already loaded in this session, skipping');
+                return true;
+            }
+            
+            // CRITICAL FIX: Don't attempt cloud load before user authentication
+            if (!window.auth || !window.auth.currentUser) {
+                console.log('⏭️ tryLoadCostListsFromCloud: No authenticated user, skipping cloud load');
+                return false;
+            }
+            
             try {
                 console.log("☁️ Attempting to load and RESTORE data from Cloud...");
                 if (!window.firebase || !window.firebase.firestore) {
@@ -19574,6 +19959,7 @@
                 if (doc.exists) {
                     // Mark that a cloud costLists document exists so we don't accidentally overwrite with zeros
                     try { window.__hasCloudCostDoc = true; } catch(_){}
+                    try { window.__costListsCloudLoaded = true; } catch(_){} // NEW: Mark as loaded
                     const data = doc.data();
                     console.log("📋 Cloud doc found:", { hasRaw: !!data.raw, hasPack: !!data.pack, hasFinished: !!data.finished, hasRawGridState: !!data.rawGridState, hasPackGridState: !!data.packGridState, hasFinishedProducts: !!data.finishedProducts, hasStockEntries: !!data.stockEntries });
                     
@@ -19581,14 +19967,18 @@
                     if (data.raw && Array.isArray(data.raw) && data.raw.length > 0) {
                         window.costLists = window.costLists || {};
                         window.costLists.costRaw = data.raw;
+                        window.costRaw = data.raw; // keep inventory tables in sync
+                        try { localStorage.setItem('cost_raw', JSON.stringify(data.raw)); } catch(_){ }
                         console.log("✅ Restored costRaw:", data.raw.length, "items");
                     }
                     if (data.pack && Array.isArray(data.pack) && data.pack.length > 0) {
                         window.costLists = window.costLists || {};
                         window.costLists.costPack = data.pack;
+                        window.costPack = data.pack; // keep inventory tables in sync
+                        try { localStorage.setItem('cost_pack', JSON.stringify(data.pack)); } catch(_){ }
                         console.log("✅ Restored costPack:", data.pack.length, "items");
                     }
-                    if (data.finished && Array.isArray(data.finished)) {
+                    if (data.finished && Array.isArray(data.finished) && data.finished.length > 0) {
                         window.costLists = window.costLists || {};
                         window.costLists.costFinished = data.finished;
                         // CRITICAL: Also sync to window.costFinished for inventory system
@@ -19597,6 +19987,8 @@
                         // Save to localStorage for offline
                         try { localStorage.setItem('cost_finished', JSON.stringify(data.finished)); } catch(_){}
                         console.log("✅ Restored costFinished:", data.finished.length, "items");
+                    } else {
+                        console.log('⏭️ Cloud costFinished empty; keeping local');
                     }
                     if (data.timestamp) {
                         window.costLists = window.costLists || {};
@@ -19606,28 +19998,34 @@
                     // 2. CRITICAL: Restore Grid States (The Inputs & Prices)
                     // If the cloud has grid states, inject them into the Window & LocalStorage
                     // RAW: prefer canonical field, fallback to legacy `rawMaterials`
-                    if ((data.rawGridState && typeof data.rawGridState === 'object') || (data.rawMaterials && typeof data.rawMaterials === 'object')) {
+                    if ((data.rawGridState && typeof data.rawGridState === 'object' && Object.keys(data.rawGridState||{}).length > 0) || (data.rawMaterials && typeof data.rawMaterials === 'object' && Object.keys(data.rawMaterials||{}).length > 0)) {
                         const rawState = (data.rawGridState && typeof data.rawGridState === 'object') ? data.rawGridState : data.rawMaterials;
                         window._rawGridState = data.rawGridState;
                         try { localStorage.setItem('raw_materials_grid', JSON.stringify(rawState)); } catch(_){}
                         console.log("✅ Restored raw grid state to window and localStorage", { keys: Object.keys(rawState||{}).length });
                         // Migrate legacy field to canonical on cloud
                         try { if (!data.rawGridState && window.db) await db.collection('settings').doc('costLists').set({ rawGridState: rawState, updatedAt: serverTs() }, { merge:true }); } catch(_){}
+                    } else {
+                        console.log('⏭️ Cloud raw grid empty; keeping local');
                     }
                     // PACK: prefer canonical field, fallback to legacy `packaging`
-                    if ((data.packGridState && typeof data.packGridState === 'object') || (data.packaging && typeof data.packaging === 'object')) {
+                    if ((data.packGridState && typeof data.packGridState === 'object' && Object.keys(data.packGridState||{}).length > 0) || (data.packaging && typeof data.packaging === 'object' && Object.keys(data.packaging||{}).length > 0)) {
                         const packState = (data.packGridState && typeof data.packGridState === 'object') ? data.packGridState : data.packaging;
                         window._packGridState = packState;
                         try { localStorage.setItem('packaging_grid', JSON.stringify(packState)); } catch(_){}
                         console.log("✅ Restored pack grid state to window and localStorage", { keys: Object.keys(packState||{}).length });
                         // Migrate legacy field to canonical on cloud
                         try { if (!data.packGridState && window.db) await db.collection('settings').doc('costLists').set({ packGridState: packState, updatedAt: serverTs() }, { merge:true }); } catch(_){}
+                    } else {
+                        console.log('⏭️ Cloud pack grid empty; keeping local');
                     }
                     // FIXED: Use finishedProducts field (not finishedGridState)
-                    if (data.finishedProducts && typeof data.finishedProducts === 'object') {
+                    if (data.finishedProducts && typeof data.finishedProducts === 'object' && Object.keys(data.finishedProducts||{}).length > 0) {
                         window._finishedGridState = data.finishedProducts;
                         localStorage.setItem('finished_products_grid', JSON.stringify(data.finishedProducts));
                         console.log("✅ Restored finishedProducts to window and localStorage:", Object.keys(data.finishedProducts).length, "products");
+                    } else {
+                        console.log('⏭️ Cloud finished grid empty; keeping local');
                     }
                     // FIXED: Restore stock_entries (only when cloud has entries)
                     if (data.stockEntries && typeof data.stockEntries === 'object' && Object.keys(data.stockEntries||{}).length > 0) {
@@ -19639,7 +20037,47 @@
                         console.log('⏭️ Skipped restoring stockEntries (cloud empty)');
                     }
 
-                    // 3. Force Re-Render to show the data
+                    // 3. If arrays are still empty but grid states exist, rebuild from grid snapshots
+                    try {
+                        const rebuildFromGrid = (grid, category) => {
+                            if (!grid || typeof grid !== 'object') return [];
+                            return Object.keys(grid).map(key => {
+                                const g = grid[key] || {};
+                                const qty = [g.actual, g.bookBalance, g.opening].find(v => v !== undefined && v !== null);
+                                const price = [g.unitPrice, g.cost, g.avgCost, g.price].find(v => v !== undefined && v !== null);
+                                return {
+                                    id: key,
+                                    code: key,
+                                    name: g.name || key,
+                                    unit: g.unit || g.unitName || '',
+                                    stock: Number(qty || 0) || 0,
+                                    avgCost: Number(price || 0) || 0,
+                                    cost: Number(price || 0) || 0,
+                                    category
+                                };
+                            });
+                        };
+
+                        if ((!Array.isArray(window.costRaw) || window.costRaw.length === 0) && window._rawGridState && Object.keys(window._rawGridState).length) {
+                            console.warn('⚠️ costRaw empty but raw grid has data; rebuilding from grid state');
+                            window.costRaw = rebuildFromGrid(window._rawGridState, 'raw');
+                            window.costLists = window.costLists || {};
+                            window.costLists.costRaw = window.costRaw;
+                            try { localStorage.setItem('cost_raw', JSON.stringify(window.costRaw)); } catch(_){ }
+                            try { saveLists && saveLists(true); } catch(_){ }
+                        }
+
+                        if ((!Array.isArray(window.costPack) || window.costPack.length === 0) && window._packGridState && Object.keys(window._packGridState).length) {
+                            console.warn('⚠️ costPack empty but pack grid has data; rebuilding from grid state');
+                            window.costPack = rebuildFromGrid(window._packGridState, 'pack');
+                            window.costLists = window.costLists || {};
+                            window.costLists.costPack = window.costPack;
+                            try { localStorage.setItem('cost_pack', JSON.stringify(window.costPack)); } catch(_){ }
+                            try { saveLists && saveLists(true); } catch(_){ }
+                        }
+                    } catch(e){ console.warn('rebuild from grid state failed', e); }
+
+                    // 4. Force Re-Render to show the data
                     try {
                         if (typeof renderRawMaterials === 'function') {
                             console.log("🎨 Re-rendering Raw Materials...");
@@ -19660,6 +20098,18 @@
                             renderFinishedProducts();
                         }
                     } catch(e){ console.warn('renderFinishedProducts re-render failed:', e); }
+
+                    // 5. Force render Stock Control tables using inventorySystem
+                    try {
+                        if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+                            const currentTab = window.inventorySystem.currentTab || 'finished';
+                            console.log("🎨 Forcing Stock Control render for tab:", currentTab);
+                            window.inventorySystem.loadInventoryData(currentTab);
+                            if (typeof window.updateTotalValue === 'function') {
+                                window.updateTotalValue();
+                            }
+                        }
+                    } catch(e){ console.warn('inventorySystem render failed:', e); }
 
                     console.log("✅ Data restored from Cloud successfully!");
                     // بعد الاستعادة من السحابة، طبّع الرصيد والأسعار في inventory_items لضمان الدوام
@@ -20293,39 +20743,54 @@
 
         // Raw price registry handlers
         function renderRawPriceTable(){
-            const tbody = document.querySelector('#raw-price-table tbody'); if(!tbody) return;
-            tbody.innerHTML = '';
-            (window.costRaw || []).forEach(it => {
-                const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.cost !== undefined ? it.cost : '');
-                const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td class="px-2 py-1 text-right"><input class="raw-name-input w-full p-1" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.name||'')}"></td><td class="px-2 py-1 text-center"><input class="raw-unit-input w-24 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.unit||'')}"></td><td class="px-2 py-1 text-center"><input class="raw-price-input w-28 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(last)}"></td><td class="px-2 py-1 text-center raw-price-date">${escapeHtml(date)}</td><td class="px-2 py-1 text-center"><button class="raw-price-save-btn bg-blue-600 text-white px-2 rounded" data-id="${escapeHtml(it.id)}">حفظ</button></td>`;
-                tbody.appendChild(tr);
-            });
+            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control');
+            if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
+                console.log('⏭️ renderRawPriceTable: stock-control page not visible, skipping render');
+                return;
+            }
+            // Delegate to inventorySystem for Stock Control page rendering
+            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+                try {
+                    window.inventorySystem.loadInventoryData('raw');
+                } catch(e) {
+                    console.error('renderRawPriceTable delegation failed:', e);
+                }
+            }
         }
 
         function renderFinishedPriceTable(){
-            const tbody = document.querySelector('#finished-price-table tbody'); if(!tbody) return;
-            tbody.innerHTML = '';
-            (window.costFinished || []).forEach(it => {
-                const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.price !== undefined ? it.price : '');
-                const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td class="px-2 py-1 text-right"><input class="finished-name-input w-full p-1" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.name||'')}"></td><td class="px-2 py-1 text-center"><input class="finished-unit-input w-24 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.unit||'')}"></td><td class="px-2 py-1 text-center"><input class="finished-price-input w-28 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(last)}"></td><td class="px-2 py-1 text-center finished-price-date">${escapeHtml(date)}</td><td class="px-2 py-1 text-center"><button class="finished-price-save-btn bg-blue-600 text-white px-2 rounded" data-id="${escapeHtml(it.id)}">حفظ</button></td>`;
-                tbody.appendChild(tr);
-            });
+            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control');
+            if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
+                console.log('⏭️ renderFinishedPriceTable: stock-control page not visible, skipping render');
+                return;
+            }
+            // Delegate to inventorySystem for Stock Control page rendering
+            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+                try {
+                    window.inventorySystem.loadInventoryData('finished');
+                } catch(e) {
+                    console.error('renderFinishedPriceTable delegation failed:', e);
+                }
+            }
         }
 
         function renderPackPriceTable(){
-            const tbody = document.querySelector('#pack-price-table tbody'); if(!tbody) return;
-            tbody.innerHTML = '';
-            (window.costPack || []).forEach(it => {
-                const last = (it.lastPrice !== undefined && it.lastPrice !== null) ? it.lastPrice : (it.cost !== undefined ? it.cost : '');
-                const date = it.lastPriceDate ? (new Date(it.lastPriceDate)).toLocaleString() : '';
-                const tr = document.createElement('tr');
-                tr.innerHTML = `<td class="px-2 py-1 text-right"><input class="pack-name-input w-full p-1" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.name||'')}"></td><td class="px-2 py-1 text-center"><input class="pack-unit-input w-24 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(it.unit||'')}"></td><td class="px-2 py-1 text-center"><input class="pack-price-input w-28 p-1 text-center" data-id="${escapeHtml(it.id)}" value="${escapeHtml(last)}"></td><td class="px-2 py-1 text-center pack-price-date">${escapeHtml(date)}</td><td class="px-2 py-1 text-center"><button class="pack-price-save-btn bg-blue-600 text-white px-2 rounded" data-id="${escapeHtml(it.id)}">حفظ</button></td>`;
-                tbody.appendChild(tr);
-            });
+            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control');
+            if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
+                console.log('⏭️ renderPackPriceTable: stock-control page not visible, skipping render');
+                return;
+            }
+            // Delegate to inventorySystem for Stock Control page rendering
+            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+                try {
+                    window.inventorySystem.loadInventoryData('pack');
+                } catch(e) {
+                    console.error('renderPackPriceTable delegation failed:', e);
+                }
+            }
         }
 
         // ===== Price Manager (tables + history) =====
@@ -20467,35 +20932,9 @@
                 });
             } catch(e){ console.warn('localStorage cleanup failed', e); }
             
-            // Cloud-first initialization: attach realtime listener immediately so the app
-            // receives authoritative data from Firestore (settings/costLists). LocalStorage
-            // is kept only as a cache/fallback, not the source of truth.
-            console.log('📋 DOMContentLoaded: Initializing cost lists (cloud-first realtime listener)...');
-            try {
-                // Wait a short while for firebase init to complete so we don't register listeners
-                // before the Firebase app and `db` are available (avoids app-compat/no-app errors).
-                waitForDbReady(3000).then(() => {
-                    try {
-                        initRealtimeSync();
-                    } catch(e){ console.warn('⚠️ DOMContentLoaded: initRealtimeSync() failed', e); }
-                }).catch(err => {
-                    console.warn('⚠️ DOMContentLoaded: DB not ready, skipping realtime listener:', err);
-                    // Fallback: render from local cache if cloud hasn't arrived
-                    try { if (!window.dataLoaded) { console.log('⚠️ No cloud data yet, falling back to local cache for UI rendering'); loadLists(); } } catch(e){ console.warn('⚠️ fallback loadLists failed', e); }
-                    try { tryLoadCostListsFromCloud().catch(()=>{}); } catch(_){ }
-                });
-
-                // If realtime doesn't provide data within a short timeout, fall back to local cache
-                setTimeout(() => {
-                    try {
-                        if (!window.dataLoaded) {
-                            console.log('⚠️ No cloud data yet (post-wait), falling back to local cache for UI rendering');
-                            try { loadLists(); } catch(e){ console.warn('⚠️ fallback loadLists failed', e); }
-                            try { tryLoadCostListsFromCloud().catch(()=>{}); } catch(_){ }
-                        }
-                    } catch(_){ }
-                }, 1200);
-            } catch(e){ console.warn('⚠️ DOMContentLoaded: cost lists cloud-first init failed', e); }
+            // OPTIMIZED: Don't load cost lists or wait for DB before authentication
+            // Cloud-first initialization will happen after user logs in
+            console.log('📋 DOMContentLoaded: Cost lists will load after authentication');
         });
 
         // ===== Unified Price Grid Renderer =====

@@ -91,6 +91,22 @@ window.printInvoiceBluetooth = async function(sale){
             return; 
         }
         
+        // Check if invoice contains Arabic text
+        const hasArabic = /[\u0600-\u06FF]/.test(JSON.stringify(sale||{}));
+        
+        // For Arabic text or if product names exist, use image-based printing
+        if (hasArabic || (sale.items && sale.items.length > 0)) {
+            if (typeof window.printAsImageForThermal === 'function') {
+                console.log('Using image-based printing for Arabic text support');
+                try { 
+                    await window.printAsImageForThermal(sale); 
+                    return; 
+                } catch(e){
+                    console.warn('Image printing failed, falling back to text mode:', e);
+                }
+            }
+        }
+        
         // Build payload using existing helper if present
         const payload = (typeof buildEscPosReceipt === 'function') ? 
             buildEscPosReceipt(sale) : 
