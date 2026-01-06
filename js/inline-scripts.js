@@ -5255,12 +5255,20 @@
                     // دالة جديدة: طباعة بالصورة للطابعات الحرارية الصينية
                     // دالة طباعة بالصورة (محسّنة - أسرع وأخف)
                     async function printAsImageForThermal(saleArg){                        try {
+                            console.log('🖨️ بدء الطباعة بالصورة...');
+                            
                             // إذا تم تمرير sale، استخدمه، وإلا استخدم أحدث فاتورة
                             let sale = saleArg;
                             if (!sale) {
                                 sale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
                             }
-                            if (!sale) throw new Error('لا توجد فواتير للطباعة');
+                            if (!sale) {
+                                console.error('❌ لا توجد فاتورة');
+                                throw new Error('لا توجد فواتير للطباعة');
+                            }
+                            
+                            console.log('✅ تم العثور على الفاتورة:', sale.invoiceNumber || sale.id);
+                            console.log('📦 عدد المنتجات:', (sale.items||[]).length);
                             
                             // إنشاء عنصر مؤقت للفاتورة (تصميم محسّن للطابعات الحرارية)
                             const tempDiv = document.createElement('div');
@@ -5270,13 +5278,17 @@
                             const dateStr = formatArabicDate(sale.date);
                             const custName = customer ? customer.name : 'عميل';
                             
+                            console.log('👤 العميل:', custName);
+                            
                             let itemsHtml = '';
-                            (sale.items||[]).forEach(it => {
+                            (sale.items||[]).forEach((it, idx) => {
                                 const p = findProduct(it.productId);
                                 const name = (p ? p.name : (it.name || 'منتج'));
                                 const qty = it.quantity || it.qty || 0;
                                 const price = Number(it.price||0);
                                 const total = qty * price * (1 - (it.discountPercent||0)/100);
+                                
+                                console.log(`  ${idx+1}. ${name} - الكمية: ${qty}`);
                                 
                                 // عرض اسم المنتج على سطر منفصل للوضوح
                                 itemsHtml += `<div style="padding:3px 0;border-bottom:1px dotted #ccc;">
@@ -5318,33 +5330,47 @@
                             </div>`;
                             
                             document.body.appendChild(tempDiv);
+                            console.log('✅ تم إنشاء عنصر HTML');
                             
                             // تحويل لصورة (بدون انتظار html2canvas لو مش متاح)
                             if (typeof html2canvas === 'undefined') {
                                 document.body.removeChild(tempDiv);
+                                console.error('❌ مكتبة html2canvas غير محملة');
                                 throw new Error('مكتبة html2canvas غير محملة');
                             }
                             
+                            console.log('🎨 جاري تحويل HTML إلى صورة...');
                             const canvas = await html2canvas(tempDiv, {
                                 backgroundColor: '#ffffff',
                                 scale: 2,
-                                logging: false,
+                                logging: true,
                                 width: 280,
                                 useCORS: true
                             });
                             
+                            console.log('✅ تم إنشاء الصورة:', canvas.width, 'x', canvas.height);
                             document.body.removeChild(tempDiv);
                             
-                            // فتح نافذة طباعة
-                            const w = window.open('', '', 'width=300,height=500');
-                            if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
+                            // تحويل الصورة لـ blob للطباعة المباشرة
+                            const imgData = canvas.toDataURL('image/png');
+                            console.log('📄 حجم الصورة:', (imgData.length / 1024).toFixed(2), 'KB');
                             
-                            w.document.open();
-                            w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة فاتورة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;}img{width:100%;display:block;}</style></head><body><img src="${canvas.toDataURL('image/png')}"/></body></html>`);
-                            w.document.close();
+                            // إنشاء iframe مخفي للطباعة المباشرة (أفضل للطابعات الحرارية)
+                            const iframe = document.createElement('iframe');
+                            iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;';
+                            document.body.appendChild(iframe);
                             
-                            setTimeout(() => { try{w.focus();w.print();}catch(_){} }, 300);
-                            if('onafterprint' in w) w.onafterprint = () => { try{w.close();}catch(_){} };
+                            const iframeDoc = iframe.contentWindow.document;
+                            iframeDoc.open();
+                            iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;display:flex;justify-content:center;}img{width:100%;max-width:80mm;display:block;}</style></head><body><img src="${imgData}" onload="window.print()"/></body></html>`);
+                            iframeDoc.close();
+                            
+                            console.log('✅ تم إرسال الفاتورة للطباعة');
+                            
+                            // إزالة iframe بعد الطباعة
+                            setTimeout(() => { 
+                                try { document.body.removeChild(iframe); } catch(_){} 
+                            }, 1000);
                             
                         } catch(e) { 
                             console.error('Print failed:', e);
