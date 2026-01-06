@@ -5412,18 +5412,32 @@
                     const lines = [];
                     const center = (t)=>"\x1B\x61\x01"+t+"\n"; // ESC a 1 (center)
                     const left = (t)=>"\x1B\x61\x00"+t+"\n";  // ESC a 0 (left)
+                    
+                    lines.push(center("Delente ERP"));
                     lines.push(center("*** فاتورة بيع ***"));
                     if (sale && sale.invoiceNumber) lines.push(center("رقم: "+sale.invoiceNumber));
-                    if (sale && sale.date) lines.push(left("التاريخ: "+(sale.date.split('T')[0])));
-                    if (sale && sale.customerName) lines.push(left("العميل: "+sale.customerName));
+                    
+                    // Get customer name using findCustomer
+                    const customer = (typeof findCustomer === 'function' && sale.customerId) ? findCustomer(sale.customerId) : null;
+                    const custName = customer ? customer.name : (sale.customerName || 'عميل');
+                    
+                    // Format date properly
+                    const dateStr = sale.date ? (typeof formatArabicDate === 'function' ? formatArabicDate(sale.date) : sale.date.split('T')[0]) : '';
+                    
+                    if (dateStr) lines.push(left("التاريخ: "+dateStr));
+                    lines.push(left("العميل: "+custName));
                     lines.push(left("------------------------------"));
+                    
                     if (sale && Array.isArray(sale.items)){
                         sale.items.forEach(it=>{
-                            const name = (it.name||it.productName||it.productId||"صنف").slice(0,12);
+                            // Get product name using findProduct function
+                            const product = (typeof findProduct === 'function' && it.productId) ? findProduct(it.productId) : null;
+                            const name = product ? product.name : (it.name||it.productName||"صنف");
+                            const displayName = name.slice(0,15); // Limit to 15 chars for thermal printer
                             const qty = it.qty || it.quantity || 0;
                             const price = it.price || it.unitPrice || 0;
                             const total = (qty*price).toFixed(2);
-                            lines.push(left(name+" "+qty+"x"+price+"="+total));
+                            lines.push(left(displayName+" "+qty+"x"+price+"="+total));
                         });
                     }
                     lines.push(left("------------------------------"));
