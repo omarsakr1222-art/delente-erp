@@ -5254,123 +5254,32 @@
                     
                     // دالة جديدة: طباعة بالصورة للطابعات الحرارية الصينية
                     // دالة طباعة بالصورة (محسّنة - أسرع وأخف)
-                    async function printAsImageForThermal(saleArg){                        try {
-                            console.log('🖨️ بدء الطباعة بالصورة...');
-                            
-                            // إذا تم تمرير sale، استخدمه، وإلا استخدم أحدث فاتورة
+                    async function printAsImageForThermal(saleArg){
+                        try {
                             let sale = saleArg;
                             if (!sale) {
                                 sale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
                             }
-                            if (!sale) {
-                                console.error('❌ لا توجد فاتورة');
-                                throw new Error('لا توجد فواتير للطباعة');
-                            }
-                            
-                            console.log('✅ تم العثور على الفاتورة:', sale.invoiceNumber || sale.id);
-                            console.log('📦 عدد المنتجات:', (sale.items||[]).length);
-                            
-                            // إنشاء عنصر مؤقت للفاتورة (تصميم محسّن للطابعات الحرارية)
-                            const tempDiv = document.createElement('div');
-                            tempDiv.style.cssText = 'position:fixed;left:-9999px;top:0;width:280px;background:white;padding:10px;font-family:Cairo,Arial;direction:rtl;';
+                            if (!sale) throw new Error('لا توجد فواتير للطباعة');
                             
                             const customer = findCustomer(sale.customerId);
                             const dateStr = formatArabicDate(sale.date);
                             const custName = customer ? customer.name : 'عميل';
                             
-                            console.log('👤 العميل:', custName);
-                            
                             let itemsHtml = '';
-                            (sale.items||[]).forEach((it, idx) => {
+                            (sale.items||[]).forEach(it => {
                                 const p = findProduct(it.productId);
                                 const name = (p ? p.name : (it.name || 'منتج'));
                                 const qty = it.quantity || it.qty || 0;
                                 const price = Number(it.price||0);
                                 const total = qty * price * (1 - (it.discountPercent||0)/100);
                                 
-                                console.log(`  ${idx+1}. ${name} - الكمية: ${qty}`);
-                                
-                                // عرض اسم المنتج على سطر منفصل للوضوح
-                                itemsHtml += `<div style="padding:3px 0;border-bottom:1px dotted #ccc;">
-                                    <div style="font-size:11px;font-weight:600;margin-bottom:2px;">${name}</div>
-                                    <div style="display:flex;justify-content:space-between;font-size:10px;color:#333;">
-                                        <span>الكمية: ${qty}</span>
-                                        <span>السعر: ${formatCurrency(price)}</span>
-                                        <span style="font-weight:700;">${formatCurrency(total)}</span>
-                                    </div>
-                                </div>`;
-                            });
+                                itemsHtml += `<tr><td style="text-align:right;font-weight:900;color:#000;padding:3px;">${name}</td><td style="text-align:center;font-weight:700;color:#000;padding:3px;">${qty}x${formatCurrency(price)}=${formatCurrency(total)}</td></tr>`;\n                            });
                             
-                            tempDiv.innerHTML = `<div style="text-align:center;border:2px solid #000;padding:8px;background:white;">
-                                <div style="font-size:18px;font-weight:900;margin-bottom:4px;font-family:'Cinzel',serif;">Delente ERP</div>
-                                <div style="font-size:13px;font-weight:700;margin-bottom:8px;background:#000;color:#fff;padding:4px;border-radius:3px;">فاتورة مبيعات</div>
-                                <div style="border-top:2px solid #000;margin:6px 0;"></div>
-                                <div style="font-size:11px;text-align:right;line-height:1.6;background:#f5f5f5;padding:6px;border-radius:3px;">
-                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span style="font-weight:700;">${sale.invoiceNumber || sale.id}</span><span>: رقم الفاتورة</span></div>
-                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span>${dateStr}</span><span>: التاريخ</span></div>
-                                    <div style="display:flex;justify-content:space-between;margin:2px 0;"><span style="font-weight:600;">${custName.substring(0,20)}</span><span>: العميل</span></div>
-                                </div>
-                                <div style="border-top:2px solid #000;margin:6px 0;"></div>
-                                <div style="text-align:right;">
-                                    ${itemsHtml}
-                                </div>
-                                <div style="border-top:3px double #000;margin:8px 0;"></div>
-                                <div style="font-size:14px;font-weight:900;display:flex;justify-content:space-between;background:#000;color:#fff;padding:6px;border-radius:3px;">
-                                    <span>${formatCurrency(sale.total||0)} ج.م</span><span>الإجمالي</span>
-                                </div>
-                                <div style="font-size:11px;display:flex;justify-content:space-between;margin:3px 0;padding:3px;background:#e8f5e9;">
-                                    <span style="font-weight:600;">${formatCurrency((((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0))} ج.م</span><span>المدفوع</span>
-                                </div>
-                                <div style="font-size:11px;display:flex;justify-content:space-between;padding:3px;background:#ffebee;">
-                                    <span style="font-weight:600;">${formatCurrency(((sale.total||0) - (((sale.paidAmount !== undefined && sale.paidAmount !== null) ? sale.paidAmount : ((sale.firstPayment || 0) + (sale.secondPayment || 0))) || 0)))} ج.م</span><span>المتبقي</span>
-                                </div>
-                                <div style="border-top:1px dashed #000;margin:8px 0;"></div>
-                                <div style="font-size:10px;text-align:center;font-weight:600;">شكراً لتعاملكم معنا</div>
-                                <div style="font-size:8px;text-align:center;color:#666;margin-top:4px;">Delente ERP - نظام إدارة المبيعات</div>
-                            </div>`;
+                            const w = window.open('', '', 'width=400,height=600');
+                            if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
                             
-                            document.body.appendChild(tempDiv);
-                            console.log('✅ تم إنشاء عنصر HTML');
-                            
-                            // تحويل لصورة (بدون انتظار html2canvas لو مش متاح)
-                            if (typeof html2canvas === 'undefined') {
-                                document.body.removeChild(tempDiv);
-                                console.error('❌ مكتبة html2canvas غير محملة');
-                                throw new Error('مكتبة html2canvas غير محملة');
-                            }
-                            
-                            console.log('🎨 جاري تحويل HTML إلى صورة...');
-                            const canvas = await html2canvas(tempDiv, {
-                                backgroundColor: '#ffffff',
-                                scale: 2,
-                                logging: true,
-                                width: 280,
-                                useCORS: true
-                            });
-                            
-                            console.log('✅ تم إنشاء الصورة:', canvas.width, 'x', canvas.height);
-                            document.body.removeChild(tempDiv);
-                            
-                            // تحويل الصورة لـ blob للطباعة المباشرة
-                            const imgData = canvas.toDataURL('image/png');
-                            console.log('📄 حجم الصورة:', (imgData.length / 1024).toFixed(2), 'KB');
-                            
-                            // إنشاء iframe مخفي للطباعة المباشرة (أفضل للطابعات الحرارية)
-                            const iframe = document.createElement('iframe');
-                            iframe.style.cssText = 'position:fixed;width:0;height:0;border:0;';
-                            document.body.appendChild(iframe);
-                            
-                            const iframeDoc = iframe.contentWindow.document;
-                            iframeDoc.open();
-                            iframeDoc.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>طباعة</title><style>@page{size:80mm auto;margin:0;}body{margin:0;padding:0;display:flex;justify-content:center;}img{width:100%;max-width:80mm;display:block;}</style></head><body><img src="${imgData}" onload="window.print()"/></body></html>`);
-                            iframeDoc.close();
-                            
-                            console.log('✅ تم إرسال الفاتورة للطباعة');
-                            
-                            // إزالة iframe بعد الطباعة
-                            setTimeout(() => { 
-                                try { document.body.removeChild(iframe); } catch(_){} 
-                            }, 1000);
+                            w.document.write(`<!DOCTYPE html>\n<html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm auto;margin:0}body{margin:0;padding:8px;font-family:Arial;background:#fff}table{width:100%;border-collapse:collapse}td{padding:4px;border:1px solid #000}h1{text-align:center;font-size:18px;font-weight:900;margin:0}h2{text-align:center;font-size:13px;font-weight:900;background:#000;color:#fff;padding:4px;margin:6px 0}.total{text-align:center;font-size:14px;font-weight:900;background:#000;color:#fff;padding:6px;margin:8px 0}.info{text-align:right;font-size:11px;font-weight:700;color:#000;margin:6px 0}</style></head><body><h1>Delente ERP</h1><h2>فاتورة مبيعات</h2><div class="info">رقم: <strong>${sale.invoiceNumber || sale.id}</strong></div><div class="info">التاريخ: <strong>${dateStr}</strong></div><div class="info">العميل: <strong>${custName.substring(0,20)}</strong></div><table><tbody>${itemsHtml}</tbody></table><div class="total">الإجمالي: ${formatCurrency(sale.total||0)} ج.م</div><div style="text-align:center;font-size:10px;margin-top:8px;color:#000;font-weight:700;">شكراً لتعاملكم</div><script>window.print();setTimeout(()=>window.close(),1000);</script></body></html>`);\n                            w.document.close();
                             
                         } catch(e) { 
                             console.error('Print failed:', e);

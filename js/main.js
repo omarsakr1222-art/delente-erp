@@ -3638,6 +3638,30 @@ async function salesListClickHandler(e) {
         return;
     }
 
+    const btPrintBtn = e.target.closest('.bt-print-sale-btn');
+    if (btPrintBtn) {
+        const saleId = btPrintBtn.getAttribute('data-id');
+        const sale = state.sales.find(s => s.id === saleId);
+        if (sale && typeof window.printAsImageForThermal === 'function') {
+            try { await window.printAsImageForThermal(sale); } catch(e){ alert('خطأ: ' + (e&&e.message)); }
+        } else {
+            alert('دالة الطباعة غير متوفرة');
+        }
+        return;
+    }
+
+    const usbPrintBtn = e.target.closest('.usb-print-sale-btn');
+    if (usbPrintBtn) {
+        const saleId = usbPrintBtn.getAttribute('data-id');
+        const sale = state.sales.find(s => s.id === saleId);
+        if (sale && typeof window.printAsImageForThermal === 'function') {
+            try { await window.printAsImageForThermal(sale); } catch(e){ alert('خطأ: ' + (e&&e.message)); }
+        } else {
+            alert('دالة الطباعة غير متوفرة');
+        }
+        return;
+    }
+
     if (shareImageBtn) {
         const saleId = shareImageBtn.getAttribute('data-id');
         try { await window.shareSaleReceiptImage(saleId); } catch(e){ console.warn('shareSaleReceiptImage failed', e); }
