@@ -5441,15 +5441,35 @@
                         alert('المتصفح لا يدعم Web Bluetooth (جرب Chrome أو Edge على أندرويد).');
                         return;
                     }
+                    
                     // أحدث فاتورة
                     const sale = (window.state && Array.isArray(state.sales) && state.sales[0]) ? state.sales[0] : null;
+                    if (!sale) {
+                        alert('لا توجد فواتير للطباعة');
+                        return;
+                    }
+                    
+                    // Check if invoice contains Arabic text - use image printing for better compatibility
+                    const hasArabic = /[\u0600-\u06FF]/.test(JSON.stringify(sale||{}));
+                    
+                    if (hasArabic && typeof window.printAsImageForThermal === 'function') {
+                        console.log('Using image-based printing for Arabic text');
+                        try {
+                            await window.printAsImageForThermal(sale);
+                            return;
+                        } catch(e) {
+                            console.warn('Image printing failed, trying text mode:', e);
+                        }
+                    }
+                    
+                    // Fallback: text-based printing
                     const payload = buildEscPosReceipt(sale);
-                    // UUIDs محتملة لطابعات حرارية BLE شائعة (قد تحتاج تعديل)
+                    
+                    // UUIDs محتملة لطابعات حرارية BLE شائعة
                     const SERVICE_UUIDS = [0xFFE0,'0000ffe0-0000-1000-8000-00805f9b34fb','0000ff00-0000-1000-8000-00805f9b34fb'];
                     const CHAR_UUIDS = ['ffe1','0000ffe1-0000-1000-8000-00805f9b34fb','0000ff01-0000-1000-8000-00805f9b34fb'];
                     let device;
                     try {
-                        // نستخدم acceptAllDevices لتفادي خطأ اسم الخدمة ثم نحاول الخدمات بعد الاتصال
                         device = await navigator.bluetooth.requestDevice({ acceptAllDevices:true, optionalServices: SERVICE_UUIDS });
                     } catch(e){
                         alert('تعذر اختيار جهاز بلوتوث: '+ e.message);
@@ -5471,7 +5491,7 @@
                         } catch(_){ }
                     }
                     if (!characteristic){
-                        alert('لم يتم العثور على خاصية الكتابة للطابعة (جرب تحديث قائمة UUID أو تأكد أن الطابعة BLE).');
+                        alert('لم يتم العثور على خاصية الكتابة للطابعة.');
                         try { gatt.disconnect(); } catch(_){ }
                         return;
                     }
