@@ -5274,12 +5274,15 @@
                                 const price = Number(it.price||0);
                                 const total = qty * price * (1 - (it.discountPercent||0)/100);
                                 
-                                itemsHtml += `<tr><td style="text-align:right;font-weight:900;color:#000;padding:3px;">${name}</td><td style="text-align:center;font-weight:700;color:#000;padding:3px;">${qty}x${formatCurrency(price)}=${formatCurrency(total)}</td></tr>`;\n                            });
+                                itemsHtml += `<tr><td style="text-align:right;font-weight:900;color:#000;padding:3px;">${name}</td><td style="text-align:center;font-weight:700;color:#000;padding:3px;">${qty}x${formatCurrency(price)}=${formatCurrency(total)}</td></tr>`;
+                            });
                             
                             const w = window.open('', '', 'width=400,height=600');
                             if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
                             
-                            w.document.write(`<!DOCTYPE html>\n<html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm auto;margin:0}body{margin:0;padding:8px;font-family:Arial;background:#fff}table{width:100%;border-collapse:collapse}td{padding:4px;border:1px solid #000}h1{text-align:center;font-size:18px;font-weight:900;margin:0}h2{text-align:center;font-size:13px;font-weight:900;background:#000;color:#fff;padding:4px;margin:6px 0}.total{text-align:center;font-size:14px;font-weight:900;background:#000;color:#fff;padding:6px;margin:8px 0}.info{text-align:right;font-size:11px;font-weight:700;color:#000;margin:6px 0}</style></head><body><h1>Delente ERP</h1><h2>فاتورة مبيعات</h2><div class="info">رقم: <strong>${sale.invoiceNumber || sale.id}</strong></div><div class="info">التاريخ: <strong>${dateStr}</strong></div><div class="info">العميل: <strong>${custName.substring(0,20)}</strong></div><table><tbody>${itemsHtml}</tbody></table><div class="total">الإجمالي: ${formatCurrency(sale.total||0)} ج.م</div><div style="text-align:center;font-size:10px;margin-top:8px;color:#000;font-weight:700;">شكراً لتعاملكم</div><script>window.print();setTimeout(()=>window.close(),1000);</script></body></html>`);\n                            w.document.close();
+                            w.document.write(`<!DOCTYPE html>
+<html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm auto;margin:0}body{margin:0;padding:8px;font-family:Arial;background:#fff}table{width:100%;border-collapse:collapse}td{padding:4px;border:1px solid #000}h1{text-align:center;font-size:18px;font-weight:900;margin:0}h2{text-align:center;font-size:13px;font-weight:900;background:#000;color:#fff;padding:4px;margin:6px 0}.total{text-align:center;font-size:14px;font-weight:900;background:#000;color:#fff;padding:6px;margin:8px 0}.info{text-align:right;font-size:11px;font-weight:700;color:#000;margin:6px 0}</style></head><body><h1>Delente ERP</h1><h2>فاتورة مبيعات</h2><div class="info">رقم: <strong>${sale.invoiceNumber || sale.id}</strong></div><div class="info">التاريخ: <strong>${dateStr}</strong></div><div class="info">العميل: <strong>${custName.substring(0,20)}</strong></div><table><tbody>${itemsHtml}</tbody></table><div class="total">الإجمالي: ${formatCurrency(sale.total||0)} ج.م</div><div style="text-align:center;font-size:10px;margin-top:8px;color:#000;font-weight:700;">شكراً لتعاملكم</div><script>window.print();setTimeout(()=>window.close(),1000);</script></body></html>`);
+                            w.document.close();
                             
                         } catch(e) { 
                             console.error('Print failed:', e);
@@ -11632,6 +11635,13 @@
                         rawbtPrintBtnEl.innerHTML = '<i class="bi bi-phone-vibrate"></i> هاتف';
                         sideCol.insertBefore(rawbtPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling.nextSibling); // after bluetooth
 
+                        // NEW PRINT SYSTEM button (sixth button)
+                        const newPrintBtnEl = document.createElement('button');
+                        newPrintBtnEl.setAttribute('data-id', sale.id);
+                        newPrintBtnEl.className = 'new-print-sale-btn mb-2 bg-purple-600 hover:bg-purple-700 text-white px-3 py-1 rounded text-sm flex items-center gap-1';
+                        newPrintBtnEl.innerHTML = '<i data-lucide="zap" class="w-4 h-4"></i> طباعة جديد';
+                        sideCol.insertBefore(newPrintBtnEl, sideCol.firstChild.nextSibling.nextSibling.nextSibling.nextSibling.nextSibling); // after rawbt
+
                         // تمت إزالة زر الإرسال للضرائب الخارجي؛ يبقى فقط داخل المودال
                     }
                 } catch(e){}
@@ -11739,6 +11749,22 @@
                             } catch(e){ 
                                 console.warn('bluetooth print error', e); 
                                 alert('خطأ في الطباعة عبر البلوتوث: '+(e&&e.message)); 
+                            } 
+                        });
+                        
+                        // NEW PRINT SYSTEM button handler
+                        const newPrintBtn = el.querySelector('.new-print-sale-btn');
+                        if (newPrintBtn) newPrintBtn.addEventListener('click', async (evt) => { 
+                            evt.preventDefault(); 
+                            try { 
+                                if (typeof window.printInvoiceNewSystem === 'function') {
+                                    await window.printInvoiceNewSystem(sale);
+                                } else {
+                                    alert('نظام الطباعة الجديد غير متوفر');
+                                }
+                            } catch(e){ 
+                                console.warn('new print system error', e); 
+                                alert('خطأ في الطباعة الجديدة: '+(e&&e.message)); 
                             } 
                         });
                     } catch(e){ console.warn('wiring sale action buttons failed', e); }
