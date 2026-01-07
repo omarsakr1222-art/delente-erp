@@ -872,7 +872,9 @@ function addSaleItemRow(item = {}) {
             const promotionPrice = getActivePromotionPrice(productId, customerId);
             price = (promotionPrice !== null) ? promotionPrice : basePrice;
             try {
-                if (product && /لبن|حليب/i.test(product.name)) {
+                // Use Unicode-escaped regex to avoid encoding issues on deployment
+                const milkRegex = new RegExp("(\u0644\u0628\u0646|\u062D\u0644\u064A\u0628)", "i"); // لبن|حليب
+                if (product && milkRegex.test(product.name)) {
                     const customer = customerId ? findCustomer(customerId) : null;
                     const priceList = (customer && customer.priceListId) ? findPriceList(customer.priceListId) : null;
                     const listOverride = priceList ? priceList.productPrices[productId] : undefined;
@@ -1816,11 +1818,13 @@ function renderSelectedPriceList(){
     }
     updateIcons();
 }
-// دالة للتحقق العالمية لتحديد الباركودات (زبادي / لبن / حليب / البانيلو / الزبادادت)
+// دالة للتحقق العالمية لتحديد الباركودات باستخدام Unicode escapes لضمان الثبات عبر البيئات
 function isBarcodeEditable(name){
     try {
         const n = (name||'').replace(/\s+/g,' ').trim();
-        return /(زبادي|زبادى|لبن|بن|حليب|البانيلو|بانيلو|بيتزا|كشرات|بسكوت)/.test(n);
+        // الكلمات: زبادي|زبادى|لبن|بن|حليب|البانيلو|بانيلو|بيتزا|كشرات|بسكوت
+        const pattern = /(\u0632\u0628\u0627\u062F\u064A|\u0632\u0628\u0627\u062F\u0649|\u0644\u0628\u0646|\u0628\u0646|\u062D\u0644\u064A\u0628|\u0627\u0644\u0628\u0627\u0646\u064A\u0644\u0648|\u0628\u0627\u0646\u064A\u0644\u0648|\u0628\u064A\u062A\u0632\u0627|\u0643\u0634\u0631\u0627\u062A|\u0628\u0633\u0643\u0648\u062A)/;
+        return pattern.test(n);
     } catch(e){ return false; }
 }
 function renderPriceListSheet(priceListId, customerName){
