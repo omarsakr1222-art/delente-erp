@@ -872,7 +872,7 @@ function addSaleItemRow(item = {}) {
             const promotionPrice = getActivePromotionPrice(productId, customerId);
             price = (promotionPrice !== null) ? promotionPrice : basePrice;
             try {
-                if (product && /????|????/i.test(product.name)) {
+                if (product && /لبن|حليب/i.test(product.name)) {
                     const customer = customerId ? findCustomer(customerId) : null;
                     const priceList = (customer && customer.priceListId) ? findPriceList(customer.priceListId) : null;
                     const listOverride = priceList ? priceList.productPrices[productId] : undefined;
