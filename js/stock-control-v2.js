@@ -7,6 +7,7 @@ const appV2 = {
     products: [],
     currentProdFilter: 'all',
     stockCategory: 'finished_goods',
+    selectedDate: null,
 
     async init() {
         try {
@@ -624,8 +625,8 @@ appV2.renderProducts = function() {
     let list = [...this.products];
     
     // تطبيق الفلترة بالفئة
-    if (this.currentFilter !== 'all') {
-        list = list.filter(p => p.category === this.currentFilter);
+    if (this.currentProdFilter !== 'all') {
+        list = list.filter(p => p.category === this.currentProdFilter);
     }
     
     console.log(`🔍 Filtering by "${this.currentFilter}": found ${list.length} products`);
