@@ -435,43 +435,44 @@ const appV2 = {
     },
     
     async importFromOldSystem() {
-        if (!confirm('⚠️ هل تريد استيراد البيانات من النظام القديم؟\nسيتم إضافة المنتجات المفقودة فقط.')) {
+    async importFromOldSystem(section) {
+        let sectionName = '';
+        if (section === 'raw_material') sectionName = 'الخامات';
+        if (section === 'packaging') sectionName = 'التغليف';
+        if (section === 'finished_goods') sectionName = 'المنتج التام';
+        if (!sectionName) {
+            alert('يرجى اختيار قسم صحيح');
             return;
         }
-        
+        if (!confirm(`⚠️ هل تريد استيراد بيانات ${sectionName} فقط من النظام القديم؟\nسيتم إضافة المنتجات المفقودة فقط.`)) {
+            return;
+        }
         try {
-            // Get data from localStorage
-            const rawGrid = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}');
-            const packGrid = JSON.parse(localStorage.getItem('packaging_grid') || '{}');
-            
-            console.log('📦 Found in old system:', {
-                raw: Object.keys(rawGrid).length,
-                pack: Object.keys(packGrid).length
-            });
-            
+            let grid = {};
+            if (section === 'raw_material') grid = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}');
+            if (section === 'packaging') grid = JSON.parse(localStorage.getItem('packaging_grid') || '{}');
+            if (section === 'finished_goods') grid = JSON.parse(localStorage.getItem('finished_goods_grid') || '{}');
+
+            console.log(`📦 Found in old system (${sectionName}):`, Object.keys(grid).length);
+
             const batch = this.db.batch();
             let added = 0, updated = 0;
-            
-            // Process raw materials
-            for (const [name, data] of Object.entries(rawGrid)) {
+
+            for (const [name, data] of Object.entries(grid)) {
                 if (!name || name === 'undefined') continue;
-                
-                // Check if exists
                 const existing = this.products.find(p => p.name === name);
                 if (existing) {
-                    // Update category if missing
                     if (!existing.category) {
                         const ref = this.db.collection('products').doc(existing.id);
-                        batch.update(ref, { category: 'raw_material' });
+                        batch.update(ref, { category: section });
                         updated++;
                     }
                 } else {
-                    // Add new
                     const ref = this.db.collection('products').doc();
                     batch.set(ref, {
                         name,
-                        category: 'raw_material',
-                        unit: data.unit || 'كجم',
+                        category: section,
+                        unit: data.unit || (section === 'packaging' ? 'قطعة' : 'كجم'),
                         currentStock: data.stock || 0,
                         avgCost: data.price || 0,
                         createdAt: new Date()
@@ -479,37 +480,12 @@ const appV2 = {
                     added++;
                 }
             }
-            
-            // Process packaging
-            for (const [name, data] of Object.entries(packGrid)) {
-                if (!name || name === 'undefined') continue;
-                
-                const existing = this.products.find(p => p.name === name);
-                if (existing) {
-                    if (!existing.category) {
-                        const ref = this.db.collection('products').doc(existing.id);
-                        batch.update(ref, { category: 'packaging' });
-                        updated++;
-                    }
-                } else {
-                    const ref = this.db.collection('products').doc();
-                    batch.set(ref, {
-                        name,
-                        category: 'packaging',
-                        unit: data.unit || 'قطعة',
-                        currentStock: data.stock || 0,
-                        avgCost: data.price || 0,
-                        createdAt: new Date()
-                    });
-                    added++;
-                }
-            }
-            
+
             if (added + updated === 0) {
                 alert('✅ جميع البيانات محدثة بالفعل');
                 return;
             }
-            
+
             if (confirm(`سيتم:\n- إضافة ${added} منتج جديد\n- تحديث ${updated} تصنيف\n\nمتابعة؟`)) {
                 await batch.commit();
                 alert(`✅ تم الاستيراد بنجاح!\nأضيف: ${added}\nتحدث: ${updated}`);

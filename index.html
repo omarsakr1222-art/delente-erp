@@ -2869,11 +2869,19 @@
                         <div class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded flex items-center justify-between">
                             <div>
                                 <p class="text-xs font-bold text-blue-800">استيراد من النظام القديم</p>
-                                <p class="text-[10px] text-blue-600">سيتم جلب الخامات والتغليف من localStorage</p>
+                                <p class="text-[10px] text-blue-600">يمكنك استيراد كل قسم على حدة من localStorage</p>
                             </div>
-                            <button onclick="appV2.importFromOldSystem()" class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">
-                                <i class="fas fa-download"></i> استيراد
-                            </button>
+                            <div class="flex gap-2">
+                                <button onclick="appV2.importFromOldSystem('raw_material')" class="bg-green-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-green-700">
+                                    <i class="fas fa-download"></i> استيراد الخامات
+                                </button>
+                                <button onclick="appV2.importFromOldSystem('packaging')" class="bg-yellow-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-yellow-700">
+                                    <i class="fas fa-download"></i> استيراد التغليف
+                                </button>
+                                <button onclick="appV2.importFromOldSystem('finished_goods')" class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">
+                                    <i class="fas fa-download"></i> استيراد التام
+                                </button>
+                            </div>
                         </div>
                         <div id="categoryList-v2" class="space-y-2"></div>
                         <div class="flex justify-end gap-2 mt-5 pt-3 border-t">
