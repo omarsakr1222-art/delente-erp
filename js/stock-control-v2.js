@@ -1,4 +1,4 @@
-// Stock Control V2 - Embedded in SPA
+// Stock Control V2 - Modular SDK Version
 console.log('⏳ Stock Control V2 script loading...');
 
 const appV2 = {
@@ -37,12 +37,15 @@ const appV2 = {
 
     startListeners() {
         try {
-            const ref = firebase.firestore().collection('products');
-            ref.onSnapshot((snapshot) => {
+            const ref = window.firebase.firestore.collection(this.db, 'products');
+            const unsubscribe = window.firebase.firestore.onSnapshot(ref, (snapshot) => {
                 this.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 this.products.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
                 
-                console.log('✅ V2 Products loaded:', this.products.length);                console.log('Categories found:', [...new Set(this.products.map(p => p.category))]);                
+                console.log('✅ V2 Products loaded:', this.products.length);
+                const categories = [...new Set(this.products.map(p => p.category))];
+                console.log('📦 Categories found:', categories);
+                
                 const empty = document.getElementById('emptyState-v2');
                 const table = document.getElementById('tableContainer-v2');
                 
@@ -65,17 +68,27 @@ const appV2 = {
 
     async addProduct(e) {
         e.preventDefault();
-        const name = document.getElementById('newProdName-v2').value;
-        const cat = document.getElementById('newProdCat-v2').value;
-        const unit = document.getElementById('newProdUnit-v2').value;
+        const name = document.getElementById('newProdName-v2')?.value;
+        const cat = document.getElementById('newProdCat-v2')?.value;
+        const unit = document.getElementById('newProdUnit-v2')?.value;
+        
+        if (!name || !cat || !unit) {
+            alert("الرجاء ملء جميع الحقول");
+            return;
+        }
+        
         try {
-            await firebase.firestore().collection('products').add({
+            const col = window.firebase.firestore.collection(this.db, 'products');
+            await window.firebase.firestore.addDoc(col, {
                 name, category: cat, unit, currentStock: 0, avgCost: 0, createdAt: new Date()
             });
             alert("تمت الإضافة");
             this.toggleModal('productModal-v2');
             e.target.reset();
-        } catch (err) { alert("خطأ: " + err.message); }
+        } catch (err) { 
+            console.error('Add product error:', err);
+            alert("خطأ: " + err.message); 
+        }
     },
 
     filterProd(cat) {
@@ -101,6 +114,8 @@ const appV2 = {
         tbody.innerHTML = '';
         const filter = this.currentProdFilter || 'all';
         const list = this.products.filter(p => filter === 'all' || p.category === filter);
+        
+        console.log(`Filtering by "${filter}": found ${list.length} products`);
         
         list.forEach(p => {
             const row = document.createElement('tr');
@@ -137,11 +152,10 @@ const appV2 = {
         }
 
         try {
-            const db = firebase.firestore();
-            await db.runTransaction(async (t) => {
-                const ref = db.collection('products').doc(pid);
+            await window.firebase.firestore.runTransaction(this.db, async (t) => {
+                const ref = window.firebase.firestore.doc(this.db, 'products', pid);
                 const s = await t.get(ref);
-                if (!s.exists) throw "Product not found";
+                if (!s.exists()) throw "Product not found";
                 const p = s.data();
                 let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
 
@@ -156,14 +170,18 @@ const appV2 = {
                     party = document.getElementById('destSelect-v2')?.value || "";
                 }
                 t.update(ref, { currentStock: ns, avgCost: nc });
-                t.set(db.collection('transactions').doc(), {
+                const tCol = window.firebase.firestore.collection(this.db, 'transactions');
+                t.set(window.firebase.firestore.doc(tCol), {
                     date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
                 });
             });
             alert("تم الحفظ");
             e.target.reset();
             this.toggleTrans();
-        } catch (err) { alert("خطأ: " + err); } 
+        } catch (err) { 
+            console.error('saveTrans error:', err);
+            alert("خطأ: " + err); 
+        } 
         finally {
             if (btn) {
                 btn.disabled = false;
@@ -193,7 +211,11 @@ const appV2 = {
         if (!tbody) return;
         tbody.innerHTML = '';
         const cat = this.stockCategory || 'finished_goods';
-        this.products.filter(p => p.category === cat).forEach(p => {
+        const filtered = this.products.filter(p => p.category === cat);
+        
+        console.log(`Stocktake filter "${cat}": found ${filtered.length} products`);
+        
+        filtered.forEach(p => {
             const row = document.createElement('tr');
             row.className = "border-b hover:bg-gray-50";
             row.innerHTML = `
@@ -213,8 +235,11 @@ const appV2 = {
     calcDiff(input) {
         const sys = parseFloat(input.dataset.sys);
         const actual = parseFloat(input.value);
-        const cell = input.closest('tr').querySelector('.diff-cell');
-        if (isNaN(actual)) { cell.innerText = '-'; return; }
+        const cell = input.closest('tr')?.querySelector('.diff-cell');
+        if (!cell || isNaN(actual)) { 
+            if (cell) cell.innerText = '-'; 
+            return; 
+        }
         const diff = actual - sys;
         cell.innerText = diff > 0 ? `+${this.formatNum(diff)}` : this.formatNum(diff);
         cell.className = `diff-cell p-2 text-center text-[10px] font-bold ${diff < 0 ? 'text-red-600' : (diff > 0 ? 'text-green-600' : 'text-gray-400')}`;
@@ -222,16 +247,16 @@ const appV2 = {
 
     async submitStock() {
         const inputs = document.querySelectorAll('.st-inp-v2');
-        const db = firebase.firestore();
-        const batch = db.batch();
+        const batch = window.firebase.firestore.writeBatch(this.db);
         let count = 0;
         inputs.forEach(inp => {
             if (inp.value !== "") {
                 const pid = inp.dataset.pid, actual = parseFloat(inp.value), sys = parseFloat(inp.dataset.sys);
                 if (actual !== sys) {
-                    const ref = db.collection('products').doc(pid);
+                    const ref = window.firebase.firestore.doc(this.db, 'products', pid);
                     batch.update(ref, { currentStock: actual });
-                    batch.set(db.collection('transactions').doc(), {
+                    const tCol = window.firebase.firestore.collection(this.db, 'transactions');
+                    batch.set(window.firebase.firestore.doc(tCol), {
                         date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: actual - sys, party: 'جرد دوري'
                     });
                     count++;
@@ -244,7 +269,10 @@ const appV2 = {
                 alert("تم الترحيل");
                 inputs.forEach(i => i.value = '');
                 this.renderStock();
-            } catch (e) { alert(e.message); }
+            } catch (e) { 
+                console.error('submitStock error:', e);
+                alert(e.message); 
+            }
         } else alert("لا توجد تغييرات");
     },
 
@@ -253,32 +281,37 @@ const appV2 = {
         if (!tbody) return;
         
         try {
-            firebase.firestore().collection('transactions')
-                .orderBy('date', 'desc')
-                .limit(50)
-                .onSnapshot((snap) => {
-                    tbody.innerHTML = '';
-                    if (snap.empty) {
-                        tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
-                        return;
-                    }
-                    snap.forEach(doc => {
-                        const d = doc.data();
-                        const date = d.date ? new Date(d.date.seconds * 1000).toLocaleDateString('ar-EG') : '-';
-                        const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : 'تسوية');
-                        const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
-                        const row = document.createElement('tr');
-                        row.className = "hover:bg-gray-50 border-b";
-                        row.innerHTML = `
-                            <td class="p-3 text-gray-500 dir-ltr font-mono text-[10px]">${date}</td>
-                            <td class="p-3 text-[10px] font-bold ${color}">${type}</td>
-                            <td class="p-3 font-bold text-gray-700">${d.prodName || '-'}</td>
-                            <td class="p-3 font-mono dir-ltr font-bold text-xs">${d.qty}</td>
-                            <td class="p-3 text-xs text-gray-500">${d.party || '-'}</td>
-                        `;
-                        tbody.appendChild(row);
-                    });
-                }, err => console.log('V2 loadLogs error:', err));
+            const tCol = window.firebase.firestore.collection(this.db, 'transactions');
+            const q = window.firebase.firestore.query(
+                tCol,
+                window.firebase.firestore.orderBy('date', 'desc'),
+                window.firebase.firestore.limit(50)
+            );
+            
+            const unsubscribe = window.firebase.firestore.onSnapshot(q, (snap) => {
+                tbody.innerHTML = '';
+                if (snap.empty) {
+                    tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
+                    return;
+                }
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const dateObj = d.date?.toDate?.() || new Date(d.date);
+                    const date = dateObj.toLocaleDateString('ar-EG');
+                    const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : 'تسوية');
+                    const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
+                    const row = document.createElement('tr');
+                    row.className = "hover:bg-gray-50 border-b";
+                    row.innerHTML = `
+                        <td class="p-3 text-gray-500 dir-ltr font-mono text-[10px]">${date}</td>
+                        <td class="p-3 text-[10px] font-bold ${color}">${type}</td>
+                        <td class="p-3 font-bold text-gray-700">${d.prodName || '-'}</td>
+                        <td class="p-3 font-mono dir-ltr font-bold text-xs">${d.qty}</td>
+                        <td class="p-3 text-xs text-gray-500">${d.party || '-'}</td>
+                    `;
+                    tbody.appendChild(row);
+                });
+            }, err => console.error('V2 loadLogs error:', err));
         } catch (err) {
             console.error('V2 loadLogs exception:', err);
         }
@@ -294,6 +327,7 @@ const appV2 = {
         if (nav) nav.classList.add('active');
         
         if (id === 'stocktake') this.renderStock();
+        if (id === 'movements') this.updateDropdowns();
     },
     
     toggleModal(id) {
@@ -331,7 +365,7 @@ const appV2 = {
         }
         
         const sup = document.getElementById('supplierSelect-v2');
-        if (sup && sup.children.length === 0) {
+        if (sup && sup.children.length === 1) {
             ["مزارع الوادي", "مورد الملح", "شركة التغليف"].forEach(s => {
                 const opt = document.createElement('option');
                 opt.textContent = s;
@@ -357,7 +391,7 @@ const appV2 = {
 
 // Initialize when Firebase is ready
 function initV2() {
-    if (window.db && window.auth) {
+    if (window.db && window.auth && window.firebase) {
         console.log('🚀 Initializing Stock Control V2...');
         appV2.init();
     } else {
