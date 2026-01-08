@@ -341,7 +341,7 @@
             },
 
             startListeners() {
-                const ref = collection(db, 'artifacts', appId, 'public', 'data', 'products');
+                const ref = collection(db, 'products');
                 onSnapshot(ref, (snapshot) => {
                     products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                     products.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
@@ -365,7 +365,7 @@
                 const cat = document.getElementById('newProdCat').value;
                 const unit = document.getElementById('newProdUnit').value;
                 try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'products'), {
+                    await addDoc(collection(db, 'products'), {
                         name, category: cat, unit, currentStock: 0, avgCost: 0, createdAt: serverTimestamp()
                     });
                     alert("تمت الإضافة"); this.toggleModal('productModal'); e.target.reset();
@@ -410,7 +410,7 @@
 
                 try {
                     await runTransaction(db, async (t) => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'products', pid);
+                        const ref = doc(db, 'products', pid);
                         const s = await t.get(ref);
                         if (!s.exists()) throw "Error";
                         const p = s.data();
@@ -425,7 +425,7 @@
                             ns -= qty; party = document.getElementById('destSelect').value;
                         }
                         t.update(ref, { currentStock: ns, avgCost: nc });
-                        t.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions')), {
+                        t.set(doc(collection(db, 'transactions')), {
                             date: serverTimestamp(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
                         });
                     });
@@ -477,8 +477,8 @@
                     if (inp.value !== "") {
                         const pid = inp.dataset.pid, actual = parseFloat(inp.value), sys = parseFloat(inp.dataset.sys);
                         if (actual !== sys) {
-                            batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'products', pid), { currentStock: actual });
-                            batch.set(doc(collection(db, 'artifacts', appId, 'public', 'data', 'transactions')), {
+                            batch.update(doc(db, 'products', pid), { currentStock: actual });
+                            batch.set(doc(collection(db, 'transactions')), {
                                 date: serverTimestamp(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: actual - sys, party: 'جرد دوري'
                             });
                             count++;
@@ -492,7 +492,7 @@
 
             loadLogs() {
                 const tbody = document.getElementById('logsBody');
-                const q = query(collection(db, 'artifacts', appId, 'public', 'data', 'transactions'), orderBy('date', 'desc'), limit(50));
+                const q = query(collection(db, 'transactions'), orderBy('date', 'desc'), limit(50));
                 onSnapshot(q, (snap) => {
                     tbody.innerHTML = '';
                     if (snap.empty) { tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>'; return; }
