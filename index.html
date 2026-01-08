@@ -1046,6 +1046,20 @@
         .ghost-zero::before { content:'0'; opacity:0.35; }
     </style>
     <style>
+        /* Stock Control V2 Styles */
+        .section-view-v2 { display: none; animation: fadeIn 0.3s ease-out; }
+        .section-view-v2.active { display: block; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .nav-item-v2 { cursor: pointer; transition: all 0.2s; border-bottom: 3px solid transparent; color: #64748b; }
+        .nav-item-v2:hover { background-color: #f1f5f9; }
+        .nav-item-v2.active { color: #2563eb; background-color: #fff; border-bottom-color: #2563eb; }
+
+        .badge { font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: bold; display: flex; align-items: center; gap: 4px; }
+        .badge.online { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
+        .badge.offline { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    </style>
+    <style>
         /* Hide accidental visible code blocks that may appear at top of page */
         body > pre, body > code, .top-debug-text { display: none !important; }
     </style>
@@ -4447,10 +4461,9 @@
     <script src="js/inline-scripts.js?v=10" charset="UTF-8"></script>
 
     <!-- Stock Control V2 Logic -->
-    <script>
-        // V2 CSS Styling
-        const style = document.createElement('style');
-        style.textContent = `
+    <script src="js/stock-control-v2.js?v=1" charset="UTF-8"></script>
+
+
             .section-view-v2 { display: none; animation: fadeIn 0.3s ease-out; }
             .section-view-v2.active { display: block; }
             @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
