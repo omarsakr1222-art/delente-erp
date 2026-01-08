@@ -120,9 +120,9 @@
             // Wait for images
             await new Promise(resolve => setTimeout(resolve, 100));
             
-            // استخدام scale: 1.5 للجودة الأفضل مع سرعة عالية
+            // استخدام scale: 1 للسرعة الفورية
             const canvas = await html2canvas(el, { 
-                scale: 1.5,
+                scale: 1,
                 useCORS: true,
                 backgroundColor: '#ffffff',
                 scrollY: 0,
@@ -489,10 +489,15 @@
         const finalTotal = sale.total || 0;
         
         return `
-            <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000;">
-                <!-- Logo Image -->
-                <div style="margin-bottom: 10px;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 140px; width: auto; display: inline-block;" crossorigin="anonymous">
+            <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000; position: relative;">
+                <!-- Logo as Watermark -->
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.15; z-index: 0;">
+                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 200px; width: auto;" crossorigin="anonymous">
+                </div>
+                
+                <!-- Small Logo at Top -->
+                <div style="margin-bottom: 10px; position: relative; z-index: 1;">
+                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 80px; width: auto; display: inline-block;" crossorigin="anonymous">
                 </div>
                 
                 <!-- Company Name -->
