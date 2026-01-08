@@ -46,11 +46,25 @@ const appV2 = {
                 const categories = [...new Set(this.products.map(p => p.category))];
                 console.log('📦 Categories found:', categories);
                 
+                // Log sample products to debug
+                console.log('📝 Sample products:', this.products.slice(0, 3).map(p => ({
+                    name: p.name,
+                    category: p.category,
+                    hasCategory: 'category' in p,
+                    allFields: Object.keys(p)
+                })));
+                
                 // Log category breakdown
                 categories.forEach(cat => {
                     const count = this.products.filter(p => p.category === cat).length;
                     console.log(`  - ${cat}: ${count} products`);
                 });
+                
+                // Count products without category
+                const noCat = this.products.filter(p => !p.category).length;
+                if (noCat > 0) {
+                    console.warn(`⚠️ ${noCat} products have no category field!`);
+                }
                 
                 const empty = document.getElementById('emptyState-v2');
                 const table = document.getElementById('tableContainer-v2');
