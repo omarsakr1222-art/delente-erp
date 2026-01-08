@@ -42,8 +42,7 @@ const appV2 = {
                 this.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
                 this.products.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
                 
-                console.log('✅ V2 Products loaded:', this.products.length);
-                
+                console.log('✅ V2 Products loaded:', this.products.length);                console.log('Categories found:', [...new Set(this.products.map(p => p.category))]);                
                 const empty = document.getElementById('emptyState-v2');
                 const table = document.getElementById('tableContainer-v2');
                 
