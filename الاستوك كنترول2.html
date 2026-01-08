@@ -300,8 +300,8 @@
         import { getFirestore, collection, doc, addDoc, updateDoc, runTransaction, writeBatch, onSnapshot, serverTimestamp, query, orderBy, limit } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
         import { getAuth, signInAnonymously, onAuthStateChanged, signInWithCustomToken } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
 
-        // Config - Auto Injected
-        const appId = window.__app_id || 'dairy-stock-v2';
+        // Config - Auto Injected from parent app
+        const appId = window.__app_id || window.state?.appId || '1:646706509650:web:1eaa4b94d2990b6be9ac8b';
         let db, auth, products = [];
 
         window.app = {
