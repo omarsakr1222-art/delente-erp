@@ -1,4 +1,4 @@
-// debug: avoid blocking alerts during load
+﻿// debug: avoid blocking alerts during load
 console.log('??? ????? ?????');
 
 let observer;
@@ -2056,8 +2056,10 @@ document.addEventListener('DOMContentLoaded', function(){
             const multiSel = document.getElementById('inq-customers');
             if (!multiSel) return;
             const selected = new Set(Array.from(multiSel.selectedOptions).map(o=>o.value));
+            const deletedRegex2 = new RegExp("\u0645\u062D\u0630\u0648\u0641", "i");
+            const archivedRegex2 = new RegExp("(\u0623\u0631\u0634\u064A\u0641|\u0645\u0624\u0631\u0634\u0641)", "i");
             multiSel.innerHTML = (state.customers||[])
-                .filter(c => !/??????/.test(c.name||'') || !/(??????|??????)/.test(c.name||''))
+                .filter(c => !deletedRegex2.test(c.name||'') && !archivedRegex2.test(c.name||''))
                 .filter(c => !term || (c.name||'').includes(term))
                 .map(c => `<option value="${c.id||c._id}" ${selected.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`)
                 .join('');
@@ -8283,7 +8285,7 @@ function generateCustomerTargetsReport(){
     const customers = (state.customers||[]).filter(c => {
         const nm = (c.name||'');
         const include = nameKeys.some(k => nm.includes(k));
-        const isExcluded = /??????/.test(nm) && /(??????|??????)/.test(nm);
+        const isExcluded = /\\u0645\\u062D\\u0630\\u0648\\u0641/.test(nm) && /(\u0623\u0631\u0634\u064A\u0641|\u0645\u0624\u0631\u0634\u0641)/.test(nm);
         return include && !isExcluded;
     });
     if (customers.length === 0){ out.innerHTML = '<p class="text-center text-gray-500">?? ???? ????? ???????.</p>'; return; }
