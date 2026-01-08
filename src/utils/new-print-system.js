@@ -120,11 +120,13 @@
             // Wait for images
             await new Promise(resolve => setTimeout(resolve, 100));
             
-            // استخدام scale: 1 للحفاظ على سرعة المعالجة
+            // استخدام scale: 1.5 للجودة الأفضل مع سرعة عالية
             const canvas = await html2canvas(el, { 
-                scale: 1,
+                scale: 1.5,
                 useCORS: true,
-                backgroundColor: '#ffffff'
+                backgroundColor: '#ffffff',
+                scrollY: 0,
+                windowWidth: document.body.scrollWidth
             });
 
             document.body.removeChild(tempDiv);
@@ -179,8 +181,12 @@
                     const px = x * 8 + bit;
                     if (px < w) {
                         const i = (y * w + px) * 4;
-                        // عتبة اللون الأسود (أي لون غامق يعتبر أسود)
-                        if ((imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3 < 200) {
+                        const alpha = imgData.data[i + 3];
+                        const r = imgData.data[i];
+                        const g = imgData.data[i + 1];
+                        const b = imgData.data[i + 2];
+                        // عتبة محسّنة لضمان طباعة النصوص بوضوح
+                        if (alpha > 128 && (r + g + b) / 3 < 240) {
                             byte |= (1 << (7 - bit));
                         }
                     }
@@ -469,7 +475,7 @@
                 
                 itemsHTML += `
                     <tr style="border-bottom: 1px dotted #ccc;">
-                        <td style="padding: 8px; text-align: right; font-weight: bold;">${total.toFixed(2)}</td>
+                        <td style="padding: 8px; text-align: left; font-weight: bold;">${total.toFixed(2)}</td>
                         <td style="padding: 8px; text-align: center;">${quantity}</td>
                         <td style="padding: 8px; text-align: center;">${price.toFixed(2)}</td>
                         <td style="padding: 8px; text-align: right;">${productName}</td>
@@ -486,7 +492,7 @@
             <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000;">
                 <!-- Logo Image -->
                 <div style="margin-bottom: 10px;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 100px; width: auto; display: inline-block;" crossorigin="anonymous">
+                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 140px; width: auto; display: inline-block;" crossorigin="anonymous">
                 </div>
                 
                 <!-- Company Name -->
@@ -521,7 +527,7 @@
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
                 <thead>
                     <tr style="background: #f5f5f5; border-bottom: 2px solid #000;">
-                        <th style="padding: 10px; text-align: right; font-weight: bold;">إجمالي</th>
+                        <th style="padding: 10px; text-align: left; font-weight: bold;">إجمالي</th>
                         <th style="padding: 10px; text-align: center; font-weight: bold;">ع</th>
                         <th style="padding: 10px; text-align: center; font-weight: bold;">سعر</th>
                         <th style="padding: 10px; text-align: right; font-weight: bold;">الصنف</th>
