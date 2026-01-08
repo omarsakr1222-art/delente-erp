@@ -118,7 +118,7 @@
             const el = tempDiv.querySelector('#temp-invoice-box');
             
             // Wait for images
-            await new Promise(resolve => setTimeout(resolve, 100));
+            await new Promise(resolve => setTimeout(resolve, 50));
             
             // استخدام scale: 1 للسرعة الفورية
             const canvas = await html2canvas(el, { 
@@ -475,10 +475,10 @@
                 
                 itemsHTML += `
                     <tr style="border-bottom: 1px dotted #ccc;">
-                        <td style="padding: 8px; text-align: left; font-weight: bold;">${total.toFixed(2)}</td>
-                        <td style="padding: 8px; text-align: center;">${quantity}</td>
+                        <td style="padding: 8px; text-align: left;">${productName}</td>
                         <td style="padding: 8px; text-align: center;">${price.toFixed(2)}</td>
-                        <td style="padding: 8px; text-align: right;">${productName}</td>
+                        <td style="padding: 8px; text-align: center;">${quantity}</td>
+                        <td style="padding: 8px; text-align: right; font-weight: bold;">${total.toFixed(2)}</td>
                     </tr>
                 `;
             });
@@ -532,10 +532,10 @@
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
                 <thead>
                     <tr style="background: #f5f5f5; border-bottom: 2px solid #000;">
-                        <th style="padding: 10px; text-align: left; font-weight: bold;">إجمالي</th>
-                        <th style="padding: 10px; text-align: center; font-weight: bold;">ع</th>
+                        <th style="padding: 10px; text-align: left; font-weight: bold;">الصنف</th>
                         <th style="padding: 10px; text-align: center; font-weight: bold;">سعر</th>
-                        <th style="padding: 10px; text-align: right; font-weight: bold;">الصنف</th>
+                        <th style="padding: 10px; text-align: center; font-weight: bold;">ع</th>
+                        <th style="padding: 10px; text-align: right; font-weight: bold;">إجمالي</th>
                     </tr>
                 </thead>
                 <tbody>
