@@ -1934,8 +1934,11 @@ function initInquiryDropdown(){
         const options = [];
         
         // Add customers
+        // تصفية العملاء: استبعاد "محذوف" أو "أرشيف|مؤرشف"
+        const deletedRegex = /\u0645\u062D\u0630\u0648\u0641/; // محذوف
+        const archivedRegex = /(\u0623\u0631\u0634\u064A\u0641|\u0645\u0624\u0631\u0634\u0641)/; // أرشيف|مؤرشف
         (state.customers||[])
-            .filter(c => !/??????/.test(c.name||'') || !/(??????|??????)/.test(c.name||''))
+            .filter(c => !deletedRegex.test(c.name||'') && !archivedRegex.test(c.name||''))
             .forEach(c => {
                 options.push(`<option value="${c.id||c._id}" ${previous.has(c.id||c._id)?'selected':''}>${escapeHtml(c.name||'')}</option>`);
             });
