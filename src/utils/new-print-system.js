@@ -489,34 +489,38 @@
         const finalTotal = sale.total || 0;
         
         return `
-            <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000; position: relative;">
-                <!-- Logo as Watermark -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.15; z-index: 0;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 200px; width: auto;" crossorigin="anonymous">
+            <div style="position: relative; padding: 20px 10px; min-height: 600px;">
+                <!-- Main Watermark in Center -->
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.12; z-index: 0; pointer-events: none;">
+                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 350px; width: auto;" crossorigin="anonymous">
                 </div>
                 
-                <!-- Small Logo at Top -->
-                <div style="margin-bottom: 10px; position: relative; z-index: 1;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 80px; width: auto; display: inline-block;" crossorigin="anonymous">
-                </div>
-                
-                <!-- Company Name -->
-                <div style="font-size: 32px; font-weight: bold; margin-bottom: 8px; color: #1f2937; letter-spacing: 2px;">
-                    DELENTE
-                </div>
-                
-                <!-- Slogan -->
-                <div style="font-size: 16px; color: #4F46E5; margin-bottom: 12px; font-weight: 600;">
-                    ..IT'S JUST MILK
-                </div>
-                
-                <!-- Company Info -->
-                <div style="font-size: 13px; color: #6b7280; line-height: 1.6;">
-                    <div>📍 بنـــها، القليوبية، مصر</div>
-                    <div>📞 ت: 12345 | 📱 م: 01000000000</div>
-                    <div>🏛️ س.ت: 98765 | 🆔 ض.ق: 987654321</div>
-                </div>
-            </div>
+                <!-- Content Wrapper -->
+                <div style="position: relative; z-index: 1;">
+                    <!-- Header -->
+                    <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000;">
+                        <!-- Small Logo at Top -->
+                        <div style="margin-bottom: 10px;">
+                            <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 80px; width: auto; display: inline-block;" crossorigin="anonymous">
+                        </div>
+                        
+                        <!-- Company Name -->
+                        <div style="font-size: 32px; font-weight: bold; margin-bottom: 8px; color: #1f2937; letter-spacing: 2px;">
+                            DELENTE
+                        </div>
+                        
+                        <!-- Slogan -->
+                        <div style="font-size: 16px; color: #4F46E5; margin-bottom: 12px; font-weight: 600;">
+                            ..IT'S JUST MILK
+                        </div>
+                        
+                        <!-- Company Info -->
+                        <div style="font-size: 13px; color: #6b7280; line-height: 1.6;">
+                            <div>📍 بنـــها، القليوبية، مصر</div>
+                            <div>📞 ت: 12345 | 📱 م: 01000000000</div>
+                            <div>🏛️ س.ت: 98765 | 🆔 ض.ق: 987654321</div>
+                        </div>
+                    </div>
             
             <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 15px 0;">
                 <div style="display: flex; justify-content: space-between; font-size: 14px;">
@@ -565,6 +569,8 @@
             <div style="text-align: center; margin-top: 20px; padding-top: 15px; border-top: 1px dashed #ccc;">
                 <div style="font-size: 12px; color: #666;">خدمة العملاء: 01000000000</div>
                 <div style="font-size: 11px; color: #888; margin-top: 5px;">DELENTE - FRESH & NATURAL</div>
+            </div>
+                </div>
             </div>
         `;
     }
