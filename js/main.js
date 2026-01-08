@@ -9212,7 +9212,7 @@ async function saveRawMaterialFromStock(e) {
     try {
         // Add to state.products
         if (!state.products) state.products = [];
-        const chocoReRaw = /chocolate|????????|????????/i;
+        const chocoReRaw = new RegExp("chocolate|\u0634\u0648\u0643\u0648\u0644\u0627\u062A\u0629|\u0634\u064A\u0643\u0648\u0644\u0627\u062A\u0647", "i");
         const vatRateRaw = chocoReRaw.test(name) ? 14 : 0;
         // check tax invoice checkbox
         const taxInvoiceEl = document.getElementById('raw-material-is_tax_invoice');
