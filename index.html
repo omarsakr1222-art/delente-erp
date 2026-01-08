@@ -2866,6 +2866,15 @@
                             </button>
                         </div>
                         <p class="text-xs text-gray-500 mb-4">حدد الفئة المناسبة لكل منتج</p>
+                        <div class="mb-3 p-3 bg-blue-50 border border-blue-200 rounded flex items-center justify-between">
+                            <div>
+                                <p class="text-xs font-bold text-blue-800">استيراد من النظام القديم</p>
+                                <p class="text-[10px] text-blue-600">سيتم جلب الخامات والتغليف من localStorage</p>
+                            </div>
+                            <button onclick="appV2.importFromOldSystem()" class="bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold hover:bg-blue-700">
+                                <i class="fas fa-download"></i> استيراد
+                            </button>
+                        </div>
                         <div id="categoryList-v2" class="space-y-2"></div>
                         <div class="flex justify-end gap-2 mt-5 pt-3 border-t">
                             <button onclick="appV2.toggleModal('categoryModal-v2')" class="text-gray-500 text-sm font-bold px-3 py-2 hover:bg-gray-100 rounded">إغلاق</button>
