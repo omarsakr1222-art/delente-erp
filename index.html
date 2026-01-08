@@ -2671,17 +2671,17 @@
                     
                     <!-- Navigation Tabs -->
                     <nav class="flex justify-around bg-white pt-1 shadow-sm border-t border-gray-100">
-                        <button onclick="appV2.nav('products')" id="nav-products-v2" class="nav-item-v2 active flex-1 py-3 flex flex-col items-center gap-1">
-                            <i class="fas fa-boxes-stacked text-lg"></i> <span class="text-[10px] font-bold">الأصناف</span>
+                        <button onclick="appV2.nav('products')" id="nav-products-v2" class="nav-item-v2 active flex-1 py-4 flex flex-col items-center gap-1 hover:bg-gray-50 transition">
+                            <i class="fas fa-boxes-stacked text-xl text-blue-600"></i> <span class="text-xs font-bold text-gray-700">الأصناف</span>
                         </button>
-                        <button onclick="appV2.nav('movements')" id="nav-movements-v2" class="nav-item-v2 flex-1 py-3 flex flex-col items-center gap-1">
-                            <i class="fas fa-exchange-alt text-lg"></i> <span class="text-[10px] font-bold">الحركة</span>
+                        <button onclick="appV2.nav('movements')" id="nav-movements-v2" class="nav-item-v2 flex-1 py-4 flex flex-col items-center gap-1 hover:bg-gray-50 transition">
+                            <i class="fas fa-exchange-alt text-xl text-gray-400"></i> <span class="text-xs font-bold text-gray-700">الحركة</span>
                         </button>
-                        <button onclick="appV2.nav('stocktake')" id="nav-stocktake-v2" class="nav-item-v2 flex-1 py-3 flex flex-col items-center gap-1">
-                            <i class="fas fa-clipboard-check text-lg"></i> <span class="text-[10px] font-bold">الجرد</span>
+                        <button onclick="appV2.nav('stocktake')" id="nav-stocktake-v2" class="nav-item-v2 flex-1 py-4 flex flex-col items-center gap-1 hover:bg-gray-50 transition">
+                            <i class="fas fa-clipboard-check text-xl text-gray-400"></i> <span class="text-xs font-bold text-gray-700">الجرد</span>
                         </button>
-                        <button onclick="appV2.nav('reports')" id="nav-reports-v2" class="nav-item-v2 flex-1 py-3 flex flex-col items-center gap-1">
-                            <i class="fas fa-history text-lg"></i> <span class="text-[10px] font-bold">السجلات</span>
+                        <button onclick="appV2.nav('reports')" id="nav-reports-v2" class="nav-item-v2 flex-1 py-4 flex flex-col items-center gap-1 hover:bg-gray-50 transition">
+                            <i class="fas fa-history text-xl text-gray-400"></i> <span class="text-xs font-bold text-gray-700">السجلات</span>
                         </button>
                     </nav>
                 </header>
@@ -2692,11 +2692,11 @@
                     <!-- 1. Products View -->
                     <section id="view-products-v2" class="section-view-v2 active">
                         <div class="flex justify-between items-center mb-4">
-                            <div class="flex gap-2 overflow-x-auto no-scrollbar pb-1">
-                                <button onclick="appV2.filterProd('all')" class="filter-chip-v2 active bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold shadow">الكل</button>
-                                <button onclick="appV2.filterProd('raw_material')" class="filter-chip-v2 bg-white border text-gray-600 px-3 py-1 rounded text-xs font-bold">خامات</button>
-                                <button onclick="appV2.filterProd('packaging')" class="filter-chip-v2 bg-white border text-gray-600 px-3 py-1 rounded text-xs font-bold">تغليف</button>
-                                <button onclick="appV2.filterProd('finished_goods')" class="filter-chip-v2 bg-white border text-gray-600 px-3 py-1 rounded text-xs font-bold">تام</button>
+                            <div class="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+                                <button onclick="appV2.filterProd('all')" class="filter-chip-v2 active bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700 transition">الكل</button>
+                                <button onclick="appV2.filterProd('raw_material')" class="filter-chip-v2 bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-200 transition">خامات</button>
+                                <button onclick="appV2.filterProd('packaging')" class="filter-chip-v2 bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-200 transition">تغليف</button>
+                                <button onclick="appV2.filterProd('finished_goods')" class="filter-chip-v2 bg-gray-100 border border-gray-300 text-gray-700 px-4 py-2 rounded-lg text-sm font-bold hover:bg-gray-200 transition">تام</button>
                             </div>
                             <div class="flex gap-1">
                                 <button onclick="appV2.toggleModal('productModal-v2')" class="bg-gray-800 text-white px-4 py-2 rounded-lg flex items-center justify-center hover:bg-black transition shadow text-sm font-bold">
