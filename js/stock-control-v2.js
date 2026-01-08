@@ -132,7 +132,12 @@ const appV2 = {
         if (!tbody) return;
         tbody.innerHTML = '';
         const filter = this.currentProdFilter || 'all';
-        const list = this.products.filter(p => filter === 'all' || p.category === filter);
+        
+        // Handle products without category - show them only in "all"
+        const list = this.products.filter(p => {
+            if (filter === 'all') return true;
+            return p.category === filter;
+        });
         
         console.log(`🔍 Filtering by "${filter}": found ${list.length} products`);
         
@@ -144,9 +149,10 @@ const appV2 = {
         list.forEach(p => {
             const row = document.createElement('tr');
             row.className = "hover:bg-blue-50 border-b last:border-0";
+            const catName = p.category ? this.getCatName(p.category) : '<span class="text-red-400">غير مصنف</span>';
             row.innerHTML = `
-                <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${this.getCatName(p.category)}</span></td>
-                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(p.currentStock)} ${p.unit}</td>
+                <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
+                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(p.currentStock)} ${p.unit || ''}</td>
                 <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
             `;
             tbody.appendChild(row);
@@ -234,12 +240,14 @@ const appV2 = {
         if (!tbody) return;
         tbody.innerHTML = '';
         const cat = this.stockCategory || 'finished_goods';
+        
+        // Filter by category
         const filtered = this.products.filter(p => p.category === cat);
         
         console.log(`📦 Stocktake filter "${cat}": found ${filtered.length} products`);
         
         if (filtered.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
+            tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة<br><small class="text-red-400">يرجى تصنيف المنتجات أولاً</small></td></tr>';
             return;
         }
         
@@ -357,7 +365,73 @@ const appV2 = {
     
     toggleModal(id) {
         const modal = document.getElementById(id);
-        if (modal) modal.classList.toggle('hidden');
+        if (modal) {
+            modal.classList.toggle('hidden');
+            // Load category list when opening category modal
+            if (id === 'categoryModal-v2' && !modal.classList.contains('hidden')) {
+                this.loadCategoryList();
+            }
+        }
+    },
+    
+    loadCategoryList() {
+        const container = document.getElementById('categoryList-v2');
+        if (!container) return;
+        container.innerHTML = '';
+        
+        // Get products without category
+        const uncategorized = this.products.filter(p => !p.category || p.category === '');
+        
+        if (uncategorized.length === 0) {
+            container.innerHTML = '<div class="text-center text-gray-400 py-6 text-sm">✅ جميع المنتجات مصنفة</div>';
+            return;
+        }
+        
+        uncategorized.forEach(p => {
+            const row = document.createElement('div');
+            row.className = 'flex items-center justify-between p-2 border rounded hover:bg-gray-50';
+            row.innerHTML = `
+                <span class="text-sm font-bold text-gray-700">${p.name}</span>
+                <select class="border rounded px-2 py-1 text-xs category-select" data-pid="${p.id}">
+                    <option value="">اختر الفئة</option>
+                    <option value="raw_material">خامات</option>
+                    <option value="packaging">تغليف</option>
+                    <option value="finished_goods">منتج تام</option>
+                </select>
+            `;
+            container.appendChild(row);
+        });
+    },
+    
+    async saveBulkCategories() {
+        const selects = document.querySelectorAll('.category-select');
+        const batch = this.db.batch();
+        let count = 0;
+        
+        selects.forEach(select => {
+            if (select.value) {
+                const pid = select.dataset.pid;
+                const ref = this.db.collection('products').doc(pid);
+                batch.update(ref, { category: select.value });
+                count++;
+            }
+        });
+        
+        if (count === 0) {
+            alert('لم يتم اختيار أي فئة');
+            return;
+        }
+        
+        if (confirm(`هل تريد حفظ تصنيف ${count} منتج؟`)) {
+            try {
+                await batch.commit();
+                alert('✅ تم حفظ التصنيفات');
+                this.toggleModal('categoryModal-v2');
+            } catch (err) {
+                console.error('saveBulkCategories error:', err);
+                alert('خطأ: ' + err.message);
+            }
+        }
     },
     
     toggleTrans() {
