@@ -307,14 +307,23 @@
         window.app = {
             async init() {
                 try {
-                    const config = JSON.parse(window.__firebase_config || '{}');
-                    const app = initializeApp(config);
-                    db = getFirestore(app);
-                    auth = getAuth(app);
-
-                    const token = window.__initial_auth_token;
-                    if (token) await signInWithCustomToken(auth, token);
-                    else await signInAnonymously(auth);
+                    // Use parent app's Firebase instance if available
+                    if (window.db && window.auth) {
+                        db = window.db;
+                        auth = window.auth;
+                        console.log('✅ Using parent app Firebase instance');
+                    } else {
+                        // Fallback to independent initialization
+                        const config = JSON.parse(window.__firebase_config || '{}');
+                        const app = initializeApp(config);
+                        db = getFirestore(app);
+                        auth = getAuth(app);
+                        
+                        const token = window.__initial_auth_token;
+                        if (token) await signInWithCustomToken(auth, token);
+                        else await signInAnonymously(auth);
+                        console.log('⚠️ Using independent Firebase instance');
+                    }
 
                     onAuthStateChanged(auth, user => {
                         const badge = document.getElementById('connectionStatus');
