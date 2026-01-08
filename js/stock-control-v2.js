@@ -434,7 +434,6 @@ const appV2 = {
         }
     },
     
-    async importFromOldSystem() {
     async importFromOldSystem(section) {
         let sectionName = '';
         if (section === 'raw_material') sectionName = 'الخامات';
@@ -563,6 +562,7 @@ function initV2() {
 }
 
 // Start initialization
+window.appV2 = appV2;
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initV2, 1000));
 } else {
