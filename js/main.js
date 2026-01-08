@@ -9144,7 +9144,7 @@ async function saveFinishedProductFromStock(e) {
     try {
         // Add to state.products
         if (!state.products) state.products = [];
-        const chocoRe = /chocolate|????????|????????/i;
+        const chocoRe = new RegExp("chocolate|\u0634\u0648\u0643\u0648\u0644\u0627\u062A\u0629|\u0634\u064A\u0643\u0648\u0644\u0627\u062A\u0647", "i");
         const vatRate = chocoRe.test(name) ? 14 : 0;
         state.products.push({
             id: code,
