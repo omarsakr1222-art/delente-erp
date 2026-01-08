@@ -182,34 +182,49 @@ const appV2 = {
         }
 
         try {
-            await this.db.runTransaction(async (t) => {
-                const ref = this.db.collection('products').doc(pid);
-                const s = await t.get(ref);
-                if (!s.exists) throw "Product not found";
-                const p = s.data();
-                let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
+            // استخدام batch بدلاً من transaction لتجنب الـ retry التلقائي الذي يسبب 429
+            const batch = this.db.batch();
+            const ref = this.db.collection('products').doc(pid);
+            
+            // قراءة المنتج أولاً (خارج batch)
+            const s = await ref.get();
+            if (!s.exists) throw "Product not found";
+            const p = s.data();
+            let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
 
-                if (type === 'inbound') {
-                    const ov = ns * nc, nv = qty * price;
-                    ns += qty;
-                    if (ns > 0) nc = (ov + nv) / ns;
-                    party = document.getElementById('supplierSelect-v2')?.value || "";
-                } else {
-                    if (ns < qty) throw "الرصيد لا يكفي";
-                    ns -= qty;
-                    party = document.getElementById('destSelect-v2')?.value || "";
-                }
-                t.update(ref, { currentStock: ns, avgCost: nc });
-                t.set(this.db.collection('transactions').doc(), {
-                    date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
-                });
+            if (type === 'inbound') {
+                const ov = ns * nc, nv = qty * price;
+                ns += qty;
+                if (ns > 0) nc = (ov + nv) / ns;
+                party = document.getElementById('supplierSelect-v2')?.value || "";
+            } else {
+                if (ns < qty) throw "الرصيد لا يكفي";
+                ns -= qty;
+                party = document.getElementById('destSelect-v2')?.value || "";
+            }
+            
+            // تحديث المنتج
+            batch.update(ref, { currentStock: ns, avgCost: nc });
+            
+            // إضافة المعاملة
+            const transRef = this.db.collection('transactions').doc();
+            batch.set(transRef, {
+                date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
             });
+            
+            // تنفيذ batch
+            await batch.commit();
+            
             alert("تم الحفظ");
             e.target.reset();
             this.toggleTrans();
         } catch (err) { 
             console.error('saveTrans error:', err);
-            alert("خطأ: " + err); 
+            if (err.code === 'resource-exhausted') {
+                alert("تم تجاوز حد الطلبات. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.");
+            } else {
+                alert("خطأ: " + err.message || err); 
+            }
         } 
         finally {
             if (btn) {
