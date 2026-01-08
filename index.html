@@ -2692,11 +2692,17 @@
                     <!-- 1. Products View -->
                     <section id="view-products-v2" class="section-view-v2 active">
                         <div class="flex justify-between items-center mb-4">
-                            <div class="flex gap-3 overflow-x-auto no-scrollbar pb-1">
-                                <button onclick="appV2.filterProd('all')" class="filter-chip-v2 active bg-gradient-to-r from-blue-500 to-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105">الكل</button>
-                                <button onclick="appV2.filterProd('raw_material')" class="filter-chip-v2 bg-gradient-to-r from-green-500 to-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105">خامات</button>
-                                <button onclick="appV2.filterProd('packaging')" class="filter-chip-v2 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105">تغليف</button>
-                                <button onclick="appV2.filterProd('finished_goods')" class="filter-chip-v2 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105">تام</button>
+                            <div class="flex items-center gap-4">
+                                <div class="flex gap-3 overflow-x-auto no-scrollbar pb-1">
+                                    <button onclick="appV2.filterProd('all')" class="filter-chip-v2 active bg-gradient-to-r from-blue-500 to-blue-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-blue-600 hover:to-blue-700 transition-all transform hover:scale-105">الكل</button>
+                                    <button onclick="appV2.filterProd('raw_material')" class="filter-chip-v2 bg-gradient-to-r from-green-500 to-green-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-green-600 hover:to-green-700 transition-all transform hover:scale-105">خامات</button>
+                                    <button onclick="appV2.filterProd('packaging')" class="filter-chip-v2 bg-gradient-to-r from-purple-500 to-purple-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-purple-600 hover:to-purple-700 transition-all transform hover:scale-105">تغليف</button>
+                                    <button onclick="appV2.filterProd('finished_goods')" class="filter-chip-v2 bg-gradient-to-r from-orange-500 to-orange-600 text-white px-5 py-2.5 rounded-xl text-sm font-bold shadow-lg hover:from-orange-600 hover:to-orange-700 transition-all transform hover:scale-105">تام</button>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-xs font-bold text-gray-600">عرض تاريخ:</label>
+                                    <input type="date" id="dateFilter-v2" class="border rounded-lg px-3 py-2 text-sm outline-none focus:border-blue-500" onchange="appV2.filterByDate(this.value)">
+                                </div>
                             </div>
                             <div class="flex gap-1">
                                 <button onclick="appV2.toggleModal('productModal-v2')" class="bg-gradient-to-r from-gray-800 to-black text-white px-5 py-2.5 rounded-xl flex items-center justify-center hover:from-black hover:to-gray-900 transition-all transform hover:scale-105 shadow-lg text-sm font-bold">
@@ -2841,10 +2847,11 @@
                                             <th class="p-3 whitespace-nowrap">الصنف</th>
                                             <th class="p-3 whitespace-nowrap">الكمية</th>
                                             <th class="p-3 whitespace-nowrap">الجهة</th>
+                                            <th class="p-3 whitespace-nowrap">إجراءات</th>
                                         </tr>
                                     </thead>
                                     <tbody id="logsBody-v2" class="divide-y">
-                                        <tr><td colspan="5" class="p-4 text-center text-gray-400">جاري التحميل...</td></tr>
+                                        <tr><td colspan="6" class="p-4 text-center text-gray-400">جاري التحميل...</td></tr>
                                     </tbody>
                                 </table>
                             </div>

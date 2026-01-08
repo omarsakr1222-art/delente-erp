@@ -339,15 +339,24 @@ const appV2 = {
                 .onSnapshot((snap) => {
                     tbody.innerHTML = '';
                     if (snap.empty) {
-                        tbody.innerHTML = '<tr><td colspan="5" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
+                        tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
                         return;
                     }
                     snap.forEach(doc => {
                         const d = doc.data();
                         const dateObj = d.date?.toDate?.() || new Date(d.date);
                         const date = dateObj.toLocaleDateString('ar-EG');
-                        const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : 'تسوية');
+                        const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : (d.type === 'adjustment' ? 'تسوية' : 'إلغاء'));
                         const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
+                        
+                        // إظهار زر الإلغاء فقط للمعاملات الحديثة وغير الملغاة
+                        const canCancel = d.type !== 'cancellation' && d.type !== 'adjustment' && 
+                                        (new Date() - dateObj) < (24 * 60 * 60 * 1000); // أقل من 24 ساعة
+                        const actions = canCancel ? 
+                            `<button onclick="appV2.cancelTransaction('${doc.id}')" class="text-red-500 hover:text-red-700 text-xs" title="إلغاء المعاملة">
+                                <i class="fas fa-times"></i>
+                            </button>` : '-';
+                        
                         const row = document.createElement('tr');
                         row.className = "hover:bg-gray-50 border-b";
                         row.innerHTML = `
@@ -356,6 +365,7 @@ const appV2 = {
                             <td class="p-3 font-bold text-gray-700">${d.prodName || '-'}</td>
                             <td class="p-3 font-mono dir-ltr font-bold text-xs">${d.qty}</td>
                             <td class="p-3 text-xs text-gray-500">${d.party || '-'}</td>
+                            <td class="p-3 text-center">${actions}</td>
                         `;
                         tbody.appendChild(row);
                     });
@@ -562,6 +572,257 @@ const appV2 = {
     },
     formatNum(n) { 
         return parseFloat((n || 0).toFixed(2)); 
+    }
+};
+
+// إضافة دالة للعودة إلى تاريخ معين
+appV2.filterByDate = async function(dateStr) {
+    if (!dateStr) {
+        this.selectedDate = null;
+        this.renderProducts();
+        return;
+    }
+    
+    this.selectedDate = new Date(dateStr + 'T23:59:59');
+    console.log(`📅 Filtering by date: ${this.selectedDate}`);
+    
+    // إعادة حساب الأرصدة حتى التاريخ المحدد
+    await this.calculateHistoricalStock();
+    this.renderProducts();
+};
+
+// حساب الأرصدة التاريخية
+appV2.calculateHistoricalStock = async function() {
+    if (!this.selectedDate) return;
+    
+    const transactions = await this.db.collection('transactions')
+        .where('date', '<=', this.selectedDate)
+        .orderBy('date')
+        .get();
+    
+    // إعادة تعيين الأرصدة
+    this.products.forEach(p => p.historicalStock = 0);
+    
+    transactions.forEach(doc => {
+        const t = doc.data();
+        const prod = this.products.find(p => p.id === t.productId);
+        if (prod) {
+            if (t.type === 'inbound') {
+                prod.historicalStock += t.qty;
+            } else if (t.type === 'outbound' || t.type === 'adjustment') {
+                prod.historicalStock -= t.qty;
+            }
+        }
+    });
+};
+
+// تعديل دالة renderProducts لتدعم التاريخ
+appV2.renderProducts = function() {
+    const tbody = document.getElementById('productsBody-v2');
+    if (!tbody) return;
+    
+    let list = [...this.products];
+    
+    // تطبيق الفلترة بالفئة
+    if (this.currentFilter !== 'all') {
+        list = list.filter(p => p.category === this.currentFilter);
+    }
+    
+    console.log(`🔍 Filtering by "${this.currentFilter}": found ${list.length} products`);
+    
+    if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
+        return;
+    }
+    
+    list.forEach(p => {
+        const stock = this.selectedDate ? (p.historicalStock || 0) : (p.currentStock || 0);
+        const row = document.createElement('tr');
+        row.className = "border-b hover:bg-gray-50";
+        row.innerHTML = `
+            <td class="p-2 text-[11px] font-bold text-gray-700">${p.name}</td>
+            <td class="p-2 text-center text-[10px] text-gray-400 font-mono">${this.formatNum(stock)}</td>
+            <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${stock}"></td>
+            <td class="p-2 text-center text-[10px] font-bold text-gray-300 diff-cell">-</td>
+        `;
+        const inp = row.querySelector('.st-inp-v2');
+        if (inp) {
+            inp.oninput = (e) => this.calcDiff(e.target);
+        }
+        tbody.appendChild(row);
+    });
+    
+    this.updateCounts();
+};
+
+// إضافة تأكيد في saveTrans
+appV2.saveTrans = async function(e) {
+    e.preventDefault();
+    
+    const type = document.querySelector('input[name="mtype-v2"]:checked')?.value;
+    const pid = document.getElementById('prodSelect-v2')?.value;
+    const qty = parseFloat(document.getElementById('qty-v2')?.value);
+    const price = parseFloat(document.getElementById('price-v2')?.value || 0);
+    
+    if (!pid || !qty || qty <= 0) {
+        alert("يرجى ملء جميع البيانات");
+        return;
+    }
+    
+    // تأكيد الحفظ
+    if (!confirm("هل أنت متأكد من حفظ هذه الحركة؟")) {
+        return;
+    }
+    
+    const btn = e.target.querySelector('button[type="submit"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.innerText = "جاري الحفظ...";
+    }
+    
+    try {
+        // استخدام batch بدلاً من transaction لتجنب الـ retry التلقائي الذي يسبب 429
+        const batch = this.db.batch();
+        const ref = this.db.collection('products').doc(pid);
+        
+        // قراءة المنتج أولاً (خارج batch)
+        const s = await ref.get();
+        if (!s.exists) throw "Product not found";
+        const p = s.data();
+        let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
+
+        if (type === 'inbound') {
+            const ov = ns * nc, nv = qty * price;
+            ns += qty;
+            if (ns > 0) nc = (ov + nv) / ns;
+            party = document.getElementById('supplierSelect-v2')?.value || "";
+        } else {
+            if (ns < qty) throw "الرصيد لا يكفي";
+            ns -= qty;
+            party = document.getElementById('destSelect-v2')?.value || "";
+        }
+        
+        // تحديث المنتج
+        batch.update(ref, { currentStock: ns, avgCost: nc });
+        
+        // إضافة المعاملة
+        const transRef = this.db.collection('transactions').doc();
+        batch.set(transRef, {
+            date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
+        });
+        
+        // تنفيذ batch
+        await batch.commit();
+        
+        alert("تم الحفظ بنجاح ✅");
+        e.target.reset();
+        this.toggleTrans();
+    } catch (err) { 
+        console.error('saveTrans error:', err);
+        if (err.code === 'resource-exhausted') {
+            alert("تم تجاوز حد الطلبات. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.");
+        } else {
+            alert("خطأ: " + err.message || err); 
+        }
+    } 
+    finally {
+        if (btn) {
+            btn.disabled = false;
+            btn.innerText = "حفظ الحركة";
+        }
+    }
+};
+
+// إضافة دالة لإلغاء ترحيل
+appV2.cancelTransaction = async function(transId) {
+    if (!confirm("هل أنت متأكد من إلغاء هذه المعاملة؟ سيتم تعديل الرصيد العكسي.")) {
+        return;
+    }
+    
+    try {
+        const transDoc = await this.db.collection('transactions').doc(transId).get();
+        if (!transDoc.exists) throw "المعاملة غير موجودة";
+        
+        const trans = transDoc.data();
+        const prodRef = this.db.collection('products').doc(trans.productId);
+        const prodDoc = await prodRef.get();
+        if (!prodDoc.exists) throw "المنتج غير موجود";
+        
+        const prod = prodDoc.data();
+        let newStock = prod.currentStock;
+        
+        // عكس المعاملة
+        if (trans.type === 'inbound') {
+            newStock -= trans.qty;
+        } else if (trans.type === 'outbound') {
+            newStock += trans.qty;
+        }
+        
+        // تحديث الرصيد وإضافة معاملة إلغاء
+        const batch = this.db.batch();
+        batch.update(prodRef, { currentStock: newStock });
+        batch.set(this.db.collection('transactions').doc(), {
+            date: new Date(),
+            type: 'cancellation',
+            productId: trans.productId,
+            prodName: trans.prodName,
+            qty: trans.qty,
+            party: 'إلغاء معاملة',
+            stockAfter: newStock,
+            originalTransId: transId
+        });
+        batch.delete(this.db.collection('transactions').doc(transId));
+        
+        await batch.commit();
+        alert("تم إلغاء المعاملة بنجاح ✅");
+        
+        // إعادة تحميل البيانات
+        this.startListeners();
+        
+    } catch (err) {
+        console.error('cancelTransaction error:', err);
+        alert("خطأ في إلغاء المعاملة: " + err.message);
+    }
+};
+
+// تعديل دالة submitStocktake لتأكيد أقوى
+appV2.submitStocktake = async function() {
+    const inputs = document.querySelectorAll('.st-inp-v2');
+    const batch = this.db.batch();
+    let count = 0;
+    inputs.forEach(inp => {
+        if (inp.value !== "") {
+            const pid = inp.dataset.pid, actual = parseFloat(inp.value), sys = parseFloat(inp.dataset.sys);
+            if (actual !== sys) {
+                const ref = this.db.collection('products').doc(pid);
+                batch.update(ref, { currentStock: actual });
+                batch.set(this.db.collection('transactions').doc(), {
+                    date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: actual - sys, party: 'جرد دوري', stockAfter: actual
+                });
+                count++;
+            }
+        });
+    });
+    
+    if (count === 0) {
+        alert("لا توجد تغييرات للترحيل");
+        return;
+    }
+    
+    // تأكيد قوي للترحيل
+    const confirmed = confirm(`⚠️ تحذير مهم!\n\nسيتم ترحيل ${count} تعديل للأرصدة.\nهذا الإجراء لا يمكن التراجع عنه بسهولة.\n\nهل أنت متأكد من المتابعة؟`);
+    
+    if (!confirmed) return;
+    
+    try {
+        await batch.commit();
+        alert("✅ تم الترحيل بنجاح!");
+        inputs.forEach(i => i.value = '');
+        document.querySelectorAll('.diff-cell').forEach(d => d.textContent = '-');
+        this.renderProducts();
+    } catch (err) {
+        console.error('submitStocktake error:', err);
+        alert("خطأ في الترحيل: " + err.message);
     }
 };
 
