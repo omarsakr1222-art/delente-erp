@@ -82,7 +82,13 @@ const appV2 = {
     filterProd(cat) {
         this.currentProdFilter = cat;
         document.querySelectorAll('.filter-chip-v2').forEach(btn => {
-            const isActive = btn.getAttribute('onclick').includes(`'${cat}'`);
+            const btnText = btn.textContent.trim();
+            let isActive = false;
+            if (cat === 'all' && btnText === 'الكل') isActive = true;
+            if (cat === 'raw_material' && btnText === 'خامات') isActive = true;
+            if (cat === 'packaging' && btnText === 'تغليف') isActive = true;
+            if (cat === 'finished_goods' && btnText === 'تام') isActive = true;
+            
             btn.className = isActive
                 ? "filter-chip-v2 active bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold shadow" 
                 : "filter-chip-v2 bg-white border text-gray-600 px-3 py-1 rounded text-xs font-bold";
@@ -170,7 +176,12 @@ const appV2 = {
     filterStock(cat) {
         this.stockCategory = cat;
         document.querySelectorAll('.st-filter-v2').forEach(btn => {
-            const isActive = btn.getAttribute('onclick').includes(`'${cat}'`);
+            const btnText = btn.textContent.trim();
+            let isActive = false;
+            if (cat === 'finished_goods' && btnText === 'تام') isActive = true;
+            if (cat === 'raw_material' && btnText === 'خام') isActive = true;
+            if (cat === 'packaging' && btnText === 'تغليف') isActive = true;
+            
             btn.className = isActive
                 ? "st-filter-v2 active text-[10px] px-2 py-1 rounded bg-blue-600 text-white" 
                 : "st-filter-v2 text-[10px] px-2 py-1 rounded border bg-white text-gray-500";
