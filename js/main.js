@@ -11842,7 +11842,7 @@ loginForm.addEventListener('submit', async (e) => {
 window.ensureRawAndPackFromState = function(){
     const products = Array.isArray(window.state?.products) ? window.state.products : [];
     window.costPack = Array.isArray(window.costPack) ? window.costPack : [];
-    const packRe = /?????|?????|????|???|???/i;
+    const packRe = new RegExp("\u0643\u0631\u062A\u0648\u0646|\u0628\u0631\u0637\u0645\u0627\u0646|\u0639\u0644\u0628\u0629|\u0643\u064A\u0633|\u062C\u0631\u062F\u0644", "i");
     const existIds = new Set(window.costPack.map(x => x.id));
     let added = 0;
     for (const p of products) {
