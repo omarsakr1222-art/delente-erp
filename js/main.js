@@ -43,6 +43,28 @@ observer = new MutationObserver((mutations) => {
 
 // Initial icon creation and start of observation.
 document.addEventListener('DOMContentLoaded', () => {
+    // Generic SPA navigation handler (ensures new tabs work)
+    try {
+        document.addEventListener('click', function(e){
+            const btn = e.target.closest('nav.bottom-nav [data-page]');
+            if (!btn) return;
+            const target = btn.getAttribute('data-page');
+            const pageId = 'page-' + target;
+            const page = document.getElementById(pageId);
+            if (!page) return;
+            e.preventDefault();
+            // Hide all pages
+            document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
+            // Show target
+            page.style.display = '';
+            // Update active state
+            document.querySelectorAll('nav.bottom-nav .bottom-nav-item').forEach(i => i.classList.remove('active'));
+            btn.classList.add('active');
+            // Hide reports subnav unless reports page
+            const subnav = document.getElementById('reports-subnav');
+            if (subnav) subnav.classList.toggle('active', target === 'reports');
+        });
+    } catch (_) {}
     initIcons();
     observer.observe(document.body, {
         childList: true,
