@@ -474,11 +474,11 @@
                 const total = price * quantity;
                 
                 itemsHTML += `
-                    <tr style="border-bottom: 1px dotted #ccc;">
-                        <td style="padding: 8px; text-align: left;">${productName}</td>
-                        <td style="padding: 8px; text-align: center;">${price.toFixed(2)}</td>
-                        <td style="padding: 8px; text-align: center;">${quantity}</td>
-                        <td style="padding: 8px; text-align: right; font-weight: bold;">${total.toFixed(2)}</td>
+                    <tr style="border-bottom: 1px solid #999;">
+                        <td style="padding: 10px; text-align: left; font-size: 15px; border-right: 1px solid #ccc;">${productName}</td>
+                        <td style="padding: 10px; text-align: center; font-size: 15px; border-right: 1px solid #ccc;">${price.toFixed(2)}</td>
+                        <td style="padding: 10px; text-align: center; font-size: 15px; border-right: 1px solid #ccc;">${quantity}</td>
+                        <td style="padding: 10px; text-align: right; font-weight: bold; font-size: 15px;">${total.toFixed(2)}</td>
                     </tr>
                 `;
             });
@@ -491,8 +491,8 @@
         return `
             <div style="position: relative; padding: 20px 10px; min-height: 600px;">
                 <!-- Main Watermark in Center -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.12; z-index: 0; pointer-events: none;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 350px; width: auto;" crossorigin="anonymous">
+                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.08; z-index: 0; pointer-events: none;">
+                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 150px; width: auto;" crossorigin="anonymous">
                 </div>
                 
                 <!-- Content Wrapper -->
@@ -505,41 +505,41 @@
                         </div>
                         
                         <!-- Company Name -->
-                        <div style="font-size: 32px; font-weight: bold; margin-bottom: 8px; color: #1f2937; letter-spacing: 2px;">
+                        <div style="font-size: 38px; font-weight: bold; margin-bottom: 8px; color: #1f2937; letter-spacing: 2px;">
                             DELENTE
                         </div>
                         
                         <!-- Slogan -->
-                        <div style="font-size: 16px; color: #4F46E5; margin-bottom: 12px; font-weight: 600;">
+                        <div style="font-size: 18px; color: #4F46E5; margin-bottom: 12px; font-weight: 600;">
                             ..IT'S JUST MILK
                         </div>
                         
                         <!-- Company Info -->
-                        <div style="font-size: 13px; color: #6b7280; line-height: 1.6;">
+                        <div style="font-size: 15px; color: #6b7280; line-height: 1.8;">
                             <div>📍 بنـــها، القليوبية، مصر</div>
                             <div>📞 ت: 12345 | 📱 م: 01000000000</div>
                             <div>🏛️ س.ت: 98765 | 🆔 ض.ق: 987654321</div>
                         </div>
                     </div>
             
-            <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 10px 0; margin: 15px 0;">
-                <div style="display: flex; justify-content: space-between; font-size: 14px;">
+            <div style="border-top: 2px dashed #000; border-bottom: 2px dashed #000; padding: 12px 0; margin: 15px 0;">
+                <div style="display: flex; justify-content: space-between; font-size: 16px; font-weight: 600;">
                     <span>${new Date(sale.timestamp || Date.now()).toLocaleDateString('en-GB')}</span>
                     <span style="font-weight: bold;">#${sale.invoiceNumber || '---'}</span>
                 </div>
             </div>
             
-            <div style="text-align: right; margin: 15px 0; font-size: 16px; font-weight: bold;">
+            <div style="text-align: right; margin: 15px 0; font-size: 18px; font-weight: bold;">
                 العميل: ${customerName}
             </div>
             
-            <table style="width: 100%; border-collapse: collapse; margin: 15px 0;">
+            <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #000;">
                 <thead>
-                    <tr style="background: #f5f5f5; border-bottom: 2px solid #000;">
-                        <th style="padding: 10px; text-align: left; font-weight: bold;">الصنف</th>
-                        <th style="padding: 10px; text-align: center; font-weight: bold;">سعر</th>
-                        <th style="padding: 10px; text-align: center; font-weight: bold;">ع</th>
-                        <th style="padding: 10px; text-align: right; font-weight: bold;">إجمالي</th>
+                    <tr style="background: #e5e7eb; border-bottom: 2px solid #000;">
+                        <th style="padding: 12px; text-align: left; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">الصنف</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">سعر</th>
+                        <th style="padding: 12px; text-align: center; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">ع</th>
+                        <th style="padding: 12px; text-align: right; font-weight: bold; font-size: 16px;">إجمالي</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -548,18 +548,18 @@
             </table>
             
             <div style="border-top: 2px solid #000; padding-top: 15px; margin-top: 15px;">
-                <div style="display: flex; justify-content: space-between; font-size: 16px; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between; font-size: 18px; margin-bottom: 8px;">
                     <span style="font-weight: bold;">${subtotal.toFixed(2)}</span>
                     <span>:الإجمالي</span>
                 </div>
                 ${discount > 0 ? `
-                <div style="display: flex; justify-content: space-between; font-size: 16px; color: red; margin-bottom: 8px;">
+                <div style="display: flex; justify-content: space-between; font-size: 18px; color: red; margin-bottom: 8px;">
                     <span style="font-weight: bold;">- ${discount.toFixed(2)}</span>
                     <span>:خصم</span>
                 </div>
                 ` : ''}
-                <div style="border: 3px dotted #000; padding: 10px; margin-top: 10px;">
-                    <div style="display: flex; justify-content: space-between; font-size: 22px; font-weight: bold;">
+                <div style="border: 3px dotted #000; padding: 12px; margin-top: 10px; background: #f9fafb;">
+                    <div style="display: flex; justify-content: space-between; font-size: 24px; font-weight: bold;">
                         <span>${finalTotal.toFixed(2)}</span>
                         <span>:الصافي</span>
                     </div>
