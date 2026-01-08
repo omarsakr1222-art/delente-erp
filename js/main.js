@@ -5180,7 +5180,7 @@ document.addEventListener('DOMContentLoaded', () => {
         s = s.replace(/[,\s\u00A0]/g, '');
         // replace comma decimal with dot if user used comma as decimal and dot not present
         // (already removed commas as thousands separators above), but still handle Arabic decimal comma
-        s = s.replace(/?/g, '.');
+        s = s.replace(/\u060C/g, '.');
         // if multiple dots exist, keep last dot as decimal separator
         const parts = s.split('.');
         if (parts.length > 2) {
