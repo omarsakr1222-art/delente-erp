@@ -57,7 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
             // Show target
             page.style.display = '';
-            // Update active state
+            // Update active state for all nav buttons
             document.querySelectorAll('nav.bottom-nav .bottom-nav-item').forEach(i => i.classList.remove('active'));
             btn.classList.add('active');
             // Hide reports subnav unless reports page
