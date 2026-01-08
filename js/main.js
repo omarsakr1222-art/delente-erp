@@ -1,5 +1,5 @@
 ﻿// debug: avoid blocking alerts during load
-console.log('??? ????? ?????');
+console.log('\u0628\u062F\u0621 \u062A\u062D\u0645\u064A\u0644 \u0627\u0644\u062A\u0637\u0628\u064A\u0642');
 
 let observer;
 
@@ -52,16 +52,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
 // A fallback for any icons that might have been missed.
 window.addEventListener('load', initIcons);
-// ?? ????? ??????? ??????? (????? ???)
+// \u0628\u0631\u0646\u0627\u0645\u062C \u0627\u0644\u0628\u0630\u0631 \u0627\u0644\u0627\u0641\u062A\u0631\u0627\u0636\u064A (\u0644\u0644\u062A\u062C\u0631\u0628\u0629 \u0641\u0642\u0637)
 document.addEventListener('click', function(e){
     const btn = e.target.closest('#seed-missing-roles-btn');
     if (!btn) return;
     try {
         const role = (typeof getUserRole==='function')? getUserRole(): 'user';
-        if (role !== 'admin') { alert('??? ??????? ?????? ???'); return; }
+        if (role !== 'admin') { alert('\u0647\u0630\u0647 \u0627\u0644\u0639\u0645\u0644\u064A\u0629 \u0644\u0644\u0645\u0631\u0627\u0642\u0628\u064A\u0646 \u0641\u0642\u0637'); return; }
         const statusEl = document.getElementById('seed-roles-status');
-        if (statusEl) statusEl.textContent = '???? ?????...';
-        if (!window.db) { if (statusEl) statusEl.textContent='Firestore ??? ????'; return; }
+        if (statusEl) statusEl.textContent = '\u0628\u0648\u0627\u0633\u0637\u0629 \u0627\u0644\u0628\u0630\u0631...';
+        if (!window.db) { if (statusEl) statusEl.textContent='Firestore \u063A\u064A\u0631 \u0645\u0648\u062C\u0648\u062F'; return; }
         const users = (window.state && Array.isArray(state.users)) ? window.state.users : [];
         const forcedAdmins = new Set((window.FORCED_ADMINS||[]).map(e=>String(e).toLowerCase()));
         const forcedReviewers = new Set((window.FORCED_REVIEWERS||[]).map(e=>String(e).toLowerCase()));
@@ -4143,12 +4143,12 @@ function renderCustomers(filter = '') {
             ? (isMine ? '<span class="text-xs font-semibold bg-green-100 text-green-700 rounded-full px-2 py-0.5">???? ??</span>' : '<span class="text-xs bg-gray-100 text-gray-600 rounded-full px-2 py-0.5">????</span>')
             : '<span class="text-xs bg-yellow-100 text-yellow-700 rounded-full px-2 py-0.5">??? ??????</span>';
         const manageAllowed = (typeof canManageCustomer === 'function') ? canManageCustomer(customer) : true;
-        let priceListInfoHTML = `<div class="mt-2"><span class="text-sm text-gray-800 bg-gray-100 rounded-full px-2 py-0.5">???? ????? ?????</span></div>`;
+        let priceListInfoHTML = `<div class="mt-2"><span class="text-sm text-gray-800 bg-gray-100 rounded-full px-2 py-0.5">\u0644\u0627 \u062A\u0648\u062C\u062F \u0642\u0627\u0626\u0645\u0629</span></div>`;
         if (priceList) {
-            const discountMatch = priceList.name.match(/\(??? (.*?)%\)/);
+            const discountMatch = priceList.name.match(/\(\u062E\u0635\u0645 (.*?)%\)/);
             const baseName = discountMatch ? priceList.name.replace(discountMatch[0], '').trim() : priceList.name;
             let baseTag = `<span class="text-sm text-blue-800 bg-blue-100 rounded-full px-2 py-0.5">${baseName}</span>`;
-            let discountTag = discountMatch ? ` <span class="text-sm text-red-800 bg-red-100 rounded-full px-2 py-0.5">??? ${discountMatch[1]}%</span>` : '';
+            let discountTag = discountMatch ? ` <span class="text-sm text-red-800 bg-red-100 rounded-full px-2 py-0.5">\u062E\u0635\u0645 ${discountMatch[1]}%</span>` : '';
             priceListInfoHTML = `<div class="mt-2 flex flex-wrap gap-1 items-center">${baseTag}${discountTag}</div>`;
         }
         const taxTag = taxRequired ? `<span class="text-xs font-semibold bg-orange-100 text-orange-800 rounded-full px-2 py-0.5 flex items-center gap-1"><i data-lucide="alert-triangle" class="w-3 h-3"></i> ????? ??? ?????</span>` : '';
