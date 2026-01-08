@@ -153,11 +153,11 @@
 
     // دالة الإرسال السريع للبلوتوث
     async function sendFastChunks(data) {
-        const chunkSize = 150; 
+        const chunkSize = 100; 
         for (let i = 0; i < data.length; i += chunkSize) {
             const chunk = data.slice(i, i + chunkSize);
             await bleCharacteristic.writeValue(chunk);
-            await new Promise(r => setTimeout(r, 5));
+            await new Promise(r => setTimeout(r, 20));
         }
     }
 
@@ -490,18 +490,13 @@
         
         return `
             <div style="position: relative; padding: 20px 10px; min-height: 600px;">
-                <!-- Main Watermark in Center -->
-                <div style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); opacity: 0.08; z-index: 0; pointer-events: none;">
-                    <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 150px; width: auto;" crossorigin="anonymous">
-                </div>
-                
                 <!-- Content Wrapper -->
                 <div style="position: relative; z-index: 1;">
                     <!-- Header -->
                     <div style="text-align: center; margin-bottom: 20px; padding-bottom: 15px; border-bottom: 3px double #000;">
-                        <!-- Small Logo at Top -->
+                        <!-- Logo at Top -->
                         <div style="margin-bottom: 10px;">
-                            <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 80px; width: auto; display: inline-block;" crossorigin="anonymous">
+                            <img src="https://i.ibb.co/YT4114YW/image.jpg" alt="DELENTE Logo" style="height: 120px; width: auto; display: inline-block;" crossorigin="anonymous">
                         </div>
                         
                         <!-- Company Name -->
@@ -535,7 +530,7 @@
             
             <table style="width: 100%; border-collapse: collapse; margin: 15px 0; border: 2px solid #000;">
                 <thead>
-                    <tr style="background: #e5e7eb; border-bottom: 2px solid #000;">
+                    <tr style="background: #f3f4f6; border-bottom: 2px solid #000;">
                         <th style="padding: 12px; text-align: left; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">الصنف</th>
                         <th style="padding: 12px; text-align: center; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">سعر</th>
                         <th style="padding: 12px; text-align: center; font-weight: bold; font-size: 16px; border-right: 1px solid #999;">ع</th>
