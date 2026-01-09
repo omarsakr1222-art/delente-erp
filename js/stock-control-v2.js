@@ -8,6 +8,7 @@ const appV2 = {
     currentProdFilter: 'all',
     stockCategory: 'finished_goods',
     selectedDate: null,
+    logSelectedDate: null,
 
     async init() {
         try {
@@ -113,18 +114,47 @@ const appV2 = {
 
     filterProd(cat) {
         this.currentProdFilter = cat;
-        document.querySelectorAll('.filter-chip-v2').forEach(btn => {
-            const btnText = btn.textContent.trim();
-            let isActive = false;
-            if (cat === 'all' && btnText === 'الكل') isActive = true;
-            if (cat === 'raw_material' && btnText === 'خامات') isActive = true;
-            if (cat === 'packaging' && btnText === 'تغليف') isActive = true;
-            if (cat === 'finished_goods' && btnText === 'تام') isActive = true;
-            
-            btn.className = isActive
-                ? "filter-chip-v2 active bg-blue-600 text-white px-3 py-1 rounded text-xs font-bold shadow" 
-                : "filter-chip-v2 bg-white border text-gray-600 px-3 py-1 rounded text-xs font-bold";
+        console.log(`🔍 Filter clicked: ${cat}`);
+        console.log(`📊 Total products in memory: ${this.products.length}`);
+        
+        // طباعة عدد المنتجات لكل فئة
+        const categoryCounts = {};
+        this.products.forEach(p => {
+            const pCat = p.category || 'no-category';
+            categoryCounts[pCat] = (categoryCounts[pCat] || 0) + 1;
         });
+        console.log('📋 Products per category:', categoryCounts);
+        
+        // حساب عدد المنتجات بعد الفلترة
+            let filteredCount;
+            if (cat === 'all') {
+                filteredCount = this.products.length;
+            } else if (cat === 'finished_goods') {
+                // حساب جميع المنتجات التامة
+                const finishedCategories = ['finished_goods', 'مالتى', 'مالتي', 'multi', 'البان', 'ألبان', 'الألبان', 'dairy'];
+                filteredCount = this.products.filter(p => finishedCategories.includes(p.category)).length;
+            } else {
+                filteredCount = this.products.filter(p => p.category === cat).length;
+            }
+        console.log(`✅ After filtering by "${cat}": ${filteredCount} products will be shown`);
+        
+        // Only toggle active state - keep all classes intact
+        const buttons = document.querySelectorAll('.filter-chip-v2');
+        buttons.forEach(btn => {
+            const txt = btn.textContent.trim();
+            let key = 'all';
+            if (/^خامات/.test(txt)) key = 'raw_material';
+            else if (/^تغليف/.test(txt)) key = 'packaging';
+            else if (/^تام/.test(txt)) key = 'finished_goods';
+
+            if (key === cat) {
+                btn.classList.add('active');
+                console.log(`✅ Activated button: ${txt}`);
+            } else {
+                btn.classList.remove('active');
+            }
+        });
+        
         this.renderProducts();
     },
 
@@ -134,18 +164,63 @@ const appV2 = {
         tbody.innerHTML = '';
         const filter = this.currentProdFilter || 'all';
         
-        // Handle products without category - show them only in "all"
-        const list = this.products.filter(p => {
-            if (filter === 'all') return true;
-            return p.category === filter;
-        });
+        console.log(`📦 Rendering products - Filter: "${filter}", Date filter: ${this.selectedDate ? this.selectedDate.toLocaleDateString('ar-EG') : 'None'}`);
         
-        console.log(`🔍 Filtering by "${filter}": found ${list.length} products`);
+        // Filter products based on currentProdFilter
+        let list = this.products;
+        if (filter !== 'all') {
+                list = this.products.filter(p => {
+                    // إذا كان الفلتر "finished_goods"، نشمل جميع المنتجات التامة
+                    if (filter === 'finished_goods') {
+                        const finishedCategories = [
+                            'finished_goods',
+                            'مالتى', 'مالتي', 'multi',
+                            'البان', 'ألبان', 'الألبان', 'dairy'
+                        ];
+                        return finishedCategories.includes(p.category);
+                    }
+                    // للفئات الأخرى، نطابق مباشرة
+                    return p.category === filter;
+                });
+        }
+        
+        console.log(`✅ Filtered to ${list.length} products for category "${filter}"`);
+        
+        // طباعة أسماء المنتجات المعروضة للتأكد
+        if (list.length > 0 && list.length <= 10) {
+            console.log(`📝 Products to display:`, list.map(p => `${p.name} (${p.category})`));
+        }
+        
+        // تأكد من أن الجدول ظاهر/مخفي حسب النتائج
+        const tableContainer = document.getElementById('tableContainer-v2');
+        const emptyState = document.getElementById('emptyState-v2');
         
         if (list.length === 0) {
-            tbody.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
+            const categoryNames = {
+                'finished_goods': 'الإنتاج التام',
+                'raw_material': 'الخامات',
+                'packaging': 'التغليف'
+            };
+            const catDisplayName = categoryNames[filter] || 'هذه الفئة';
+            
+            // إخفاء الجدول
+            if (tableContainer) tableContainer.classList.add('hidden');
+            
+            tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center">
+                <div class="text-gray-400 text-sm">
+                    <p class="mb-2">لا توجد منتجات في فئة ${catDisplayName}</p>
+                    <p class="text-xs text-gray-500">يمكنك إضافة منتجات جديدة من قسم "إضافة منتج" أعلاه</p>
+                </div>
+            </td></tr>`;
             return;
         }
+        
+        // إظهار الجدول
+        if (tableContainer) tableContainer.classList.remove('hidden');
+        if (emptyState) emptyState.classList.add('hidden');
+        
+        // استخدم الرصيد التاريخي إن كان هناك تصفية بالتاريخ
+        const stock = (p) => this.selectedDate ? (p.historicalStock || 0) : (p.currentStock || 0);
         
         list.forEach(p => {
             const row = document.createElement('tr');
@@ -153,11 +228,13 @@ const appV2 = {
             const catName = p.category ? this.getCatName(p.category) : '<span class="text-red-400">غير مصنف</span>';
             row.innerHTML = `
                 <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
-                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(p.currentStock)} ${p.unit || ''}</td>
+                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(stock(p))} ${p.unit || ''}</td>
                 <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
             `;
             tbody.appendChild(row);
         });
+        
+        console.log(`✅ Added ${list.length} rows to tbody`);
     },
 
     async saveTrans(e) {
@@ -237,16 +314,22 @@ const appV2 = {
 
     filterStock(cat) {
         this.stockCategory = cat;
-        document.querySelectorAll('.st-filter-v2').forEach(btn => {
-            const btnText = btn.textContent.trim();
-            let isActive = false;
-            if (cat === 'finished_goods' && btnText === 'تام') isActive = true;
-            if (cat === 'raw_material' && btnText === 'خام') isActive = true;
-            if (cat === 'packaging' && btnText === 'تغليف') isActive = true;
+        console.log(`📦 Stock filter changed to: "${cat}"`);
+        
+        // Update button states
+        const buttons = document.querySelectorAll('.st-filter-v2');
+        buttons.forEach(btn => {
+            const txt = btn.textContent.trim();
+            let key = 'finished_goods';
+            if (/^خام/.test(txt)) key = 'raw_material';
+            else if (/^تغليف/.test(txt)) key = 'packaging';
             
-            btn.className = isActive
-                ? "st-filter-v2 active text-[10px] px-2 py-1 rounded bg-blue-600 text-white" 
-                : "st-filter-v2 text-[10px] px-2 py-1 rounded border bg-white text-gray-500";
+            if (key === cat) {
+                btn.classList.add('active');
+                console.log(`✅ Stocktake filter activated: ${txt}`);
+            } else {
+                btn.classList.remove('active');
+            }
         });
         this.renderStock();
     },
@@ -257,28 +340,35 @@ const appV2 = {
         tbody.innerHTML = '';
         const cat = this.stockCategory || 'finished_goods';
         
+        console.log(`📦 Rendering stocktake for category: "${cat}"`);
+        
         // Filter by category
         const filtered = this.products.filter(p => p.category === cat);
         
-        console.log(`📦 Stocktake filter "${cat}": found ${filtered.length} products`);
+        console.log(`📦 Stocktake filter "${cat}": found ${filtered.length} products (from ${this.products.length} total)`);
         
         if (filtered.length === 0) {
             tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة<br><small class="text-red-400">يرجى تصنيف المنتجات أولاً</small></td></tr>';
             return;
         }
         
+        // load any saved draft values for stocktake
+        const draftKey = `stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`;
+        const drafts = (() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch(e){return {}} })();
+
         filtered.forEach(p => {
             const row = document.createElement('tr');
             row.className = "border-b hover:bg-gray-50";
             row.innerHTML = `
                 <td class="p-2 text-[11px] font-bold text-gray-700">${p.name}</td>
                 <td class="p-2 text-center text-[10px] text-gray-400 font-mono">${this.formatNum(p.currentStock)}</td>
-                <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}"></td>
+                <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}" value="${drafts[p.id] || ''}"></td>
                 <td class="p-2 text-center text-[10px] font-bold text-gray-300 diff-cell">-</td>
             `;
             const inp = row.querySelector('.st-inp-v2');
             if (inp) {
                 inp.oninput = (e) => this.calcDiff(e.target);
+                if (inp.value && inp.value !== '') this.calcDiff(inp);
             }
             tbody.appendChild(row);
         });
@@ -295,37 +385,79 @@ const appV2 = {
         const diff = actual - sys;
         cell.innerText = diff > 0 ? `+${this.formatNum(diff)}` : this.formatNum(diff);
         cell.className = `diff-cell p-2 text-center text-[10px] font-bold ${diff < 0 ? 'text-red-600' : (diff > 0 ? 'text-green-600' : 'text-gray-400')}`;
+        // persist draft for this stocktake so values survive navigation
+        try {
+            const draftKey = `stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`;
+            const d = JSON.parse(localStorage.getItem(draftKey) || '{}');
+            if (input.value && input.value !== '') d[input.dataset.pid] = input.value;
+            else delete d[input.dataset.pid];
+            localStorage.setItem(draftKey, JSON.stringify(d));
+        } catch (e) { console.warn('Could not save stocktake draft', e); }
     },
 
     async submitStock() {
         const inputs = document.querySelectorAll('.st-inp-v2');
         const batch = this.db.batch();
-        let count = 0;
+        let submitted = 0; // track submitted items (even with no diff)
+        let totalDiff = 0; // track total differences
+        
         inputs.forEach(inp => {
             if (inp.value !== "") {
                 const pid = inp.dataset.pid, actual = parseFloat(inp.value), sys = parseFloat(inp.dataset.sys);
-                if (actual !== sys) {
-                    const ref = this.db.collection('products').doc(pid);
-                    batch.update(ref, { currentStock: actual });
-                    batch.set(this.db.collection('transactions').doc(), {
-                        date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: actual - sys, party: 'جرد دوري', stockAfter: actual
-                    });
-                    count++;
-                }
+                submitted++;
+                const diff = actual - sys;
+                totalDiff += Math.abs(diff);
+                
+                // Always update, even if no difference
+                const ref = this.db.collection('products').doc(pid);
+                batch.update(ref, { currentStock: actual });
+                batch.set(this.db.collection('transactions').doc(), {
+                    date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: diff, party: 'جرد دوري', stockAfter: actual
+                });
             }
         });
-        if (count > 0 && confirm(`اعتماد ${count} أصناف؟`)) {
-            try {
-                await batch.commit();
-                alert("تم الترحيل");
-                inputs.forEach(i => i.value = '');
-                this.renderStock();
-            } catch (e) { 
-                console.error('submitStock error:', e);
-                alert(e.message); 
+        
+        if (submitted > 0) {
+            // بناء رسالة تأكيد قوية
+            let confirmMsg = `⚠️ تحذير مهم!\n\n`;
+            confirmMsg += `سيتم اعتماد وترحيل تسويات الجرد التالية:\n`;
+            confirmMsg += `• عدد الأصناف: ${submitted}\n`;
+            
+            if (totalDiff > 0) {
+                confirmMsg += `• إجمالي الفروقات: ${Math.round(totalDiff * 100) / 100} وحدة\n`;
+            } else {
+                confirmMsg += `• بدون فروقات (كل الأصناف مطابقة)\n`;
             }
-        } else if (count === 0) {
-            alert("لا توجد تغييرات");
+            
+            confirmMsg += `\n⚠️ تنبيه:\n`;
+            confirmMsg += `- هذا الإجراء لا يمكن التراجع عنه بسهولة\n`;
+            confirmMsg += `- ستُسجل كل التعديلات في السجل الدائم\n`;
+            confirmMsg += `- تأكد من صحة جميع الأرصدة قبل المتابعة\n\n`;
+            confirmMsg += `هل أنت متأكد فعلاً من المتابعة؟`;
+            
+            if (confirm(confirmMsg)) {
+                // تأكيد ثانوي إضافي
+                const secondConfirm = confirm(`⚠️ تأكيد نهائي!\n\nسيتم إغلاق عملية الجرد والترحيل.\nهل تريد المتابعة بدون تردد؟`);
+                
+                if (!secondConfirm) {
+                    alert('✅ تم إلغاء عملية الترحيل. البيانات محفوظة.');
+                    return;
+                }
+                
+                try {
+                    await batch.commit();
+                    alert(`✅ تم الترحيل والاعتماد بنجاح!\n\n✓ تم تحديث ${submitted} صنف\n✓ تم تسجيل العملية في السجل الدائم\n✓ لا يمكن التراجع عن هذه العملية`);
+                    inputs.forEach(i => i.value = '');
+                    // clear draft for this stocktake
+                    try { localStorage.removeItem(`stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`); } catch(e){}
+                    this.renderStock();
+                } catch (e) { 
+                    console.error('submitStock error:', e);
+                    alert('❌ خطأ في الترحيل: ' + e.message); 
+                }
+            }
+        } else {
+            alert("يرجى إدخال رصيد فعلي لصنف واحد على الأقل");
         }
     },
 
@@ -333,30 +465,59 @@ const appV2 = {
         const tbody = document.getElementById('logsBody-v2');
         if (!tbody) return;
         
+        // تحديد إذا كان المستخدم مسؤولاً
+        const isAdmin = window.isAdmin || (window.currentUserRole === 'admin');
+        console.log(`📋 Loading logs - Admin: ${isAdmin}, Current user: ${window.auth?.currentUser?.email}`);
+        
+        // إعداد تاريخ التصفية (افتراضي: اليوم)
+        const selected = this.logSelectedDate instanceof Date ? this.logSelectedDate : new Date();
+        const startOfDay = new Date(selected);
+        startOfDay.setHours(0,0,0,0);
+        const endOfDay = new Date(selected);
+        endOfDay.setHours(23,59,59,999);
+        console.log(`📅 Logs date filter: ${selected.toLocaleDateString('ar-EG')}`);
+        
         try {
             this.db.collection('transactions')
                 .orderBy('date', 'desc')
-                .limit(50)
+                .limit(500)
                 .onSnapshot((snap) => {
                     tbody.innerHTML = '';
                     if (snap.empty) {
                         tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
                         return;
                     }
+                    let count = 0;
                     snap.forEach(doc => {
                         const d = doc.data();
                         const dateObj = d.date?.toDate?.() || new Date(d.date);
+                        // تطبيق فلتر اليوم المحدد
+                        if (!(dateObj >= startOfDay && dateObj <= endOfDay)) return;
                         const date = dateObj.toLocaleDateString('ar-EG');
                         const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : (d.type === 'adjustment' ? 'تسوية' : 'إلغاء'));
                         const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
                         
-                        // إظهار زر الإلغاء فقط للمعاملات الحديثة وغير الملغاة
+                        // Build actions
                         const canCancel = d.type !== 'cancellation' && d.type !== 'adjustment' && 
                                         (new Date() - dateObj) < (24 * 60 * 60 * 1000); // أقل من 24 ساعة
-                        const actions = canCancel ? 
-                            `<button onclick="appV2.cancelTransaction('${doc.id}')" class="text-red-500 hover:text-red-700 text-xs" title="إلغاء المعاملة">
-                                <i class="fas fa-times"></i>
-                            </button>` : '-';
+                        
+                        let actionBtns = [];
+                        
+                        // Cancel button for recent transactions
+                        if (canCancel) {
+                            actionBtns.push(`<button onclick="appV2.cancelTransaction('${doc.id}')" class="text-red-500 hover:text-red-700 text-xs px-1" title="إلغاء"><i class="fas fa-times-circle"></i></button>`);
+                        }
+                        
+                        // Edit and Delete buttons - Admin only
+                        if (isAdmin) {
+                            actionBtns.push(`<button onclick="appV2.editTransaction('${doc.id}')" class="text-blue-600 hover:text-blue-800 text-xs px-1" title="تعديل"><i class="fas fa-edit"></i></button>`);
+                            actionBtns.push(`<button onclick="appV2.deleteTransaction('${doc.id}')" class="text-red-600 hover:text-red-800 text-xs px-1 font-bold" title="حذف"><i class="fas fa-trash-alt"></i></button>`);
+                        } else {
+                            // View-only button for non-admin users (no edit/delete)
+                            actionBtns.push(`<span class="text-gray-400 text-xs px-1" title="عرض فقط"><i class="fas fa-eye"></i></span>`);
+                        }
+                        
+                        const actions = actionBtns.length > 0 ? actionBtns.join('') : '-';
                         
                         const row = document.createElement('tr');
                         row.className = "hover:bg-gray-50 border-b";
@@ -366,13 +527,33 @@ const appV2 = {
                             <td class="p-3 font-bold text-gray-700">${d.prodName || '-'}</td>
                             <td class="p-3 font-mono dir-ltr font-bold text-xs">${d.qty}</td>
                             <td class="p-3 text-xs text-gray-500">${d.party || '-'}</td>
-                            <td class="p-3 text-center">${actions}</td>
+                            <td class="p-3 text-center flex gap-0.5 justify-center">${actions}</td>
                         `;
                         tbody.appendChild(row);
+                        count++;
                     });
+                    if (count === 0) {
+                        tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات في هذا التاريخ</td></tr>`;
+                    }
                 }, err => console.error('V2 loadLogs error:', err));
         } catch (err) {
             console.error('V2 loadLogs exception:', err);
+        }
+    },
+
+    setLogsDate(dateStr) {
+        try {
+            if (!dateStr) {
+                this.logSelectedDate = new Date();
+            } else {
+                const parts = dateStr.split('-');
+                // yyyy-mm-dd
+                this.logSelectedDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
+            }
+            console.log('📅 setLogsDate ->', this.logSelectedDate?.toLocaleDateString('ar-EG'));
+            this.loadLogs();
+        } catch (e) {
+            console.warn('setLogsDate failed', e);
         }
     },
 
@@ -387,6 +568,13 @@ const appV2 = {
         
         if (id === 'stocktake') this.renderStock();
         if (id === 'movements') this.updateDropdowns();
+        if (id === 'reports') {
+            // اضبط التاريخ الافتراضي لليوم عند فتح السجلات
+            const input = document.getElementById('logs-date-filter-v2');
+            const todayStr = new Date().toISOString().slice(0,10);
+            if (input) input.value = todayStr;
+            this.setLogsDate(todayStr);
+        }
     },
     
     toggleModal(id) {
@@ -551,13 +739,33 @@ const appV2 = {
             });
         }
         
+        // Support both <select> and <input list="..."> for supplier
         const sup = document.getElementById('supplierSelect-v2');
-        if (sup && sup.children.length === 1) {
-            ["مزارع الوادي", "مورد الملح", "شركة التغليف"].forEach(s => {
-                const opt = document.createElement('option');
-                opt.textContent = s;
-                sup.appendChild(opt);
-            });
+        const supplierNames = ["مزارع الوادي", "مورد الملح", "شركة التغليف"];
+        if (sup) {
+            if (sup.tagName === 'SELECT') {
+                if (sup.children.length === 1) {
+                    supplierNames.forEach(s => {
+                        const opt = document.createElement('option');
+                        opt.textContent = s;
+                        sup.appendChild(opt);
+                    });
+                }
+            } else if (sup.tagName === 'INPUT') {
+                // populate datalist
+                let dl = document.getElementById('suppliers-datalist');
+                if (!dl) {
+                    dl = document.createElement('datalist');
+                    dl.id = 'suppliers-datalist';
+                    sup.insertAdjacentElement('afterend', dl);
+                }
+                dl.innerHTML = '';
+                supplierNames.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    dl.appendChild(opt);
+                });
+            }
         }
     },
     
@@ -568,8 +776,20 @@ const appV2 = {
             hint.innerText = p ? `رصيد: ${p.currentStock} ${p.unit}` : '';
         }
     },
-    getCatName(c) { 
-        return c === 'raw_material' ? 'خامات' : (c === 'packaging' ? 'تغليف' : 'منتج تام'); 
+    getCatName(c) {
+        const names = {
+            'raw_material': 'خامات',
+            'packaging': 'تغليف',
+            'finished_goods': 'منتج تام',
+            'مالتى': 'مالتي',
+            'مالتي': 'مالتي',
+            'multi': 'مالتي',
+            'البان': 'ألبان',
+            'ألبان': 'ألبان',
+            'الألبان': 'ألبان',
+            'dairy': 'ألبان'
+        };
+        return names[c] || c;
     },
     formatNum(n) { 
         return parseFloat((n || 0).toFixed(2)); 
@@ -579,81 +799,63 @@ const appV2 = {
 // إضافة دالة للعودة إلى تاريخ معين
 appV2.filterByDate = async function(dateStr) {
     if (!dateStr) {
+        console.log('🔄 Clearing date filter - showing current stock');
         this.selectedDate = null;
         this.renderProducts();
         return;
     }
     
-    this.selectedDate = new Date(dateStr + 'T23:59:59');
-    console.log(`📅 Filtering by date: ${this.selectedDate}`);
-    
-    // إعادة حساب الأرصدة حتى التاريخ المحدد
-    await this.calculateHistoricalStock();
-    this.renderProducts();
+    try {
+        this.selectedDate = new Date(dateStr + 'T23:59:59');
+        console.log(`📅 Filtering by date: ${this.selectedDate.toLocaleDateString('ar-EG')}`);
+        
+        // إعادة حساب الأرصدة حتى التاريخ المحدد
+        await this.calculateHistoricalStock();
+        this.renderProducts();
+        
+        alert(`✅ تم عرض الأرصدة في تاريخ ${this.selectedDate.toLocaleDateString('ar-EG')}`);
+    } catch (err) {
+        console.error('filterByDate error:', err);
+        alert('خطأ في فلترة التاريخ: ' + err.message);
+        this.selectedDate = null;
+        this.renderProducts();
+    }
 };
 
-// حساب الأرصدة التاريخية
+// حساب الأرصدة التاريخية حتى تاريخ معين
 appV2.calculateHistoricalStock = async function() {
     if (!this.selectedDate) return;
     
-    const transactions = await this.db.collection('transactions')
-        .where('date', '<=', this.selectedDate)
-        .orderBy('date')
-        .get();
+    console.log(`📅 Calculating historical stock up to: ${this.selectedDate.toLocaleDateString('ar-EG')}`);
     
-    // إعادة تعيين الأرصدة
-    this.products.forEach(p => p.historicalStock = 0);
-    
-    transactions.forEach(doc => {
-        const t = doc.data();
-        const prod = this.products.find(p => p.id === t.productId);
-        if (prod) {
-            if (t.type === 'inbound') {
-                prod.historicalStock += t.qty;
-            } else if (t.type === 'outbound' || t.type === 'adjustment') {
-                prod.historicalStock -= t.qty;
+    try {
+        const transactions = await this.db.collection('transactions')
+            .where('date', '<=', this.selectedDate)
+            .orderBy('date')
+            .get();
+        
+        console.log(`📦 Found ${transactions.size} transactions up to selected date`);
+        
+        // إعادة تعيين الأرصدة التاريخية
+        this.products.forEach(p => p.historicalStock = 0);
+        
+        transactions.forEach(doc => {
+            const t = doc.data();
+            const prod = this.products.find(p => p.id === t.productId);
+            if (prod) {
+                if (t.type === 'inbound') {
+                    prod.historicalStock = (prod.historicalStock || 0) + t.qty;
+                } else if (t.type === 'outbound' || t.type === 'adjustment') {
+                    prod.historicalStock = (prod.historicalStock || 0) - t.qty;
+                }
             }
-        }
-    });
-};
-
-// تعديل دالة renderProducts لتدعم التاريخ
-appV2.renderProducts = function() {
-    const tbody = document.getElementById('productsBody-v2');
-    if (!tbody) return;
-    
-    let list = [...this.products];
-    
-    // تطبيق الفلترة بالفئة
-    if (this.currentProdFilter !== 'all') {
-        list = list.filter(p => p.category === this.currentProdFilter);
+        });
+        
+        console.log(`✅ Historical stock calculated for ${this.products.length} products`);
+    } catch (err) {
+        console.error('calculateHistoricalStock error:', err);
+        alert('خطأ في حساب الأرصدة التاريخية: ' + err.message);
     }
-    
-    console.log(`🔍 Filtering by "${this.currentFilter}": found ${list.length} products`);
-    
-    if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
-        return;
-    }
-    
-    list.forEach(p => {
-        const stock = this.selectedDate ? (p.historicalStock || 0) : (p.currentStock || 0);
-        const row = document.createElement('tr');
-        row.className = "border-b hover:bg-gray-50";
-        row.innerHTML = `
-            <td class="p-2 text-[11px] font-bold text-gray-700">${p.name}</td>
-            <td class="p-2 text-center text-[10px] text-gray-400 font-mono">${this.formatNum(stock)}</td>
-            <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${stock}"></td>
-            <td class="p-2 text-center text-[10px] font-bold text-gray-300 diff-cell">-</td>
-        `;
-        const inp = row.querySelector('.st-inp-v2');
-        if (inp) {
-            inp.oninput = (e) => this.calcDiff(e.target);
-        }
-        tbody.appendChild(row);
-    });
-    
-    this.updateCounts();
 };
 
 // إضافة تأكيد في saveTrans
@@ -786,46 +988,149 @@ appV2.cancelTransaction = async function(transId) {
     }
 };
 
-// تعديل دالة submitStocktake لتأكيد أقوى
+// تعديل / حذف معاملة: يسمح بتعديل الكمية أو الجهة، ثم إعادة حساب رصيد المنتج
+appV2.editTransaction = async function(transId) {
+    try {
+        // تحديد إذا كان المستخدم مسؤولاً
+        const userRole = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+        const isAdmin = userRole === 'admin' || window.isAdmin;
+        
+        if (!isAdmin) {
+            alert('⚠️ لا توجد صلاحيات لتعديل المعاملات.\nفقط المسؤولون يستطيعون تعديل المعاملات.');
+            return;
+        }
+        
+        const doc = await this.db.collection('transactions').doc(transId).get();
+        if (!doc.exists) { alert('المعاملة غير موجودة'); return; }
+        const d = doc.data();
+        const newQtyStr = prompt('الكمية الجديدة:', d.qty);
+        if (newQtyStr === null) return; // cancelled
+        const newQty = parseFloat(newQtyStr);
+        if (isNaN(newQty)) { alert('قيمة غير صحيحة للكمية'); return; }
+        const newParty = prompt('الجهة / المورد:', d.party || '') || '';
+
+        await this.db.collection('transactions').doc(transId).update({ qty: newQty, party: newParty });
+        // إعادة حساب مخزون المنتج
+        if (d.productId) await this.recalcProductStock(d.productId);
+        alert('✅ تم تعديل المعاملة');
+        this.loadLogs(); // تحديث السجلات
+    } catch (err) {
+        console.error('editTransaction error:', err);
+        alert('خطأ في تعديل المعاملة: ' + (err.message || err));
+    }
+};
+
+appV2.deleteTransaction = async function(transId) {
+    try {
+        // تحديد إذا كان المستخدم مسؤولاً
+        const userRole = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+        const isAdmin = userRole === 'admin' || window.isAdmin;
+        
+        if (!isAdmin) {
+            alert('⚠️ لا توجد صلاحيات لحذف المعاملات.\nفقط المسؤولون يستطيعون حذف المعاملات.');
+            return;
+        }
+        
+        if (!confirm('هل تريد حذف هذه المعاملة نهائياً؟')) return;
+        const doc = await this.db.collection('transactions').doc(transId).get();
+        if (!doc.exists) { alert('المعاملة غير موجودة'); return; }
+        const d = doc.data();
+        await this.db.collection('transactions').doc(transId).delete();
+        if (d.productId) await this.recalcProductStock(d.productId);
+        alert('✅ تم حذف المعاملة');
+        this.loadLogs(); // تحديث السجلات
+    } catch (err) {
+        console.error('deleteTransaction error:', err);
+        alert('خطأ في حذف المعاملة: ' + (err.message || err));
+    }
+};
+
+// Recalculate product currentStock from transactions
+appV2.recalcProductStock = async function(productId) {
+    try {
+        const snaps = await this.db.collection('transactions').where('productId','==',productId).orderBy('date').get();
+        let stock = 0;
+        snaps.forEach(s => {
+            const t = s.data();
+            if (t.type === 'inbound') stock += t.qty;
+            else if (t.type === 'outbound' || t.type === 'adjustment') stock -= t.qty;
+        });
+        await this.db.collection('products').doc(productId).update({ currentStock: stock });
+    } catch (err) {
+        console.error('recalcProductStock error:', err);
+    }
+};
+
+// تعديل دالة submitStocktake لتأكيد أقوى جداً
 appV2.submitStocktake = async function() {
     const inputs = document.querySelectorAll('.st-inp-v2');
     const batch = this.db.batch();
     let count = 0;
+    let totalDiff = 0;
+    
     inputs.forEach(inp => {
         if (inp.value !== "") {
             const pid = inp.dataset.pid, actual = parseFloat(inp.value), sys = parseFloat(inp.dataset.sys);
-            if (actual !== sys) {
+            const diff = actual - sys;
+            if (diff !== 0) {
                 const ref = this.db.collection('products').doc(pid);
                 batch.update(ref, { currentStock: actual });
                 batch.set(this.db.collection('transactions').doc(), {
-                    date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: actual - sys, party: 'جرد دوري', stockAfter: actual
+                    date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: diff, party: 'جرد دوري', stockAfter: actual
                 });
                 count++;
+                totalDiff += Math.abs(diff);
             }
-        });
+        }
     });
     
     if (count === 0) {
-        alert("لا توجد تغييرات للترحيل");
+        alert("لا توجد تغييرات للترحيل (جميع الأصناف مطابقة)");
         return;
     }
     
-    // تأكيد قوي للترحيل
-    const confirmed = confirm(`⚠️ تحذير مهم!\n\nسيتم ترحيل ${count} تعديل للأرصدة.\nهذا الإجراء لا يمكن التراجع عنه بسهولة.\n\nهل أنت متأكد من المتابعة؟`);
+    // تأكيد قوي جداً للترحيل
+    let confirmMsg = `⚠️ تحذير مهم جداً!\n\n`;
+    confirmMsg += `سيتم إغلاق عملية الجرد والترحيل:\n`;
+    confirmMsg += `• عدد الأصناف المتأثرة: ${count}\n`;
+    confirmMsg += `• إجمالي الفروقات: ${Math.round(totalDiff * 100) / 100} وحدة\n\n`;
+    confirmMsg += `⚠️ تنبيهات مهمة:\n`;
+    confirmMsg += `- لا يمكن التراجع عن هذا الإجراء\n`;
+    confirmMsg += `- سيتم تسجيل كل التعديلات في السجل الدائم\n`;
+    confirmMsg += `- تحقق من جميع الأصناس المتأثرة قبل المتابعة\n\n`;
+    confirmMsg += `هل أنت متأكد تماماً من المتابعة؟`;
     
-    if (!confirmed) return;
+    const confirmed = confirm(confirmMsg);
+    
+    if (!confirmed) {
+        alert('✅ تم إلغاء عملية الترحيل. البيانات محفوظة.');
+        return;
+    }
+    
+    // تأكيد ثانوي نهائي
+    const finalConfirm = confirm(`⚠️ تأكيد نهائي!\n\nسيتم إغلاق الجرد والترحيل نهائياً.\nلا يمكن التراجع عن هذا القرار.\n\nهل تريد المتابعة بدون تردد؟`);
+    
+    if (!finalConfirm) {
+        alert('✅ تم إلغاء عملية الترحيل. البيانات محفوظة.');
+        return;
+    }
     
     try {
         await batch.commit();
-        alert("✅ تم الترحيل بنجاح!");
+        alert(`✅ تم الترحيل والاعتماد بنجاح!\n\n✓ تم تحديث ${count} صنف\n✓ إجمالي الفروقات: ${Math.round(totalDiff * 100) / 100}\n✓ تم تسجيل العملية في السجل الدائم\n✓ لا يمكن التراجع عن هذه العملية`);
         inputs.forEach(i => i.value = '');
         document.querySelectorAll('.diff-cell').forEach(d => d.textContent = '-');
-        this.renderProducts();
+        // clear draft for this stocktake
+        try { localStorage.removeItem(`stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`); } catch(e){}
+        this.renderStock();
     } catch (err) {
         console.error('submitStocktake error:', err);
-        alert("خطأ في الترحيل: " + err.message);
+        alert("❌ خطأ في الترحيل: " + err.message);
     }
 };
+
+// Make appV2 globally available immediately
+window.appV2 = appV2;
 
 // Initialize when Firebase is ready
 function initV2() {
@@ -839,7 +1144,6 @@ function initV2() {
 }
 
 // Start initialization
-window.appV2 = appV2;
 if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', () => setTimeout(initV2, 1000));
 } else {

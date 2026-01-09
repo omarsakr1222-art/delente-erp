@@ -1051,9 +1051,20 @@
         .section-view-v2.active { display: block; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         
-        .nav-item-v2 { cursor: pointer; transition: all 0.2s; border-bottom: 3px solid transparent; color: #64748b; }
+        .nav-item-v2 { cursor: pointer; transition: all 0.3s ease; border-bottom: 3px solbacid transparent; color: #64748b; font-weight: 600; font-size: 13px; }
         .nav-item-v2:hover { background-color: #f1f5f9; }
-        .nav-item-v2.active { color: #2563eb; background-color: #fff; border-bottom-color: #2563eb; }
+        .nav-item-v2:nth-child(1).active { color: #fff; font-weight: 700; background: linear-gradient(135deg, #06b6d4, #0e7490);; border-bottom: 3px solid #fff; }
+        .nav-item-v2:nth-child(2).active { color: #fff; font-weight: 700; background: linear-gradient(135deg, #10b981, #059669); border-bottom: 3px solid #fff; }
+        .nav-item-v2:nth-child(3).active { color: #fff; font-weight: 700; background: linear-gradient(135deg, #a855f7, #9333ea); border-bottom: 3px solid #fff; }
+        .nav-item-v2:nth-child(4).active { color: #fff; font-weight: 700; background: linear-gradient(135deg, #f97316, #ea580c); border-bottom: 3px solid #fff; }
+        
+        /* Larger fonts for Stock Control V2 for better readability */
+        #page-stock-control-v2 { font-size: 16px; }
+        #page-stock-control-v2 table tbody td { font-size: 14px; font-weight: 600; }
+        #page-stock-control-v2 table tbody td:nth-child(1) { font-size: 15px; font-weight: 700; }
+        #page-stock-control-v2 table tbody td:nth-child(2), #page-stock-control-v2 table tbody td:nth-child(3) { font-size: 17px; font-weight: 700; color: #1f2937; }
+        #stockBody-v2 td { font-size: 15px; font-weight: 600; }
+        #logsBody-v2 td { font-size: 13px; }
 
         .badge { font-size: 10px; padding: 2px 8px; border-radius: 99px; font-weight: bold; display: flex; align-items: center; gap: 4px; }
         .badge.online { background: #dcfce7; color: #166534; border: 1px solid #86efac; }
@@ -2288,369 +2299,6 @@
 
             <!-- Rep Debts Page removed per user request -->
 
-            <!-- removed separate sub-pages; their markup is embedded as subviews inside stock-control -->
-
-            <div id="page-stock-control" class="page">
-                <style>
-                    /* Enhanced Tab Styling */
-                    .inv-tab-btn { 
-                        transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
-                        border-bottom: 4px solid transparent; 
-                        cursor: pointer;
-                        position: relative;
-                    }
-                    .inv-tab-btn:hover {
-                        background-color: rgba(255, 255, 255, 0.7);
-                        transform: translateY(-2px);
-                    }
-                    .inv-tab-btn.active { 
-                        background-color: #ffffff; 
-                        color: #2563eb; 
-                        border-bottom-color: #2563eb;
-                        box-shadow: 0 -2px 8px rgba(37, 99, 235, 0.1);
-                    }
-                    
-                    /* Smooth Fade Animation */
-                    .fade-in { 
-                        animation: fadeIn 0.4s ease-in-out; 
-                    }
-                    @keyframes fadeIn { 
-                        from { opacity: 0; transform: translateY(10px); } 
-                        to { opacity: 1; transform: translateY(0); } 
-                    }
-                    
-                    /* Item Card Modal */
-                    #itemCardModal { 
-                        display: none; 
-                        position: fixed; 
-                        z-index: 9999; 
-                        left: 0; 
-                        top: 0; 
-                        width: 100%; 
-                        height: 100%; 
-                        overflow: auto; 
-                        background-color: rgba(0,0,0,0.6); 
-                        backdrop-filter: blur(4px);
-                    }
-                    .modal-content-inv { 
-                        margin: 5% auto; 
-                        background: white; 
-                        border-radius: 16px; 
-                        overflow: hidden; 
-                        animation: slideDown 0.3s ease-out; 
-                        max-width: 600px;
-                        box-shadow: 0 20px 60px rgba(0,0,0,0.3);
-                    }
-                    @keyframes slideDown { from { transform: translateY(-50px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
-                </style>
-
-                <div id="warehouse-section" class="bg-white rounded-xl shadow-lg overflow-hidden border border-gray-100 mb-8">
-                    <!-- Header -->
-                    <div class="p-4 border-b flex justify-between items-center bg-gradient-to-r from-gray-50 to-blue-50">
-                        <div>
-                            <h2 class="text-xl font-bold text-gray-800 flex items-center gap-2">
-                                🏭 إدارة المخازن
-                                <span class="text-xs bg-green-100 text-green-700 px-2 py-1 rounded-full font-normal">Cloud Synced ☁️</span>
-                            </h2>
-                        </div>
-                        <div class="flex gap-2">
-                            <button onclick="if(window.migrateInventoryToCloud) window.migrateInventoryToCloud()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-xs font-bold shadow hover:bg-purple-700 transition">☁️ رفع البيانات</button>
-                            <button onclick="if(window.inventorySystem && window.inventorySystem.showAddItemModal) window.inventorySystem.showAddItemModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow hover:bg-blue-700 transition">+ صنف جديد</button>
-                        </div>
-                    </div>
-
-                    <!-- Search & Total Value -->
-                    <div class="p-5 bg-gradient-to-r from-blue-50 via-indigo-50 to-purple-50 border-b flex flex-col md:flex-row justify-between items-center gap-4">
-                        <div class="w-full md:flex-1 md:max-w-lg">
-                            <div class="relative">
-                                <input type="text" id="inventorySearch" onkeyup="filterInventory()" placeholder="🔍 بحث عن صنف..." class="w-full px-4 py-3 pr-10 border-2 border-blue-200 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-blue-500 shadow-sm transition" dir="rtl">
-                                <div class="absolute left-3 top-3 text-blue-400">🔍</div>
-                            </div>
-                        </div>
-                        <div class="bg-white px-6 py-3 rounded-xl shadow-md border-2 border-blue-200">
-                            <div class="text-xs text-gray-500 mb-1 text-center">إجمالي قيمة المخزون</div>
-                            <div id="total-inventory-value" class="text-2xl font-bold text-transparent bg-clip-text bg-gradient-to-r from-green-600 to-blue-600">0 ج.م</div>
-                        </div>
-                    </div>
-
-                    <!-- Tabs -->
-                    <div class="flex border-b-2 border-gray-200 bg-gray-50">
-                        <div onclick="switchInvTab('finished')" id="btn-finished" class="inv-tab-btn active flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">📦 منتج تام</div>
-                        <div onclick="switchInvTab('raw')" id="btn-raw" class="inv-tab-btn flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">🥛 خامات</div>
-                        <div onclick="switchInvTab('packing')" id="btn-packing" class="inv-tab-btn flex-1 py-4 text-center font-bold text-gray-600 hover:bg-white cursor-pointer transition-all duration-200">🥡 تغليف</div>
-                    </div>
-
-                    <!-- Tables Container -->
-                    <div class="p-4 min-h-[400px]">
-                        <div id="tab-finished-content" class="fade-in">
-                            <table class="w-full text-right border-collapse table-layout-fixed">
-                                <thead class="bg-gray-50 text-gray-600 text-sm">
-                                    <tr><th class="p-3 w-1/4 text-right">الصنف</th><th class="p-3 w-1/4 text-center">الرصيد</th><th class="p-3 w-1/4 text-right">الوحدة</th><th class="p-3 w-1/4 text-center">التكلفة</th></tr>
-                                </thead>
-                                <tbody id="table-finished" class="divide-y text-gray-700"></tbody>
-                            </table>
-                        </div>
-                        <div id="tab-raw-content" class="hidden fade-in">
-                            <table class="w-full text-right border-collapse table-layout-fixed">
-                                <thead class="bg-gray-50 text-gray-600 text-sm">
-                                    <tr><th class="p-3 w-1/4 text-right">الصنف</th><th class="p-3 w-1/4 text-center">الرصيد</th><th class="p-3 w-1/4 text-right">الوحدة</th><th class="p-3 w-1/4 text-center">التكلفة</th></tr>
-                                </thead>
-                                <tbody id="table-raw" class="divide-y text-gray-700"></tbody>
-                            </table>
-                        </div>
-                        <div id="tab-packing-content" class="hidden fade-in">
-                            <table class="w-full text-right border-collapse table-layout-fixed">
-                                <thead class="bg-gray-50 text-gray-600 text-sm">
-                                    <tr><th class="p-3 w-1/4 text-right">الصنف</th><th class="p-3 w-1/4 text-center">الرصيد</th><th class="p-3 w-1/4 text-right">الوحدة</th><th class="p-3 w-1/4 text-center">التكلفة</th></tr>
-                                </thead>
-                                <tbody id="table-packing" class="divide-y text-gray-700"></tbody>
-                            </table>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Item Details Modal - Rich Card Design -->
-                <div id="itemCardModal">
-                    <div class="modal-content-inv w-11/12 md:w-2/3 lg:w-1/2" style="max-width: 700px;">
-                        <!-- Header -->
-                        <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-5 flex justify-between items-center rounded-t-2xl">
-                            <div>
-                                <h3 id="modal-title" class="text-2xl font-bold mb-1">جبنة بيضاء (صفيحة)</h3>
-                                <div class="flex items-center gap-2 mt-1">
-                                    <span id="modal-category" class="text-sm text-slate-300">📦 منتج تام</span>
-                                    <span class="text-xs text-slate-400">•</span>
-                                    <span id="modal-code" class="text-xs text-slate-400">FP-001</span>
-                                </div>
-                            </div>
-                            <button onclick="document.getElementById('itemCardModal').style.display='none'" class="text-3xl hover:text-red-300 transition w-10 h-10 flex items-center justify-center rounded-full hover:bg-slate-600">&times;</button>
-                        </div>
-
-                        <!-- Stats Cards Grid -->
-                        <div class="p-6 bg-gray-50">
-                            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-                                <!-- Min Stock -->
-                                <div class="bg-gradient-to-br from-pink-50 to-rose-100 p-4 rounded-xl border border-rose-200 text-center">
-                                    <div class="text-xs text-rose-600 mb-1 font-semibold">حد الطلب (Min)</div>
-                                    <div id="modal-min" class="text-3xl font-bold text-rose-700">10</div>
-                                    <div class="text-xs text-rose-500 mt-1">نسبة بالشهر</div>
-                                </div>
-                                
-                                <!-- Total Value -->
-                                <div class="bg-gradient-to-br from-amber-50 to-yellow-100 p-4 rounded-xl border border-yellow-200 text-center">
-                                    <div class="text-xs text-amber-700 mb-1 font-semibold">القيمة الإجمالية</div>
-                                    <div id="modal-total-value" class="text-2xl font-bold text-amber-800">42,500</div>
-                                    <div class="text-xs text-amber-600 mt-1">ج.م</div>
-                                </div>
-                                
-                                <!-- Unit Cost -->
-                                <div class="bg-gradient-to-br from-emerald-50 to-green-100 p-4 rounded-xl border border-green-200 text-center">
-                                    <div class="text-xs text-emerald-700 mb-1 font-semibold">سعر/تكلفة</div>
-                                    <div id="modal-cost" class="text-2xl font-bold text-emerald-800">850</div>
-                                    <div class="text-xs text-emerald-600 mt-1">ج.م</div>
-                                </div>
-                                
-                                <!-- Current Stock -->
-                                <div class="bg-gradient-to-br from-sky-50 to-blue-100 p-4 rounded-xl border border-blue-200 text-center">
-                                    <div class="text-xs text-blue-700 mb-1 font-semibold">الرصيد الحالي</div>
-                                    <div id="modal-stock" class="text-3xl font-bold text-blue-800">50</div>
-                                    <div id="modal-unit" class="text-xs text-blue-600 mt-1">صفيحة</div>
-                                </div>
-                            </div>
-
-                            <!-- Movement History Table -->
-                            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden mb-4">
-                                <div class="bg-slate-700 text-white px-4 py-3 flex items-center gap-2">
-                                    <span class="text-lg">📋</span>
-                                    <h4 class="font-bold">سجل الحركات (آخر 5 حركات)</h4>
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="w-full text-sm" dir="rtl">
-                                        <thead class="bg-gray-100 border-b">
-                                            <tr>
-                                                <th class="px-4 py-2 text-right text-gray-600 font-semibold">التاريخ</th>
-                                                <th class="px-4 py-2 text-center text-gray-600 font-semibold">الكمية</th>
-                                                <th class="px-4 py-2 text-center text-gray-600 font-semibold">نوع الحركة</th>
-                                                <th class="px-4 py-2 text-right text-gray-600 font-semibold">بواسطة</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="modal-movements" class="divide-y divide-gray-100">
-                                            <!-- Will be populated dynamically -->
-                                            <tr><td colspan="4" class="px-4 py-6 text-center text-gray-400">لا توجد حركات مسجلة</td></tr>
-                                        </tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <!-- Action Buttons -->
-                            <div class="flex gap-3">
-                                <button onclick="document.getElementById('itemCardModal').style.display='none'" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white py-3 px-6 rounded-lg font-bold shadow transition">
-                                    إغلاق
-                                </button>
-                                <button onclick="openEditItemModal()" class="bg-gray-400 hover:bg-gray-500 text-white py-3 px-6 rounded-lg font-bold shadow transition">
-                                    تعديل الرصيد
-                                </button>
-                                <button onclick="openEditPriceModal()" class="bg-amber-500 hover:bg-amber-600 text-white py-3 px-6 rounded-lg font-bold shadow transition">
-                                    تعديل السعر
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Add Item Modal - NEW RICH DESIGN -->
-                <div id="addItemModal" style="display:none; position:fixed; z-index:9999; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.5); backdrop-filter:blur(3px);">
-                    <div class="bg-white w-11/12 md:w-1/2 mx-auto mt-10 rounded-xl shadow-2xl overflow-hidden animate-slideDown" style="max-width:600px;">
-                        
-                        <!-- Header -->
-                        <div class="bg-gradient-to-r from-blue-600 to-indigo-600 text-white p-4 flex justify-between items-center">
-                            <h2 class="text-xl font-bold flex items-center gap-2">✨ إضافة صنف جديد</h2>
-                            <button onclick="closeAddModal()" class="text-2xl hover:text-red-200 transition">&times;</button>
-                        </div>
-
-                        <!-- Body -->
-                        <div class="p-6 grid gap-5">
-                            <!-- Name -->
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2 text-sm">اسم الصنف</label>
-                                <input type="text" id="newItemName" placeholder="مثال: لبن، جردل، جبنة..." class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none transition" dir="rtl">
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-4">
-                                <!-- Category -->
-                                <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">القسم</label>
-                                    <select id="newItemCat" class="w-full border-2 border-gray-200 p-3 rounded-lg bg-gray-50 focus:border-blue-500 focus:outline-none" dir="rtl">
-                                        <option value="raw">🥛 خامات</option>
-                                        <option value="packing">🥡 تغليف</option>
-                                        <option value="finished">📦 منتج تام</option>
-                                    </select>
-                                </div>
-                                <!-- Unit -->
-                                <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">الوحدة</label>
-                                    <select id="newItemUnit" class="w-full border-2 border-gray-200 p-3 rounded-lg bg-gray-50 focus:border-blue-500 focus:outline-none" dir="rtl">
-                                        <option value="كيلو">كيلو</option>
-                                        <option value="قطعة" selected>قطعة</option>
-                                        <option value="لتر">لتر</option>
-                                        <option value="شيكارة">شيكارة</option>
-                                        <option value="كرتونة">كرتونة</option>
-                                        <option value="صفيحة">صفيحة</option>
-                                        <option value="علبة">علبة</option>
-                                    </select>
-                                </div>
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-4">
-                                <!-- Opening Stock -->
-                                <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">رصيد أول المدة</label>
-                                    <input type="number" id="newItemStock" value="0" step="0.01" class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none">
-                                </div>
-                                <!-- Cost -->
-                                <div>
-                                    <label class="block text-gray-700 font-bold mb-2 text-sm">التكلفة / السعر (ج.م)</label>
-                                    <input type="number" id="newItemCost" value="0" step="0.01" class="w-full border-2 border-gray-200 p-3 rounded-lg focus:border-blue-500 focus:outline-none">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Footer Buttons -->
-                        <div class="p-4 bg-gray-50 border-t flex justify-end gap-3">
-                            <button onclick="closeAddModal()" class="px-6 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">إلغاء ❌</button>
-                            <button onclick="saveNewItemAction()" class="px-8 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 shadow-lg transform hover:scale-105 transition">حفظ ✅</button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Edit/Adjust Stock Modal -->
-                <div id="editItemModal" style="display:none; position:fixed; z-index:10000; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
-                    <div class="bg-white w-11/12 md:w-96 mx-auto mt-32 rounded-2xl shadow-2xl overflow-hidden animate-slideDown">
-                        <!-- Header -->
-                        <div class="bg-gradient-to-r from-slate-700 to-slate-800 text-white p-5 text-center">
-                            <h3 class="text-xl font-bold mb-1">تعديل الرصيد</h3>
-                            <p id="edit-item-name" class="text-sm text-slate-300">اسم الصنف</p>
-                        </div>
-
-                        <!-- Body -->
-                        <div class="p-6">
-                            <div class="bg-blue-50 border-2 border-blue-200 rounded-xl p-4 mb-6 text-center">
-                                <div class="text-sm text-blue-600 mb-2">الرصيد الحالي</div>
-                                <div id="edit-current-stock" class="text-4xl font-bold text-blue-700">0</div>
-                                <div id="edit-unit" class="text-xs text-blue-500 mt-1">قطعة</div>
-                            </div>
-
-                            <div class="mb-4">
-                                <label class="block text-sm font-semibold text-gray-700 mb-2">الكمية</label>
-                                <input type="number" id="editStockQuantity" placeholder="أدخل الكمية" step="0.01" class="w-full px-4 py-3 border-2 border-gray-300 rounded-lg focus:border-blue-500 focus:outline-none font-bold text-lg">
-                            </div>
-
-                            <div class="grid grid-cols-2 gap-3">
-                                <!-- Add Stock Button -->
-                                <button onclick="performStockAdjust('add')" class="bg-gradient-to-br from-green-500 to-green-600 hover:from-green-600 hover:to-green-700 text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all">
-                                    <div class="text-3xl mb-1">➕</div>
-                                    <div class="text-sm">إضافة رصيد</div>
-                                </button>
-
-                                <!-- Subtract Stock Button -->
-                                <button onclick="performStockAdjust('subtract')" class="bg-gradient-to-br from-red-500 to-red-600 hover:from-red-600 hover:to-red-700 text-white py-4 rounded-xl font-bold shadow-lg hover:shadow-xl transform hover:scale-105 transition-all">
-                                    <div class="text-3xl mb-1">➖</div>
-                                    <div class="text-sm">صرف من الرصيد</div>
-                                </button>
-                            </div>
-                        </div>
-
-                        <!-- Footer -->
-                        <div class="p-4 bg-gray-50 border-t text-center">
-                            <button onclick="closeEditModal()" class="px-8 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">
-                                إلغاء
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- Edit Price Modal - NEW -->
-                <div id="editPriceModal" style="display:none; position:fixed; z-index:10001; left:0; top:0; width:100%; height:100%; background-color:rgba(0,0,0,0.6); backdrop-filter:blur(4px);">
-                    <div class="bg-white w-11/12 md:w-96 mx-auto mt-32 rounded-2xl shadow-2xl overflow-hidden animate-slideDown">
-                        <!-- Header -->
-                        <div class="bg-gradient-to-r from-amber-600 to-amber-700 text-white p-5 text-center">
-                            <h3 class="text-xl font-bold mb-1">💰 تعديل السعر/التكلفة</h3>
-                            <p id="price-item-name" class="text-sm text-amber-200">اسم الصنف</p>
-                        </div>
-
-                        <!-- Body -->
-                        <div class="p-6 space-y-4">
-                            <div>
-                                <label class="block text-gray-700 font-bold mb-2">السعر/التكلفة الحالية (ج.م)</label>
-                                <div class="flex items-center gap-2">
-                                    <input type="number" id="editPriceInput" placeholder="0" class="flex-1 border border-gray-300 p-3 rounded-lg focus:ring-2 focus:ring-amber-500 focus:border-transparent">
-                                    <span class="text-2xl font-bold text-amber-600">ج.م</span>
-                                </div>
-                                <p id="price-old-value" class="text-xs text-gray-500 mt-2">السعر القديم: 0</p>
-                            </div>
-
-                            <div class="bg-amber-50 border border-amber-200 rounded-lg p-3">
-                                <p class="text-sm text-amber-700">
-                                    <strong>ملاحظة:</strong> هذا السعر سيُستخدم لحساب القيمة الإجمالية (الرصيد × السعر)
-                                </p>
-                            </div>
-                        </div>
-
-                        <!-- Footer -->
-                        <div class="p-4 bg-gray-50 border-t flex gap-3">
-                            <button onclick="closeEditPriceModal()" class="flex-1 px-4 py-2 rounded-lg font-bold text-gray-600 bg-white border border-gray-300 hover:bg-gray-100 transition">
-                                إلغاء
-                            </button>
-                            <button onclick="saveEditedPrice()" class="flex-1 px-4 py-2 rounded-lg font-bold text-white bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 shadow transition">
-                                💾 حفظ
-                            </button>
-                        </div>
-                    </div>
-                </div>
-
-                
-                
-            </div>
-
             <!-- ########## STOCK CONTROL V2 (Embedded) - DEFAULT ########## -->
             <div id="page-stock-control-v2" class="page active" style="padding-bottom: 80px;">
                 <!-- Header -->
@@ -2661,7 +2309,7 @@
                                 <i class="fas fa-cubes"></i>
                             </div>
                             <div>
-                                <h1 class="font-bold text-sm leading-tight text-gray-800">إدارة المخزون (V2)</h1>
+                                <h1 class="font-bold text-sm leading-tight text-gray-800">إدارة المخزون</h1>
                                 <div id="connectionStatus-v2" class="badge offline w-fit mt-1 text-[10px]">
                                     <span class="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span> جاري الاتصال...
                                 </div>
@@ -2763,7 +2411,8 @@
                                 <form onsubmit="appV2.saveTrans(event)">
                                     <div id="inboundFields-v2" class="mb-3">
                                         <label class="text-[10px] font-bold text-gray-500 block mb-1">المورد</label>
-                                        <select id="supplierSelect-v2" class="w-full border rounded p-2 text-sm bg-gray-50 outline-none focus:border-blue-500"></select>
+                                        <input id="supplierSelect-v2" list="suppliers-datalist" class="w-full border rounded p-2 text-sm bg-gray-50 outline-none focus:border-blue-500" placeholder="اختر أو اكتب اسم المورد">
+                                        <datalist id="suppliers-datalist"></datalist>
                                     </div>
                                     <div id="outboundFields-v2" class="hidden mb-3">
                                         <label class="text-[10px] font-bold text-gray-500 block mb-1">يصرف إلى</label>
@@ -2836,7 +2485,12 @@
                         <div class="bg-white rounded-lg shadow border overflow-hidden">
                             <div class="p-3 border-b bg-gray-50 flex justify-between items-center">
                                 <h2 class="font-bold text-sm text-gray-700">سجل العمليات</h2>
-                                <button onclick="appV2.loadLogs()" class="text-xs bg-white border px-2 py-1 rounded shadow hover:bg-gray-100"><i class="fas fa-sync-alt"></i></button>
+                                <div class="flex items-center gap-2">
+                                    <label class="text-[10px] text-gray-600">اليوم:</label>
+                                    <input type="date" id="logs-date-filter-v2" class="border rounded px-2 py-1 text-[12px]" onchange="appV2.setLogsDate(this.value)">
+                                    <button onclick="(function(){const t=new Date(); const s=t.toISOString().slice(0,10); const el=document.getElementById('logs-date-filter-v2'); if(el) el.value=s; appV2.setLogsDate(s);})()" class="text-xs bg-blue-600 text-white px-2 py-1 rounded shadow hover:bg-blue-700">اليوم</button>
+                                    <button onclick="appV2.loadLogs()" class="text-xs bg-white border px-2 py-1 rounded shadow hover:bg-gray-100" title="تحديث"><i class="fas fa-sync-alt"></i></button>
+                                </div>
                             </div>
                             <div class="max-h-[70vh] overflow-y-auto">
                                 <table class="w-full text-right text-xs">
@@ -3422,14 +3076,10 @@
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-wallet"><path d="M21 12v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h14"/><path d="M16 3v4"/><path d="M8 12h.01"/></svg>
                 <span class="text-xs">المديونيات</span>
             </button>
-            <button data-page="stock-control" class="bottom-nav-item flex flex-col items-center text-gray-600">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-box"><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg>
-                <span class="text-xs">ستوك قديم</span>
-            </button>
-            <!-- New: Stock Control V2 tab (Default/Active) -->
+            <!-- NEW: Stock Control V2 tab (Default/Active) -->
             <button data-page="stock-control-v2" class="bottom-nav-item active flex flex-col items-center text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-warehouse"><path d="M3 21V8l9-5 9 5v13"/><path d="M13 13h4v8H7v-8h4"/><path d="M7 21h10"/></svg>
-                <span class="text-xs">ستوك كنترول 2</span>
+                <span class="text-xs">ستوك كنترول </span>
             </button>
             <button data-page="total-bills" class="bottom-nav-item flex flex-col items-center text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-file-text"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>
@@ -4502,10 +4152,47 @@
     
     <script src="js/main.js?v=20260108073000" charset="UTF-8" defer></script>
 
+    <!-- Taxes Page Logic -->
+    <script src="taxes.js?v=1" charset="UTF-8"></script>
+
+    <!-- Shared formatters (load before inline-scripts) -->
+    <script src="js/formatters.js?v=1" charset="UTF-8"></script>
+        <!-- Global currency formatter shim to prevent early-call errors -->
+        <script charset="UTF-8">
+            (function(){
+                try {
+                    if (typeof window.formatCurrency !== 'function') {
+                        window.formatCurrency = function(n){
+                            try {
+                                return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP', maximumFractionDigits: 2 }).format(Number(n||0));
+                            } catch(e){
+                                var num = Number(n||0);
+                                return (num.toFixed ? num.toFixed(2) : String(num)) + ' ج.م';
+                            }
+                        };
+                    }
+                    // Create alias for scripts that reference bare name inside IIFEs
+                    if (typeof window.formatCurrency === 'function') {
+                        try { formatCurrency = window.formatCurrency; } catch(e){}
+                        // Also provide formatMoney fallback via formatCurrency
+                        if (typeof window.formatMoney !== 'function') {
+                            window.formatMoney = function(n){ return window.formatCurrency(n); };
+                        }
+                    }
+                } catch(_){ /* ignore */ }
+            })();
+        </script>
+    <!-- UI core (icons + modal helpers) -->
+    <script src="js/ui-core.js?v=1" charset="UTF-8"></script>
+    <!-- Staff/Mandoob services -->
+    <script src="js/staff-services.js?v=1" charset="UTF-8"></script>
+    <!-- Reports/Charts/Export services -->
+    <script src="js/reports-services.js?v=1" charset="UTF-8"></script>
+
     <script src="js/inline-scripts.js?v=10" charset="UTF-8"></script>
 
     <!-- Stock Control V2 Logic -->
-    <script src="js/stock-control-v2.js?v=1" charset="UTF-8"></script>
+    <script src="js/stock-control-v2.js?v=2" charset="UTF-8"></script>
 
 
 

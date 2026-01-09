@@ -315,6 +315,16 @@ function initFirebase() {
       window.auth = firebase.auth();
       window.db = firebase.firestore();
       window.storage = firebase.storage();
+      
+      // Check if user is admin
+      window.auth.onAuthStateChanged(user => {
+        if (user && user.email) {
+          window.isAdmin = user.email.includes('admin') || user.email === 'admin@delente.com';
+          console.log(`👤 User: ${user.email}, isAdmin: ${window.isAdmin}`);
+        } else {
+          window.isAdmin = false;
+        }
+      });
     } catch (e) {
       console.warn('Firebase services not available after init', e);
     }

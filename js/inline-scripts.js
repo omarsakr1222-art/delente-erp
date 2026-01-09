@@ -11,148 +11,25 @@
                 const stack = (error && error.stack) ? error.stack : '';
                 console.error(fullMsg);
                 if (stack) console.error(stack);
-                // If any legacy banner exists, remove it
-                const legacy = document.getElementById('global-error-banner');
-                if (legacy) legacy.remove();
             } catch (e) {
                 // swallow
             }
-            return true;
+            return false;
         };
-    
 
-
-                // ساعة رقمية في الهيدر تظهر في كل الصفحات
-                function updateGlobalClock() {
-                    const clockEl = document.getElementById('global-clock-time');
-                    if (!clockEl) return;
-                    const now = new Date();
-                    const timeStr = now.toLocaleTimeString('ar-EG', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-                    const dateStr = now.toLocaleDateString('ar-EG');
-                    clockEl.textContent = `${dateStr} - ${timeStr}`;
-                }
-                setInterval(updateGlobalClock, 1000);
-                document.addEventListener('DOMContentLoaded', updateGlobalClock);
-                // raw/pack grids
-                document.addEventListener('DOMContentLoaded', function(){
-                    try {
-                        window._rawGridState = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}');
-                    } catch(e){ window._rawGridState = {}; }
-                    try {
-                        window._packGridState = JSON.parse(localStorage.getItem('packaging_grid') || '{}');
-                    } catch(e){ window._packGridState = {}; }
-                    console.debug('Loaded State:', { raw: window._rawGridState, pack: window._packGridState });
-                    if (!window.saveRawGridStateNow){
-                        window.saveRawGridStateNow = async function(){ try { localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ rawGridState: window._rawGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
-                        window.debouncedRawSave = function(){ clearTimeout(window._rawGridSaveTimer); window._rawGridSaveTimer = setTimeout(window.saveRawGridStateNow, 700); };
-                        window.savePackGridStateNow = async function(){ try { localStorage.setItem('packaging_grid', JSON.stringify(window._packGridState || {})); } catch(e){} try { if (window.db) await db.collection('settings').doc('costLists').set({ packGridState: window._packGridState, updatedAt: serverTs() }, { merge:true }); } catch(e){} };
-                        window.debouncedPackSave = function(){ clearTimeout(window._packGridSaveTimer); window._packGridSaveTimer = setTimeout(window.savePackGridStateNow, 700); };
-                    }
-                });
-        window.addEventListener('load', function() {
-            var pages = document.getElementsByClassName('page');
-            for (var i = 0; i < pages.length; i++) {
-                pages[i].classList.remove('active');
-            }
-            var dashboard = document.getElementById('page-dashboard');
-            if (dashboard) dashboard.classList.add('active');
-            var navItems = document.getElementsByClassName('bottom-nav-item');
-            for (var j = 0; j < navItems.length; j++) {
-                navItems[j].classList.remove('active');
-                if (navItems[j].getAttribute('data-page') === 'dashboard') {
-                    navItems[j].classList.add('active');
-                }
-            }
-        });
-    
-
-
-        // Safe fallback for updateIcons to avoid ReferenceError if other scripts call it before icon library loads.
-        // If you use Lucide or a similar icon replacer, it will call its replace/scan method when available.
-        window.updateIcons = (function(){
-            let scheduled = false;
-            return function(){
-                if (scheduled) return; // debounce rapid calls
-                scheduled = true;
-                requestAnimationFrame(() => {
-                    try {
-                        if (window.lucide && typeof window.lucide.replace === 'function') {
-                            window.lucide.replace();
-                        } else if (window.Lucide && typeof window.Lucide.replace === 'function') {
-                            window.Lucide.replace();
-                        }
-                    } catch(e) { /* silent */ }
-                    scheduled = false;
-                });
-            };
-        })();
-
-        
-    
-
-
-        // Global safe guards to prevent early crashes
-        // ===== Render Scheduler (performance) =====
-        (function(){
-            const scheduled = new Map();
-            const lastRun = new Map();
-            const MIN_INTERVAL = 80; // ms between same-key renders
-            function runTask(key, fn){
-                scheduled.delete(key);
-                try {
-                    const start = performance.now();
-                    fn();
-                    lastRun.set(key, start);
-                } catch(e){ console.warn('render task failed', key, e); }
-            }
-            window.scheduleRender = function(key, fn){
-                try {
-                    if (typeof key !== 'string') key = 'anon';
-                    const now = performance.now();
-                    const prev = lastRun.get(key) || 0;
-                    if (scheduled.has(key)) return; // already queued
-                    if ((now - prev) < MIN_INTERVAL) { // defer a bit more to batch
-                        const handle = setTimeout(()=>{ scheduled.delete(key); window.requestIdleCallback ? requestIdleCallback(()=>runTask(key, fn), { timeout: 300 }) : requestAnimationFrame(()=>runTask(key, fn)); }, MIN_INTERVAL);
-                        scheduled.set(key, handle);
-                        return;
-                    }
-                    const handle = window.requestIdleCallback ? requestIdleCallback(()=>runTask(key, fn), { timeout: 300 }) : requestAnimationFrame(()=>runTask(key, fn));
-                    scheduled.set(key, handle);
-                } catch(e){ try { fn(); } catch(_){} }
-            };
-        })();
-        (function(){
-            try { window.state = window.state || {}; } catch(e) { window.state = {}; }
-            if (typeof window.formatCurrency !== 'function') {
-                window.formatCurrency = function(n){ try { return new Intl.NumberFormat('ar-EG',{style:'currency',currency:'EGP',maximumFractionDigits:2}).format(Number(n||0)); } catch(e){ return (Number(n||0)).toFixed(2)+' ج.م'; } };
-            }
-            if (typeof window.findCustomer !== 'function') {
-                window.findCustomer = function(id){ try { return (state.customers||[]).find(c => (c.id||c._id) === id) || null; } catch(e){ return null; } };
-            }
-            if (typeof window.findProduct !== 'function') {
-                window.findProduct = function(id){
-                    try {
-                        const sid = id != null ? String(id) : '';
-                        return (state.products||[]).find(p => String(p.id) === sid)
-                            || (state.products||[]).find(p => String(p._id) === sid)
-                            || (state.products||[]).find(p => String(p.sku) === sid) || null;
-                    } catch(e){ return null; }
-                };
-            }
-            if (typeof window.updateCustomerList !== 'function') {
-                window.updateCustomerList = function(){ /* noop safety */ };
-            }
-            if (typeof window.DEFAULT_PRODUCTS === 'undefined') {
-                window.DEFAULT_PRODUCTS = [];
-            }
-            // Default company logo URL (used when no custom URL is saved)
-            if (typeof window.DEFAULT_COMPANY_LOGO_URL === 'undefined') {
-                window.DEFAULT_COMPANY_LOGO_URL = 'https://i.ibb.co/YT4114YW/image.jpg';
-            }
-            if (!window.LOCAL_REVIEW_KEY) {
-                window.LOCAL_REVIEW_KEY = 'mandoobi_review_state';
-            }
-        })();
+        if (typeof window.updateCustomerList !== 'function') {
+            window.updateCustomerList = function(){ /* noop safety */ };
+        }
+        if (typeof window.DEFAULT_PRODUCTS === 'undefined') {
+            window.DEFAULT_PRODUCTS = [];
+        }
+        // Default company logo URL (used when no custom URL is saved)
+        if (typeof window.DEFAULT_COMPANY_LOGO_URL === 'undefined') {
+            window.DEFAULT_COMPANY_LOGO_URL = 'https://i.ibb.co/YT4114YW/image.jpg';
+        }
+        if (!window.LOCAL_REVIEW_KEY) {
+            window.LOCAL_REVIEW_KEY = 'mandoobi_review_state';
+        }
 
         // Global state bootstrap (prevents TDZ errors before later declarations)
         // Ensure both `state` and `window.state` reference the same object early in startup.
@@ -196,231 +73,41 @@
 
             window.connectToPrinter = async function(){
                 try {
-                    if (!('bluetooth' in navigator)) throw new Error('Web Bluetooth not supported in this browser');
-                    console.log('Searching for XPrinter...');
-                    const device = await navigator.bluetooth.requestDevice({ filters: [{ services: PRINTER_CONFIG.services }], optionalServices: PRINTER_CONFIG.services });
-                    const server = await device.gatt.connect();
-                    console.log('Connected to GATT');
-
-                    // Find a service that exists on the device
-                    let service = null;
-                    for (const uuid of PRINTER_CONFIG.services){
-                        try { service = await server.getPrimaryService(uuid); console.log('Found Service:', uuid); break; } catch(e) { /* continue */ }
+                    if (!('bluetooth' in navigator)) {
+                        const dlg = window.customDialog || (async ()=>{});
+                        await dlg({ title: 'Bluetooth', message: 'هذا المتصفح لا يدعم Bluetooth' });
+                        return;
                     }
-                    if (!service) throw new Error('No matching service found.');
-
-                    // Try known characteristic UUIDs first
-                    let char = null;
-                    try {
-                        for (const uuid of PRINTER_CONFIG.characteristics){
-                            try { char = await service.getCharacteristic(uuid); if (char) break; } catch(e) {}
-                        }
-                    } catch(e){ /* ignore */ }
-
-                    // If still not found, inspect any characteristic and pick a writable one
-                    if (!char){
-                        const potentialChars = await service.getCharacteristics();
-                        char = potentialChars.find(c => c.properties && (c.properties.write || c.properties.writeWithoutResponse));
-                    }
-
-                    if (!char) throw new Error('Write Characteristic NOT found!');
-
-                    window.printCharacteristic = char;
-                    window.printDevice = device;
-                    alert('✅ Connected to XPrinter successfully!');
-                    return { device, characteristic: char };
-                } catch (error){
-                    console.error('connectToPrinter failed', error);
-                    throw error;
+                    console.log('Bluetooth printer temporarily disabled');
+                } catch (e) {
+                    console.warn('connectToPrinter error', e);
                 }
             };
 
-            window.printInvoiceBluetooth = async function(sale){
-                try {
-                    if (!sale) { alert('لم يتم تمرير فاتورة للطباعة'); return; }
-                    // Build payload using existing helper if present
-                    const payload = (typeof buildEscPosReceipt === 'function') ? buildEscPosReceipt(sale) : (function(){
-                        // fallback simple text
-                        const enc = new TextEncoder();
-                        return enc.encode('Invoice #'+(sale.invoiceNumber||sale.id)+'\nTotal: '+(sale.total||0)+'\n');
-                    })();
-
-                    if (!window.printCharacteristic){
-                        try { await window.connectToPrinter(); } catch(e){ alert('فشل الاتصال بالطابعة: '+(e&&e.message)); return; }
-                    }
-
-                    const char = window.printCharacteristic;
-                    if (!char) { alert('لا توجد خاصية كتابة للطابعة'); return; }
-
-                    // Write in chunks
-                    const CHUNK = 180; // larger chunk for modern devices
-                    for (let i=0;i<payload.length;i+=CHUNK){
-                        const slice = payload.slice(i, i+CHUNK);
-                        try {
-                            if (char.properties.writeWithoutResponse) await char.writeValueWithoutResponse(slice);
-                            else await char.writeValue(slice);
-                        } catch(e){
-                            // try writeValue as fallback
-                            try { await char.writeValue(slice); } catch(er){ throw er; }
-                        }
-                        await new Promise(r=>setTimeout(r, 30));
-                    }
-                    alert('تم إرسال الفاتورة للطابعة عبر البلوتوث.');
-                } catch(e){ console.error('printInvoiceBluetooth failed', e); alert('فشل الطباعة عبر البلوتوث: '+(e&&e.message)); }
-            };
-        })();
-            window.addEventListener('unhandledrejection', function(e){
-                try {
-                    var reason = e && e.reason; var msg = '';
-                    if (typeof reason === 'string') msg = reason; else if (reason && reason.message) msg = reason.message; else msg = 'Unhandled rejection';
-                    var stack = reason && reason.stack ? reason.stack : '';
-                    showOverlay(msg, stack);
-                } catch(_){}
-            });
-        })();
-    
-
-
-            window.FIREBASE_CONFIG = {
-                apiKey: "AIzaSyDLmZPE9teCYf2rMXd1AwT5yq4xlRSHcSk",
-                authDomain: "delente-business.firebaseapp.com",
-                projectId: "delente-business",
-                // ✅ تصحيح اسم حاوية التخزين: الشكل الصحيح يكون <project-id>.appspot.com
-                // القيمة السابقة "delente-business.firebasestorage.app" تسبب أخطاء CORS ورفض طلبات التحميل
-                storageBucket: "delente-business.appspot.com",
-                messagingSenderId: "646706509650",
-                appId: "1:646706509650:web:1eaa4b94d2990b6be9ac8b"
-            };
-        
-
-
-        // نظام إدارة المستخدمين والمصادقة مع Firebase
-        // (Firebase Config موجود في نهاية الملف - DOMContentLoaded)
-        const AuthSystem = {
-            // مفتاح تخزين بيانات المستخدمين
-            USERS_KEY: 'app_users',
-            CURRENT_USER_KEY: 'app_current_user',
-            
-            // الحصول على جميع المستخدمين المسجلين
-            getAllUsers() {
-                try {
-                    const data = localStorage.getItem(this.USERS_KEY);
-                    return data ? JSON.parse(data) : [];
-                } catch (e) {
-                    console.warn('Error loading users:', e);
-                    return [];
-                }
-            },
-            
-            // حفظ قائمة المستخدمين
-            saveUsers(users) {
-                try {
-                    localStorage.setItem(this.USERS_KEY, JSON.stringify(users));
-                } catch (e) {
-                    console.error('Error saving users:', e);
-                }
-            },
-            
-            // البحث عن مستخدم بالبريد الإلكتروني
-            findUserByEmail(email) {
-                const users = this.getAllUsers();
-                return users.find(u => u.email === email.toLowerCase());
-            },
-            
-            // التسجيل (إنشاء حساب جديد)
-            async register(email, password, name) {
-                if (!window.auth) return { success: false, message: 'Firebase Auth غير جاهز' };
-                try {
-                    const cred = await auth.createUserWithEmailAndPassword(email, password);
-                    try { await cred.user.updateProfile({ displayName: name }); } catch(e) {}
-                    try {
-                        if (window.db) {
-                            await db.collection('users').doc(cred.user.uid).set({
-                                email: email.toLowerCase(),
-                                name: name,
-                                createdAt: new Date().toISOString()
-                            }, { merge: true });
-                        }
-                    } catch(e) { console.warn('تحذير: فشل حفظ وثيقة المستخدم في Firestore', e); }
-                    const newUser = { id: cred.user.uid, email: email.toLowerCase(), name, firebase: true, createdAt: new Date().toISOString(), data: {} };
-                    this.setCurrentUser(newUser);
-                    return { success: true, message: 'تم إنشاء الحساب بنجاح', user: newUser };
-                } catch (err) {
-                    let msg = 'فشل إنشاء الحساب';
-                    if (err.code === 'auth/email-already-in-use') msg = 'البريد مستخدم بالفعل';
-                    else if (err.code === 'auth/weak-password') msg = 'كلمة المرور ضعيفة';
-                    else if (err.code === 'auth/invalid-email') msg = 'البريد غير صالح';
-                    return { success: false, message: msg };
-                }
-            },
-            
-            // تسجيل الدخول
-            async login(email, password) {
-                if (!window.auth) return { success: false, message: 'Firebase Auth غير جاهز' };
-                try {
-                    const cred = await auth.signInWithEmailAndPassword(email, password);
-                    const displayName = cred.user.displayName || (cred.user.email ? cred.user.email.split('@')[0] : 'مستخدم');
-                    const currentUser = { id: cred.user.uid, email: cred.user.email.toLowerCase(), name: displayName, firebase: true, data: {} };
-                    this.setCurrentUser(currentUser);
-                    return { success: true, message: 'تم الدخول بنجاح', user: currentUser };
-                } catch (err) {
-                    let msg = 'فشل الدخول';
-                    if (err.code === 'auth/wrong-password') msg = 'كلمة المرور غير صحيحة';
-                    else if (err.code === 'auth/user-not-found') msg = 'المستخدم غير موجود';
-                    else if (err.code === 'auth/invalid-email') msg = 'البريد غير صالح';
-                    else if (err.code === 'auth/too-many-requests') msg = 'محاولات كثيرة، انتظر قليلاً';
-                    return { success: false, message: msg };
-                }
-            },
-            
-            // حفظ المستخدم الحالي
-            setCurrentUser(user) {
-                try {
-                    localStorage.setItem(this.CURRENT_USER_KEY, JSON.stringify(user));
-                } catch (e) {
-                    console.error('Error saving current user:', e);
-                }
-            },
-            
-            // الحصول على المستخدم الحالي
-            getCurrentUser() {
-                try {
-                    const data = localStorage.getItem(this.CURRENT_USER_KEY);
-                    return data ? JSON.parse(data) : null;
-                } catch (e) {
-                    console.warn('Error loading current user:', e);
-                    return null;
-                }
-            },
-            
-            // تسجيل الخروج
-            logout() {
-                try {
-                    localStorage.removeItem(this.CURRENT_USER_KEY);
-                } catch (e) {
-                    console.error('Error logging out:', e);
-                }
-            },
-            
-            // تحديث بيانات المستخدم
-            updateUserData(userId, newData) {
-                const users = this.getAllUsers();
-                const user = users.find(u => u.id === userId);
-                
-                if (!user) return false;
-                
-                user.data = { ...user.data, ...newData };
-                this.saveUsers(users);
-                
-                // تحديث المستخدم الحالي إن وجد
-                const currentUser = this.getCurrentUser();
-                if (currentUser && currentUser.id === userId) {
-                    this.setCurrentUser(user);
-                }
-                
-                return true;
+            // Minimal AuthSystem stub to restore app startup safely
+            if (!window.AuthSystem) {
+                window.AuthSystem = {
+                    USERS_KEY: 'app_users',
+                    CURRENT_USER_KEY: 'app_current_user',
+                    getAllUsers() {
+                        try { const data = localStorage.getItem(this.USERS_KEY); return data ? JSON.parse(data) : []; } catch(e){ return []; }
+                    },
+                    saveUsers(users) {
+                        try { localStorage.setItem(this.USERS_KEY, JSON.stringify(users)); } catch(e){}
+                    },
+                    findUserByEmail(email) {
+                        const users = this.getAllUsers();
+                        const em = (email||'').toLowerCase();
+                        return users.find(u => (u.email||'').toLowerCase() === em);
+                    },
+                    async register() { return { success:false, message:'غير متاح حالياً' }; },
+                    async login() { return { success:false, message:'غير متاح حالياً' }; },
+                    setCurrentUser(user) { try { localStorage.setItem(this.CURRENT_USER_KEY, JSON.stringify(user)); } catch(e){} },
+                    getCurrentUser() { try { const d = localStorage.getItem(this.CURRENT_USER_KEY); return d ? JSON.parse(d) : null; } catch(e){ return null; } },
+                    logout() { try { localStorage.removeItem(this.CURRENT_USER_KEY); } catch(e){} },
+                    updateUserData() { return false; }
+                };
             }
-        };
         // استخراج دور المستخدم من الحاله المشتركة (يحتاج ملف خارجي يحقن userRoles داخل state.shared.public_app_state)
         // قوائم إجبارية مؤقتة للأدوار الأساسية (يمكن لاحقاً نقلها إلى مجموعة users على Firestore)
         window.FORCED_ADMINS = (window.FORCED_ADMINS || [ 'omarsakr1222@gmail.com', 'yousefsakr1222@gmail.com' ]);
@@ -447,8 +134,8 @@
                     if (byEmail && byEmail.role) return byEmail.role;
                 }
             } catch(e) { /* ignore */ }
-            // افتراضي: أي مستخدم مسجل وليس ضمن القوائم الخاصة يُعامل كمندوب
-            return 'rep';
+            // افتراضي: أي مستخدم مسجل وليس ضمن القوائم الخاصة يُعامل كمستخدم (user)
+            return 'user';
         }
 
         // DISABLED: Auto-register test user - causes unnecessary Firebase calls and delays
@@ -947,10 +634,11 @@
                 return r === 'reviewer' || r === 'manager';
             } catch(e){ return false; }
         }
-        function notifyReadOnly(message) {
+        const notifyReadOnly = function(message){
             const msg = message || 'هذا الحساب في وضع المراجعة (قراءة فقط).';
-            try { customDialog({ title: 'وضع المراجعة', message: msg }); } catch(e) { try { alert(msg); } catch(_){} }
-        }
+            if (window.notifyReadOnly) { try { window.notifyReadOnly(msg); return; } catch(_){} }
+            try { alert(msg); } catch(_){}
+        };
         function installReviewerReadOnlyGuards() {
             if (!window.db || window.__REVIEWER_GUARDS_INSTALLED) return;
             window.__REVIEWER_GUARDS_INSTALLED = true;
@@ -1478,36 +1166,57 @@
                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
-                    // ⭐ CRITICAL: Listen by repName - wait for state.reps to be ready
-                    const setupRepNameListener = () => {
-                        try {
-                            const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email);
-                            const repName = currentRepDoc ? currentRepDoc.name : null;
-                            if (repName) {
-                                console.log('✅ Rep listener: watching sales where repName ==', repName);
-                                db.collection('sales').where('repName','==', repName).onSnapshot(snap => {
-                                    console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
+                    // Try to listen by repName. If rep not found in state.reps, look up in users collection once.
+                    (function(){
+                        let repNameAttempts = 0;
+                        const setupRepNameListener = async () => {
+                            try {
+                                repNameAttempts++;
+                                const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email);
+                                let repName = currentRepDoc ? currentRepDoc.name : null;
+
+                                // If not found in reps list and we have tried a couple times, check users collection for displayName
+                                if (!repName && repNameAttempts >= 2 && db && auth) {
                                     try {
-                                        snap.docChanges().forEach(change => {
-                                            if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                            const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; 
-                                            console.log('  - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
-                                            byId.set(change.doc.id, d);
-                                        });
-                                    } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
-                                    mergeAndRender();
-                                }, err => console.warn('sales repName query error', err));
-                            } else {
-                                console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds');
-                                setTimeout(setupRepNameListener, 2000);
+                                        const q = await db.collection('users').where('email','==', email).limit(1).get();
+                                        if (!q.empty) {
+                                            const ud = q.docs[0].data() || {};
+                                            repName = ud.displayName || ud.name || null;
+                                            if (repName) console.log('ℹ️ Found user displayName in users collection for', email, repName);
+                                        }
+                                    } catch(_){ /* ignore lookup errors */ }
+                                }
+
+                                if (repName) {
+                                    console.log('✅ Rep listener: watching sales where repName ==', repName);
+                                    db.collection('sales').where('repName','==', repName).onSnapshot(snap => {
+                                        console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
+                                        try {
+                                            snap.docChanges().forEach(change => {
+                                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
+                                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; 
+                                                console.log('  - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
+                                                byId.set(change.doc.id, d);
+                                            });
+                                        } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
+                                        mergeAndRender();
+                                    }, err => console.warn('sales repName query error', err));
+                                } else {
+                                    if (repNameAttempts < 4) {
+                                        console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds (attempt', repNameAttempts, ')');
+                                        setTimeout(setupRepNameListener, 2000);
+                                    } else {
+                                        console.warn('⚠️ Rep name not found after retries for email:', email, '- no repName-based listener will be attached');
+                                    }
+                                }
+                            } catch(e){ 
+                                console.warn('setupRealtimeListeners: repName listener failed', e);
+                                if (repNameAttempts < 4) setTimeout(setupRepNameListener, 2000);
                             }
-                        } catch(e){ 
-                            console.warn('setupRealtimeListeners: repName listener failed', e);
-                            setTimeout(setupRepNameListener, 2000);
-                        }
-                    };
-                    // Try immediately, but retry if reps not ready
-                    setupRepNameListener();
+                        };
+                        // Try immediately, but retry if reps not ready
+                        setupRepNameListener();
+                    })();
                     const salesErrorHandler = err => { salesErrCount++; console.warn('sales legacy query error', err); if (salesErrCount >= 3) { tryBroadSalesFallback(); } };
                     // reattach with dedicated handlers (original above kept minimal)
                     db.collection('sales').where('createdBy','==', uid).onSnapshot(()=>{}, salesErrorHandler);
@@ -1560,33 +1269,11 @@
                 const current = AuthSystem.getCurrentUser();
                 if (role === 'admin') {
                     db.collection('customers').onSnapshot(function(snap){
-                        // If there are pending writes from this client, only apply the overlay
-                        // when the cloud snapshot contains newer data than local cache.
-                        if (snap.metadata && snap.metadata.hasPendingWrites) {
-                            try {
-                                let maxTs = null;
-                                snap.forEach(doc => {
-                                    const d = doc.data()||{};
-                                    const u = d && d.updatedAt ? (d.updatedAt.toDate ? d.updatedAt.toDate().toISOString() : (new Date(d.updatedAt).toISOString())) : null;
-                                    if (u) maxTs = (!maxTs || new Date(u) > new Date(maxTs)) ? u : maxTs;
-                                });
-                                const localTs = localStorage.getItem('customers_local_ts') || null;
-                                if (maxTs && localTs) {
-                                    if (new Date(maxTs) <= new Date(localTs)) {
-                                        console.log('🔄 customers listener: ignoring pending write (local) — cloud not newer', {maxTs, localTs});
-                                        return;
-                                    }
-                                    console.log('🔄 customers listener: pendingWrites but cloud newer — applying overlay', {maxTs, localTs});
-                                } else {
-                                    console.log('🔄 customers listener: ignoring pending write (local) — missing timestamps', {maxTs, localTs});
-                                    return;
-                                }
-                            } catch(_) { console.log('🔄 customers listener: timestamp compare failed'); return; }
-                        }
-
+                        // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                         const arr = [];
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; arr.push(d); });
                         state.customers = arr;
+                        console.log(`✅ customers loaded: ${arr.length} items${snap.metadata?.hasPendingWrites ? ' (syncing...)' : ' (synced)'}`);
                         try { localStorage.setItem('cache_customers', JSON.stringify(arr)); localStorage.setItem('customers_local_ts', new Date().toISOString()); } catch(e){}
                         try { if (typeof renderCustomerList === 'function') renderCustomerList(); } catch(e){}
                         try { if (typeof updateAllCustomerDropdowns === 'function') updateAllCustomerDropdowns(); } catch(e){}
@@ -1735,18 +1422,7 @@
             // قوائم الأسعار
             try {
                 db.collection('priceLists').onSnapshot(function(snap){
-                    if (snap.metadata && snap.metadata.hasPendingWrites) {
-                        try {
-                            let maxTs = null;
-                            snap.forEach(doc => { const d = doc.data()||{}; const u = d && d.updatedAt ? (d.updatedAt.toDate ? d.updatedAt.toDate().toISOString() : (new Date(d.updatedAt).toISOString())) : null; if (u) maxTs = (!maxTs || new Date(u) > new Date(maxTs)) ? u : maxTs; });
-                            const localTs = localStorage.getItem('priceLists_local_ts') || null;
-                            if (maxTs && localTs) {
-                                if (new Date(maxTs) <= new Date(localTs)) { console.log('🔄 priceLists listener: ignoring pending write (local) — cloud not newer', {maxTs, localTs}); return; }
-                                console.log('🔄 priceLists listener: pendingWrites but cloud newer — applying overlay', {maxTs, localTs});
-                            } else { console.log('🔄 priceLists listener: missing timestamps; ignoring pending write', {maxTs, localTs}); return; }
-                        } catch(_) { console.log('🔄 priceLists listener: ts compare failed; ignoring'); return; }
-                    }
-
+                    // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                     const arr = [];
                     snap.forEach(doc => {
                         const d = doc.data() || {};
@@ -1767,6 +1443,9 @@
                         }
                         arr.push(pl);
                     });
+                    
+                    console.log(`✅ priceLists loaded: ${arr.length} items${snap.metadata?.hasPendingWrites ? ' (syncing...)' : ' (synced)'}`);
+                    
                     // لا تمسح السعر إذا كانت المجموعة فارغة؛ احتفظ بالقيمة القادمة من appState/الاستيراد
                     if (arr.length > 0) {
                         state.priceLists = arr;
@@ -1803,25 +1482,23 @@
                     } catch(e){}
                 });
             } catch(e){ console.warn('priceLists listener init failed', e); }
-            // المناديب
+            // المناديب - مع إعادة محاولة الحفظ عند الاتصال
             try {
                 db.collection('reps').onSnapshot(function(snap){
-                    if (snap.metadata && snap.metadata.hasPendingWrites) {
-                        try {
-                            let maxTs = null;
-                            snap.forEach(doc => { const d = doc.data()||{}; const u = d && d.updatedAt ? (d.updatedAt.toDate ? d.updatedAt.toDate().toISOString() : (new Date(d.updatedAt).toISOString())) : null; if (u) maxTs = (!maxTs || new Date(u) > new Date(maxTs)) ? u : maxTs; });
-                            const localTs = localStorage.getItem('reps_local_ts') || null;
-                            if (maxTs && localTs) {
-                                if (new Date(maxTs) <= new Date(localTs)) { console.log('🔄 reps listener: ignoring pending write (local) — cloud not newer', {maxTs, localTs}); return; }
-                                console.log('🔄 reps listener: pendingWrites but cloud newer — applying overlay', {maxTs, localTs});
-                            } else { console.log('🔄 reps listener: missing timestamps; ignoring pending write', {maxTs, localTs}); return; }
-                        } catch(_) { console.log('🔄 reps listener: ts compare failed; ignoring'); return; }
-                    }
-
+                    // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data(); d.id = doc.id; arr.push(d); });
                     state.reps = arr;
+                    
+                    console.log(`✅ reps loaded: ${arr.length} items${snap.metadata?.hasPendingWrites ? ' (syncing...)' : ' (synced)'}`);
+                    
+                    // تحديث timestamp المحلي
                     try { localStorage.setItem('reps_local_ts', new Date().toISOString()); } catch(e){}
+                    
+                    // احفظ المحلي أيضاً كـ backup
+                    try { localStorage.setItem('cache_reps', JSON.stringify(arr)); } catch(e){}
+                    
+                    // تحديث الواجهة
                     try { if (typeof renderReps === 'function') renderReps(); } catch(e){}
                     try {
                         const simpleIds = ['sale-rep','customer-rep','new-dispatch-rep','spreadsheet-rep','debt-rep-filter','dashboard-rep-filter'];
@@ -1829,8 +1506,17 @@
                         const reportIds = ['daily-report-rep','range-report-rep','monthly-report-rep','recon-report-rep'];
                         reportIds.forEach(id => { const el = document.getElementById(id); if (el && typeof populateRepDropdownReports === 'function') populateRepDropdownReports(el); });
                     } catch(e){}
-                }, err => console.warn('reps snapshot error', err));
-                // (Optional) could add permission handler for reps/users/presence if needed
+                }, err => {
+                    console.warn('reps snapshot error', err);
+                    // عند حدوث خطأ، حاول استخدام النسخة المحلية المخزنة
+                    try {
+                        const cached = JSON.parse(localStorage.getItem('cache_reps') || '[]');
+                        if (Array.isArray(cached) && cached.length > 0) {
+                            state.reps = cached;
+                            try { if (typeof renderReps === 'function') renderReps(); } catch(e){}
+                        }
+                    } catch(e){}
+                });
             } catch(e){ console.warn('reps listener init failed', e); }
             
             // Listen to current user document for chains and other state
@@ -2021,236 +1707,6 @@
             } catch(e){ console.warn('settings listener init failed', e); }
         }
 
-        // ===== GPS Tracking (Presence Location) =====
-        (function(){
-            const LS_GPS = 'gps_sharing_enabled';
-            window.__gpsWatchId = null;
-            window.__repsMap = null;
-            window.__repMarkers = {};
-            window.__gpsHeaderSync = function(){
-                try {
-                    const btn = document.getElementById('gps-toggle-btn');
-                    if (!btn) return;
-                    // Remove any neutral/old classes to avoid conflicts
-                    btn.classList.remove('bg-gray-200','hover:bg-gray-300','text-gray-800');
-                    const enabled = localStorage.getItem(LS_GPS) === '1';
-                    btn.textContent = enabled ? 'GPS ON' : 'GPS OFF';
-                    btn.classList.toggle('bg-green-500', enabled);
-                    btn.classList.toggle('hover:bg-green-600', enabled);
-                    btn.classList.toggle('text-white', enabled);
-                    // OFF state as red for clear visual cue
-                    btn.classList.toggle('bg-red-500', !enabled);
-                    btn.classList.toggle('hover:bg-red-600', !enabled);
-                    btn.classList.toggle('text-white', !enabled);
-                } catch(e){}
-            };
-
-            window.startLocationSharing = function(){
-                try {
-                    const statusEl = document.getElementById('gps-share-status');
-                    if (!navigator.geolocation) { if (statusEl) statusEl.textContent = 'المتصفح لا يدعم الموقع'; return; }
-                    if (!auth || !auth.currentUser) { if (statusEl) statusEl.textContent = 'لم يتم تسجيل الدخول'; return; }
-                    if (window.__gpsWatchId != null) return; // already running
-                    const opts = { enableHighAccuracy: true, maximumAge: 15000, timeout: 15000 };
-                    window.__gpsWatchId = navigator.geolocation.watchPosition(async function(pos){
-                        try {
-                            const { latitude:lat, longitude:lng, accuracy } = pos.coords || {};
-                            const uid = auth.currentUser.uid;
-                            await db.collection('presence').doc(uid).set({
-                                uid,
-                                email: (auth.currentUser.email||'').toLowerCase(),
-                                online: true,
-                                location: { lat, lng, accuracy },
-                                locationUpdatedAt: serverTs(),
-                                sharing: true
-                            }, { merge:true });
-                            const s = `آخر تحديث: ${new Date().toLocaleTimeString('ar-EG')}`;
-                            if (statusEl) statusEl.textContent = s;
-                        } catch(e){ /* ignore */ }
-                    }, function(err){ if (statusEl) statusEl.textContent = 'تعذر تحديد الموقع'; console.warn('GPS error', err); }, opts);
-                    try { localStorage.setItem(LS_GPS, '1'); } catch(e){}
-                    try { window.__gpsHeaderSync(); } catch(e){}
-                } catch(e){ console.warn('startLocationSharing failed', e); }
-            };
-
-            window.stopLocationSharing = function(){
-                try {
-                    const statusEl = document.getElementById('gps-share-status');
-                    if (window.__gpsWatchId != null) { try { navigator.geolocation.clearWatch(window.__gpsWatchId); } catch(e){} window.__gpsWatchId = null; }
-                    try { localStorage.removeItem(LS_GPS); } catch(e){}
-                    if (statusEl) statusEl.textContent = 'متوقف';
-                    if (auth && auth.currentUser && db) {
-                        const uid = auth.currentUser.uid;
-                        db.collection('presence').doc(uid).set({ sharing:false }, { merge:true }).catch(()=>{});
-                    }
-                    try { window.__gpsHeaderSync(); } catch(e){}
-                } catch(e){ console.warn('stopLocationSharing failed', e); }
-            };
-
-            window.setupGpsSharingControls = function(){
-                try {
-                    const toggle = document.getElementById('gps-share-toggle');
-                    const statusEl = document.getElementById('gps-share-status');
-                    const adminBox = document.getElementById('admin-gps-list');
-                    if (!toggle) return; // settings page not in DOM
-                    const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                    if (adminBox) adminBox.classList.toggle('hidden', role !== 'admin');
-                    const enabled = localStorage.getItem(LS_GPS) === '1';
-                    toggle.checked = enabled;
-                    if (enabled) { statusEl && (statusEl.textContent = 'جارٍ المشاركة...'); startLocationSharing(); }
-                    toggle.addEventListener('change', function(){
-                        if (toggle.checked) { statusEl && (statusEl.textContent = 'جارٍ المشاركة...'); startLocationSharing(); }
-                        else { stopLocationSharing(); }
-                    });
-                    // عرض مواقع المناديب مباشرة عند فتح الإعدادات
-                    try { window.renderRepLocations(); } catch(e){}
-                    // أيضاً استدعاء renderRepMap إذا كانت الخريطة مفتوحة
-                    try { window.renderRepMap(); } catch(e){}
-                    // Also wire header button now that DOM is ready
-                    try {
-                        const hdrBtn = document.getElementById('gps-toggle-btn');
-                        if (hdrBtn) {
-                            window.__gpsHeaderSync();
-                            hdrBtn.addEventListener('click', function(){
-                                const isOn = localStorage.getItem(LS_GPS) === '1';
-                                if (isOn) {
-                                    stopLocationSharing();
-                                } else {
-                                    statusEl && (statusEl.textContent = 'جارٍ المشاركة...');
-                                    startLocationSharing();
-                                }
-                                // Immediately refresh text to reflect Delente ON/OFF without waiting for async
-                                try { window.__gpsHeaderSync(); } catch(e){}
-                            });
-                        }
-                    } catch(e){}
-                } catch(e){ console.warn('setupGpsSharingControls failed', e); }
-            };
-
-            window.renderRepLocations = function(){
-                try {
-                    const listEl = document.getElementById('rep-locations-list');
-                    const adminBox = document.getElementById('admin-gps-list');
-                    if (!listEl || !adminBox || adminBox.classList.contains('hidden')) return;
-                    const rows = (state.presence||[])
-                        .map(p => {
-                            try {
-                                if (!p || !p.location) return null;
-                                const latRaw = p.location.lat;
-                                const lngRaw = p.location.lng;
-                                const lat = Number(latRaw);
-                                const lng = Number(lngRaw);
-                                if (!isFinite(lat) || !isFinite(lng)) return null;
-                                const name = (state.users||[]).find(u=>u.uid===p.uid)?.name || (state.reps||[]).find(r=>r.email && p.email && r.email.toLowerCase()===p.email.toLowerCase())?.name || p.email || p.uid;
-                                const acc = p.location.accuracy;
-                                const when = p.locationUpdatedAt && p.locationUpdatedAt.toDate ? p.locationUpdatedAt.toDate() : (p.locationUpdatedAt || null);
-                                const timeStr = when ? new Date(when).toLocaleString('ar-EG') : '';
-                                const link = `https://www.google.com/maps?q=${lat},${lng}`;
-                                return `<div class="flex items-center gap-2 p-2 bg-gray-50 rounded">
-                                    <span class="font-semibold">${(name||'مندوب')}</span>
-                                    <span class="text-gray-600">(${lat.toFixed(5)}, ${lng.toFixed(5)}${acc?` • ±${Math.round(acc)}م`:''})</span>
-                                    <a class="text-blue-600 underline ml-auto" target="_blank" href="${link}">فتح الخريطة</a>
-                                    <span class="text-xs text-gray-500">${timeStr}</span>
-                                </div>`;
-                            } catch(e){ return null; }
-                        }).filter(Boolean).join('');
-                    listEl.innerHTML = rows || '<div class="text-sm text-gray-500">لا توجد مواقع مُبلّغ عنها حالياً.</div>';
-                } catch(e){ /* ignore */ }
-            };
-
-            // Interactive map: initialize and update markers
-            window.openRepsMap = function(){
-                try {
-                    const modal = document.getElementById('reps-map-modal');
-                    if (!modal) return;
-                    modal.classList.remove('hidden');
-                    modal.style.display = 'flex';
-                    setTimeout(()=>{
-                        if (!window.__repsMap) {
-                            window.__repsMap = L.map('reps-map', { zoomControl: true });
-                            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                                maxZoom: 19,
-                                attribution: '&copy; OpenStreetMap'
-                            }).addTo(window.__repsMap);
-                        }
-                        renderRepMap();
-                    }, 50);
-                } catch(e){ console.warn('openRepsMap failed', e); }
-            };
-
-            window.closeRepsMap = function(){
-                try {
-                    const modal = document.getElementById('reps-map-modal');
-                    if (!modal) return;
-                    modal.style.display = 'none';
-                    modal.classList.add('hidden');
-                } catch(e){}
-            };
-
-            window.renderRepMap = function(){
-                try {
-                    if (!window.__repsMap) return;
-                    const presence = (state.presence||[]).map(p => {
-                        if (!p || !p.location) return null;
-                        const lat = Number(p.location.lat);
-                        const lng = Number(p.location.lng);
-                        if (!isFinite(lat) || !isFinite(lng)) return null;
-                        p._lat = lat; p._lng = lng; return p;
-                    }).filter(p => p && p.sharing !== false);
-                    const bounds = [];
-                    // Diagnostic: log presence summary to help debug missing markers
-                    try { console.debug('renderRepMap presence:', presence.map(x=>({uid: x.uid||x._id||x.email, email: x.email, lat: x._lat, lng: x._lng, sharing: x.sharing}))); } catch(e){}
-                    // Remove markers that are no longer present (use stable key including email fallback)
-                    const currentUids = new Set(presence.map(p => String(p.uid||p._id||p.email||'')));
-                    Object.keys(window.__repMarkers).forEach(key => {
-                        if (!currentUids.has(key)) {
-                            try { window.__repsMap.removeLayer(window.__repMarkers[key]); } catch(e){}
-                            delete window.__repMarkers[key];
-                        }
-                    });
-                    presence.forEach(p => {
-                        const key = String(p.uid || p._id || p.email || '');
-                        const lat = p._lat, lng = p._lng;
-                        const name = (state.users||[]).find(u=>u.uid===p.uid)?.name || (state.reps||[]).find(r=>r.email && p.email && r.email.toLowerCase()===p.email.toLowerCase())?.name || p.email || 'مندوب';
-                        const when = p.locationUpdatedAt && p.locationUpdatedAt.toDate ? p.locationUpdatedAt.toDate() : (p.locationUpdatedAt || null);
-                        const timeStr = when ? new Date(when).toLocaleString('ar-EG') : '';
-                        const popupHtml = `<div style="min-width:160px"><div style="font-weight:700">${name}</div><div style="font-size:12px;color:#555">${lat.toFixed(5)}, ${lng.toFixed(5)}</div><div style="font-size:11px;color:#777">${timeStr}</div><a href="https://www.google.com/maps?q=${lat},${lng}" target="_blank" style="color:#2563eb;text-decoration:underline">فتح الخريطة</a></div>`;
-                        if (!window.__repMarkers[key]) {
-                            window.__repMarkers[key] = L.marker([lat, lng]).addTo(window.__repsMap).bindPopup(popupHtml);
-                        } else {
-                            window.__repMarkers[key].setLatLng([lat, lng]);
-                            window.__repMarkers[key].setPopupContent(popupHtml);
-                        }
-                        bounds.push([lat, lng]);
-                    });
-                    if (bounds.length) {
-                        try { window.__repsMap.fitBounds(bounds, { padding: [30,30] }); } catch(e){}
-                    }
-                } catch(e){ console.warn('renderRepMap failed', e); }
-            };
-
-            // Wire header map button and modal close
-            document.addEventListener('DOMContentLoaded', () => {
-                try {
-                    const openBtn = document.getElementById('open-map-btn');
-                    const closeBtn = document.getElementById('close-map-btn');
-                    if (openBtn) openBtn.addEventListener('click', openRepsMap);
-                    if (closeBtn) closeBtn.addEventListener('click', closeRepsMap);
-                    // Wire header GPS toggle regardless of settings page
-                    const hdrBtn = document.getElementById('gps-toggle-btn');
-                    if (hdrBtn) {
-                        try { window.__gpsHeaderSync(); } catch(e){}
-                        hdrBtn.addEventListener('click', function(){
-                            try {
-                                const isOn = localStorage.getItem('gps_sharing_enabled') === '1';
-                                if (isOn) stopLocationSharing(); else startLocationSharing();
-                            } catch(e){}
-                        });
-                    }
-                } catch(e){}
-            });
-        })();
-
         // ===== تعافي تلقائي في حال لم يتم ملء state خلال الثواني الأولى =====
         function initRealtimeRecovery(){
             let attempts = 0;
@@ -2410,26 +1866,6 @@
         }
         async function deletePriceListDoc(id){ return db.collection('priceLists').doc(String(id)).delete(); }
 
-        // ===== CRUD: المناديب =====
-        async function addRepDoc(id, data){
-            const ref = id ? db.collection('reps').doc(String(id)) : db.collection('reps').doc();
-            const obj = {
-                id: id || ref.id,
-                name: data.name || '',
-                serial: data.serial || '',
-                target: Number(data.target||0),
-                nextInvoiceNumber: data.nextInvoiceNumber || null,
-                createdAt: serverTs(),
-                updatedAt: serverTs()
-            };
-            await ref.set(obj, { merge:false });
-            return ref;
-        }
-        async function updateRepDoc(id, partial){
-            return db.collection('reps').doc(String(id)).set({ ...partial, updatedAt: serverTs() }, { merge:true });
-        }
-        async function deleteRepDoc(id){ return db.collection('reps').doc(String(id)).delete(); }
-
         // صلاحيات إدارة العملاء: المندوب يرى ويعدّل فقط عملاؤه أو العملاء غير المعيّنين
         function canManageCustomer(c){
             try {
@@ -2487,8 +1923,8 @@
             };
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                // افتراض: المندوب/المبيعات => تحت المراجعة، غير ذلك تُعتبر مُراجَعة
-                if (role === 'sales' || role === 'rep') obj.reviewStatus = 'pending';
+                // افتراض: المندوب/المستخدم/المبيعات => تحت المراجعة، غير ذلك تُعتبر مُراجَعة
+                if (role === 'sales' || role === 'rep' || role === 'user') obj.reviewStatus = 'pending';
                 else obj.reviewStatus = 'reviewed';
             } catch(_) { obj.reviewStatus = 'pending'; }
 
@@ -4002,22 +3438,44 @@
             if (existing && existing.exists) { alert('تم إقفال هذا الشهر مسبقاً'); return { ok:false, reason:'already-closed' }; }
 
             // كتابة مستند الإقفال + تفاصيل العملاء كتصنيف فرعي
-            await db.collection('monthlyClosings').doc(period).set({
-                period,
-                closedAt: serverTs(),
-                closedBy: (auth&&auth.currentUser)? auth.currentUser.uid : null,
-                totalCustomers: summary.customers.length,
-                totalOutstanding: summary.totalOutstanding
-            }, { merge:true });
+            try {
+                await db.collection('monthlyClosings').doc(period).set({
+                    period,
+                    closedAt: serverTs(),
+                    closedBy: (auth&&auth.currentUser)? auth.currentUser.uid : null,
+                    totalCustomers: summary.customers.length,
+                    totalOutstanding: summary.totalOutstanding
+                }, { merge:true });
+            } catch(e) {
+                console.error('Error writing monthlyClosings document:', e);
+                alert('خطأ في حفظ بيانات إقفال الشهر. تأكد من الصلاحيات.');
+                return { ok:false, reason:'write-error', error: e.message };
+            }
             // كتابة تفاصيل العملاء
             {
                 let batch = db.batch(); let pending = 0; const LIM = 450;
                 for (const row of summary.customers){
                     const ref = db.collection('monthlyClosings').doc(period).collection('customers').doc(row.customerId || slugId(row.customerName));
                     batch.set(ref, { customerId: row.customerId, customerName: row.customerName, closing: row.closing }, { merge:true });
-                    pending++; if (pending>=LIM){ await batch.commit(); batch = db.batch(); pending = 0; }
+                    pending++; if (pending>=LIM){ 
+                        try {
+                            await batch.commit();
+                        } catch(e) {
+                            console.error('Error committing customers batch:', e);
+                            return { ok:false, reason:'batch-error', error: e.message };
+                        }
+                        batch = db.batch(); 
+                        pending = 0; 
+                    }
                 }
-                if (pending>0) await batch.commit();
+                if (pending>0) {
+                    try {
+                        await batch.commit();
+                    } catch(e) {
+                        console.error('Error committing final customers batch:', e);
+                        return { ok:false, reason:'batch-error', error: e.message };
+                    }
+                }
             }
             // إنشاء أرصدة افتتاحية للشهر التالي
             {
@@ -4036,13 +3494,34 @@
                         createdAt: serverTs(),
                         createdBy: (auth&&auth.currentUser)?auth.currentUser.uid:null
                     }, { merge:true });
-                    pending++; if (pending>=LIM){ await batch.commit(); batch = db.batch(); pending = 0; }
+                    pending++; if (pending>=LIM){ 
+                        try {
+                            await batch.commit();
+                        } catch(e) {
+                            console.error('Error committing opening balances batch:', e);
+                            return { ok:false, reason:'batch-error', error: e.message };
+                        }
+                        batch = db.batch(); 
+                        pending = 0; 
+                    }
                 }
-                if (pending>0) await batch.commit();
+                if (pending>0) {
+                    try {
+                        await batch.commit();
+                    } catch(e) {
+                        console.error('Error committing final opening balances batch:', e);
+                        return { ok:false, reason:'batch-error', error: e.message };
+                    }
+                }
             }
 
             // قفل فواتير الشهر
-            await lockMonthSales(period);
+            try {
+                await lockMonthSales(period);
+            } catch(e) {
+                console.error('Error locking month sales:', e);
+                // لا نرجع خطأ هنا لأن الفترة الرئيسية تمت
+            }
             if (!arguments[1] || !arguments[1].silent) {
                 alert('تم إقفال الشهر وترحيل الأرصدة الافتتاحية للشهر التالي');
             }
@@ -4078,9 +3557,20 @@
                 const prevPeriod = defaultPrevMonthPeriod();
                 // لا تُغلق إذا كنا في اليوم الأول ولم تُسجّل أي فواتير بعد (اختياري) — سنسمح بالإقفال دائماً إذا لم يوجد مستند إقفال
                 const docRef = db.collection('monthlyClosings').doc(prevPeriod);
-                const doc = await docRef.get();
-                if (!doc.exists) {
-                    await performMonthClose(prevPeriod, { silent: true });
+                try {
+                    const doc = await docRef.get();
+                    if (!doc.exists) {
+                        console.log('Attempting auto-close for period:', prevPeriod);
+                        const result = await performMonthClose(prevPeriod, { silent: true });
+                        if (!result.ok) {
+                            console.warn('maybeAutoClosePreviousMonth: auto-close failed', result);
+                        } else {
+                            console.log('maybeAutoClosePreviousMonth: auto-close succeeded', { period: prevPeriod });
+                        }
+                    }
+                } catch(e) {
+                    console.warn('maybeAutoClosePreviousMonth: error checking/closing previous month', e);
+                    // Suppress error to prevent blocking UI on permission errors
                 }
             } catch(e){ console.warn('maybeAutoClosePreviousMonth failed', e); }
         }
@@ -4614,23 +4104,7 @@
     
 
 
-        // Ensure a safe updateIcons exists early to prevent ReferenceError when other scripts call it.
-        if (!window.updateIcons) {
-            window.updateIcons = function(){
-                try {
-                    if (window.lucide && typeof window.lucide.replace === 'function') {
-                        window.lucide.replace();
-                        return;
-                    }
-                    if (window.Lucide && typeof window.Lucide.replace === 'function') {
-                        window.Lucide.replace();
-                        return;
-                    }
-                } catch(e) {
-                    // ignore
-                }
-            };
-        }
+        // updateIcons fallback moved to js/ui-core.js
 
         // Debug helper: reveal invoice sidebar (type manually in Console if needed)
         window.showInvoiceQuickSearch = function(){
@@ -5528,40 +5002,9 @@
                     const btn = document.getElementById('invoice-search-btn');
                     const clearBtn = document.getElementById('invoice-clear-btn');
 
-                    function formatMoney(n){
-                        try{ if (typeof formatCurrency === 'function') return formatCurrency(n); }catch(e){}
-                        if (n == null) return '0';
-                        return (Number(n) || 0).toLocaleString();
-                    }
-
-                    // Return a short date string (YYYY-MM-DD) for a variety of input shapes
-                    function formatShortDate(val){
-                        if (!val && val !== 0) return '';
-                        try {
-                            // If already an ISO-like string with time, take the date portion
-                            if (typeof val === 'string'){
-                                if (val.indexOf('T') !== -1) return val.split('T')[0];
-                                if (/^\d{4}-\d{2}-\d{2}/.test(val)) return val.slice(0,10);
-                                // common DD/MM/YYYY or D/M/YYYY -> parse accordingly
-                                if (/^\d{1,2}\/\d{1,2}\/\d{4}$/.test(val)){
-                                    const parts = val.split('/').map(p=>Number(p));
-                                    // assume DD/MM/YYYY
-                                    const d = new Date(parts[2], parts[1]-1, parts[0]);
-                                    if (!isNaN(d)) return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-                                }
-                            }
-                            // If already a Date
-                            if (val instanceof Date) {
-                                const d = val;
-                                return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
-                            }
-                            // Try constructing Date from value
-                            const dd = new Date(val);
-                            if (!isNaN(dd) && dd.getFullYear() > 1900) return dd.getFullYear() + '-' + String(dd.getMonth()+1).padStart(2,'0') + '-' + String(dd.getDate()).padStart(2,'0');
-                        } catch(e) {}
-                        // fallback to original string representation
-                        return String(val);
-                    }
+                    // Use shared helpers from formatters.js
+                    const formatMoney = (v) => (window.formatMoney ? window.formatMoney(v) : String(v ?? ''));
+                    const formatShortDate = (v) => (window.formatShortDate ? window.formatShortDate(v) : String(v ?? ''));
 
                     function findInvoice(num){
                         if (!num) return null;
@@ -5690,7 +5133,7 @@
                             vCname.textContent = (cname == null ? 'غير معروف' : cname);
                         if (vDate) {
                             var rawDate = sale.date || sale.createdAt || sale.timestamp || '';
-                            vDate.textContent = rawDate ? formatShortDate(rawDate) : '--';
+                            vDate.textContent = rawDate ? (window.formatShortDate ? window.formatShortDate(rawDate) : String(rawDate)) : '--';
                         }
                     }
 
@@ -7553,7 +6996,7 @@
             manager: 'ALL',
             // تم توحيد السماح للمندوب مع الأيقونات الظاهرة: الرئيسية، إدخال سريع، المبيعات، الاستعلام، الأذونات
             rep: new Set(['dashboard','spreadsheet-entry','sales','inquiry','dispatch']),
-            user: new Set(['dashboard','spreadsheet-entry','sales','inquiry','dispatch'])
+            user: 'ALL'
         };
         let lastRequestedPage = null; // لتتبع الصفحة التي حاول المستخدم فتحها فعلياً
         function canAccessPage(pageName){
@@ -7855,28 +7298,7 @@
         let topCustomersChart;
 
         // Utility Functions
-        const arabicMonths = [
-            "يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو",
-            "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"
-        ];
-
-        function formatArabicDate(dateString) {
-            const date = new Date(dateString);
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            return `${day}/${month}/${year}`;
-        }
-
-        function formatArabicDateTime(dateString) {
-            const date = new Date(dateString);
-            const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0');
-            const year = date.getFullYear();
-            const hour = date.getHours().toString().padStart(2, '0');
-            const minute = date.getMinutes().toString().padStart(2, '0');
-            return `${day}/${month}/${year} ${hour}:${minute}`;
-        }
+        // formatArabicDate and formatArabicDateTime now provided by js/formatters.js
 
         // Use global formatter if already defined to avoid TDZ errors on early calls
         var formatCurrency = window.formatCurrency || function(num){
@@ -7902,16 +7324,7 @@
         window.findProduct = findProduct;
         const findPriceList = (id) => state.priceLists.find(pl => pl.id === id);
         const findRep = (name) => (state.reps||[]).find(r => r.name === name);
-        const openModal = (modal) => {
-            modal.classList.remove('modal-hidden');
-            modal.classList.add('modal-visible');
-            if (modal.id === 'date-range-modal') {
-                // Ensure customers are loaded and then update the list
-                // Assuming state.customers is already populated by this point
-                updateCustomerList();
-            }
-        }
-        const closeModal = (modal) => { modal.classList.add('modal-hidden'); modal.classList.remove('modal-visible'); }
+        // Generic modal open/close moved to js/ui-core.js
 
         // Company logo helpers
         function getCompanyLogoUrl() {
@@ -8143,100 +7556,9 @@
 
         // --- All Function Definitions START ---
         
-        function updateIcons() {
-            if (typeof lucide !== 'undefined') {
-                lucide.createIcons();
-            }
-        }
+        // updateIcons/customDialog now provided by ui-core.js
 
-        function customDialog({ message, title = 'إشعار', isConfirm = false, confirmText = 'تأكيد', confirmClass = 'bg-blue-600 hover:bg-blue-700' }) {
-             return new Promise(resolve => {
-                let confirmBtn = document.getElementById('dialog-confirm-btn');
-                let cancelBtn = document.getElementById('dialog-cancel-btn');
-
-                if (!dialogTitle || !dialogMessage || !confirmBtn || !cancelBtn) {
-                    console.error("Custom dialog elements are missing in the DOM.");
-                    setTimeout(() => resolve(isConfirm ? false : true), 10);
-                    return;
-                }
-                
-                dialogTitle.textContent = title;
-                dialogMessage.textContent = message;
-                
-                confirmBtn.textContent = confirmText;
-                confirmBtn.className = `flex-1 text-white px-4 py-2 rounded-lg font-semibold ${confirmClass}`;
-                
-                dialogActions.classList.toggle('justify-between', isConfirm);
-                dialogActions.classList.toggle('justify-center', !isConfirm);
-                cancelBtn.classList.toggle('hidden', !isConfirm);
-                cancelBtn.textContent = 'إلغاء';
-
-                const oldConfirmBtn = confirmBtn;
-                const newConfirmBtn = oldConfirmBtn.cloneNode(true);
-                if (oldConfirmBtn.parentNode) {
-                    oldConfirmBtn.parentNode.replaceChild(newConfirmBtn, oldConfirmBtn);
-                }
-                
-                const oldCancelBtn = cancelBtn;
-                const newCancelBtn = oldCancelBtn.cloneNode(true);
-                if (oldCancelBtn.parentNode) {
-                    oldCancelBtn.parentNode.replaceChild(newCancelBtn, oldCancelBtn);
-                }
-                
-                newConfirmBtn.addEventListener('click', () => {
-                    closeModal(customConfirmModal);
-                    resolve(true);
-                }, { once: true });
-
-                if (isConfirm) {
-                    newCancelBtn.addEventListener('click', () => {
-                        closeModal(customConfirmModal);
-                        resolve(false);
-                    }, { once: true });
-                }
-                
-                openModal(customConfirmModal);
-            });
-        }
-        
-        function populateRepDropdown(selectEl, selectedRepName = '') {
-            if (!selectEl) return;
-            let repNames = (state.reps||[]).map(r => r.name).filter(n => !!n);
-            const prev = selectedRepName || selectEl.value;
-            // تخصيص زر الإدخال السريع ليظهر فقط اسم المندوب الحالي إذا لم يكن أدمن
-            if (selectEl.id === 'spreadsheet-rep') {
-                let role = typeof getUserRole === 'function' ? getUserRole() : 'rep';
-                let currentEmail = (window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null;
-                if (role === 'rep' && currentEmail) {
-                    // ابحث عن اسم المندوب المرتبط بهذا الإيميل
-                    const currentRep = (state.reps||[]).find(r => (r.email||'').toLowerCase() === currentEmail);
-                    if (currentRep) {
-                        repNames = [currentRep.name];
-                    } else {
-                        repNames = [];
-                    }
-                }
-            }
-            let html = '<option value="">-- جميع المناديب --</option>';
-            html += repNames.map(name => `<option value="${name}" ${name === prev ? 'selected' : ''}>${name}</option>`).join('');
-            selectEl.innerHTML = html;
-            // Restore previous selection if still present
-            if (prev && repNames.includes(prev)) selectEl.value = prev;
-        }
-        
-        function populateRepDropdownReports(selectEl, selectedRepName = '') {
-            const repNames = state.reps.map(r => r.name);
-            selectEl.innerHTML = '<option value="all">-- كل المناديب --</option>' + repNames.map(name => 
-                `<option value="${name}" ${name === selectedRepName ? 'selected' : ''}>${name}</option>`
-            ).join('');
-        }
-
-        // Helper: العثور على مندوب بالاسم أو المعرّف (تجنّب تكرار التعريف)
-        if (typeof window.findRep !== 'function') {
-            window.findRep = function(name){
-                try { return (state.reps||[]).find(r => r.name === name || r.id === name) || null; } catch(e){ return null; }
-            };
-        }
+        // Rep dropdown helpers provided by staff-services.js
 
         // ===== تصحيح مشاكل توقف التطبيق بسبب دوال ناقصة من الكود القديم =====
         // تهيئة آمنة للحالة العامة إن لم تكن موجودة
@@ -8323,19 +7645,39 @@
 
              console.log('updateCustomerList called with:', { filter, chain });
              console.log('Initial state.customers:', state.customers);
+             
+             // Debug: Print all customer names when selecting 'all'
+             if (chain === 'all' && state.customers.length > 0) {
+                 console.log('📋 All customer names:');
+                 state.customers.forEach((c, idx) => {
+                     if (idx < 20) { // Show first 20 only to avoid clutter
+                         console.log(`  - ${c.name}`);
+                     }
+                 });
+                 if (state.customers.length > 20) {
+                     console.log(`  ... و ${state.customers.length - 20} عميل آخر`);
+                 }
+             }
 
              let filteredCustomers = state.customers;
              const allChains = loadChains();
 
              if (chain !== 'all' && supermarketChains[chain]) {
                  const branches = supermarketChains[chain];
-                 console.log('Filtering by chain. Branches:', branches);
+                 console.log('🔍 Filtering by chain:', chain);
+                 console.log('📋 Looking for branches:', branches);
+                 console.log('👥 Total customers before filter:', filteredCustomers.length);
+                 
                  filteredCustomers = filteredCustomers.filter(c => {
                      const match = branches.some(branch => c.name.toLowerCase().includes(branch.toLowerCase()));
-                     // console.log(`Customer: ${c.name}, Branch: ${branches}, Match: ${match}`);
+                     if (match) {
+                         console.log(`✅ Match found: ${c.name}`);
+                     }
                      return match;
                  });
-                 console.log('Customers after chain filter:', filteredCustomers);
+                 
+                 console.log('👥 Customers after chain filter:', filteredCustomers.length);
+                 console.log('📝 Filtered customers:', filteredCustomers.map(c => c.name));
              }
 
              if (filter) {
@@ -8346,8 +7688,21 @@
              if (filteredCustomers.length === 0) {
                  const el = document.createElement('label');
                  el.className = 'flex items-center gap-2 cursor-pointer hover:bg-gray-100 p-1 rounded-md';
+                 
+                 let message = 'لا توجد نتائج مطابقة.';
+                 if (chain !== 'all') {
+                     const chainNames = {
+                         'exception': 'اكسبشن ماركت',
+                         'awladragab': 'اولاد رجب',
+                         'samysalama': 'سامي سلامه',
+                         'gomlamarket': 'جملة ماركت',
+                         'dreams': 'دريمز'
+                     };
+                     message = `لا توجد عملاء من سلسلة ${chainNames[chain] || chain}.`;
+                 }
+                 
                  el.innerHTML = `
-                      <span class="text-sm text-red-500">لا توجد نتائج مطابقة.</span>
+                      <span class="text-sm text-red-500">${message}</span>
                  `;
                  statementCustomerList.appendChild(el);
              } else {
@@ -8380,6 +7735,36 @@
         window.updateCustomerList = updateCustomerList;
 
         document.addEventListener('DOMContentLoaded', () => {
+            // Event listener for product category filter
+            const productCategoryRadios = document.querySelectorAll('input[name="product-category"]');
+            productCategoryRadios.forEach(radio => {
+                radio.addEventListener('change', (e) => {
+                    const category = e.target.value;
+                    const allProducts = state.products || [];
+                    let filteredProducts = allProducts;
+                    
+                    // دعم التصنيفات العربية والإنجليزية
+                    if (category === 'multi') {
+                        filteredProducts = allProducts.filter(p => 
+                            p.category === 'multi' || p.category === 'مالتي' || p.category === 'مالتى'
+                        );
+                    } else if (category === 'dairy') {
+                        filteredProducts = allProducts.filter(p => 
+                            p.category === 'dairy' || p.category === 'ألبان' || p.category === 'البان' || p.category === 'الألبان'
+                        );
+                    }
+                    
+                    console.log(`✅ Filtered to ${filteredProducts.length} products`);
+                    
+                    // Optional: Show a message to user
+                    const categoryLabel = category === 'all' ? 'جميع المنتجات' : (category === 'multi' ? 'مالتي' : 'ألبان');
+                    const message = `تم الفلترة: ${filteredProducts.length} منتج (${categoryLabel})`;
+                    
+                    // You can display this message in a dedicated element if you want
+                    // For now, we just log it
+                });
+            });
+            
             // Event listener for the new select
             const supermarketChainFilter = document.getElementById('supermarket-chain-filter');
             if(supermarketChainFilter) {
@@ -11044,177 +10429,8 @@
             selectEl.value = currentValue;
         }
 
-        function renderDashboard() {
-             const selectedRepName = (document.getElementById('dashboard-rep-filter') || {}).value || '';
-             console.debug('renderDashboard called with state.sales length:', (state.sales || []).length, 'activePeriod:', state.activePeriod);
-             
-             // Helper function للحصول على مبيعات الشهر النشط
-             const getActivePeriodSalesLocal = () => {
-                state.sales = state.sales || [];
-                const activePeriod = state.activePeriod || '';
-                if (!activePeriod) return state.sales;
-                 
-                return state.sales.filter(sale => {
-                     try {
-                         const saleDate = sale.date ? new Date(sale.date) : null;
-                         if (!saleDate || isNaN(saleDate.getTime())) return false;
-                         const saleYearMonth = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
-                         return saleYearMonth === activePeriod;
-                     } catch (_) {
-                         return false;
-                     }
-                 });
-             };
-             
-             const currentMonthSales = getActivePeriodSalesLocal();
-             let filteredMonthSales = currentMonthSales;
-            
-            // Prefer the global target from settings when no rep is selected. If settings target is missing/zero, fall back to sum of rep targets.
-            state.reps = state.reps || [];
-            let currentTarget = Number(state.settings?.salesTarget || 0);
-            const targetTitleEl = document.getElementById('target-title');
-            if (selectedRepName) {
-                filteredMonthSales = currentMonthSales.filter(s => s.repName === selectedRepName);
-                const targetRep = findRep(selectedRepName);
-                currentTarget = targetRep ? (targetRep.target || 0) : 0;
-                if (targetTitleEl) targetTitleEl.innerHTML = `الهدف الشهري لـ <span class="text-blue-600">${selectedRepName}</span>`;
-            } else {
-                // Use settings.salesTarget as the global monthly target. If it's falsy, fall back to the sum of individual rep targets.
-                if (!currentTarget || currentTarget <= 0) {
-                    currentTarget = state.reps.reduce((sum, rep) => sum + (rep.target || 0), 0) || 0;
-                }
-                if (targetTitleEl) targetTitleEl.textContent = `الهدف الشهري (الإجمالي):`;
-            }
-            
-            const totalSales = filteredMonthSales.reduce((sum, s) => sum + (s.total || 0), 0);
-            const totalCollected = filteredMonthSales.reduce((sum, s) => {
-                const paid = s.paidAmount ?? ((s.firstPayment || 0) + (s.secondPayment || 0));
-                return sum + (Number(paid) || 0);
-            }, 0);
-            const totalDue = totalSales - totalCollected;
-            console.debug('Dashboard calculated:', {totalSales, totalCollected, totalDue, filteredMonthSalesLength: filteredMonthSales.length, selectedRepName});
-            if (document.getElementById('total-sales')) document.getElementById('total-sales').textContent = formatCurrency(totalSales);
-            if (document.getElementById('total-collected')) document.getElementById('total-collected').textContent = formatCurrency(totalCollected);
-            if (document.getElementById('total-due')) document.getElementById('total-due').textContent = formatCurrency(totalDue);
-            if (document.getElementById('sales-count')) document.getElementById('sales-count').textContent = filteredMonthSales.length;
-            const progress = currentTarget > 0 ? Math.min((totalSales / currentTarget) * 100, 100) : 0;
-            if (document.getElementById('target-amount-display')) document.getElementById('target-amount-display').textContent = formatCurrency(currentTarget);
-            const progressBar = document.getElementById('target-progress-bar'); if (progressBar) progressBar.style.width = `${progress}%`;
-            if (document.getElementById('target-progress-text')) document.getElementById('target-progress-text').textContent = `${Math.round(progress)}%`;
-            const recentSalesList = document.getElementById('recent-sales-list'); if (recentSalesList) recentSalesList.innerHTML = '';
-            let recentSales = [...currentMonthSales].reverse();
-            if (selectedRepName) { recentSales = recentSales.filter(s => s.repName === selectedRepName); }
-            recentSales = recentSales.slice(0, 5);
-            if (!recentSalesList) return;
-            if (recentSales.length === 0) { recentSalesList.innerHTML = '<p class="text-gray-500 text-center">لا توجد عمليات بيع بعد.</p>'; return; }
-            recentSales.forEach(sale => { const customer = findCustomer(sale.customerId); 
-    // NEW: Return detection for dashboard recent sales
-    const isReturn = sale.total < 0;
-    const totalAmountClass = isReturn ? 'text-red-700' : 'text-green-700';
-
-    const el = document.createElement('div'); el.className = 'bg-gray-50 p-3 rounded-lg flex justify-between items-center'; 
-    el.innerHTML = `<div><p class="font-bold">${customer && customer.name ? customer.name : (sale.customerName || 'غير معروف')}</p><p class="text-sm text-gray-500"><bdo dir="rtl">${formatArabicDateTime(sale.date)}</bdo></p><p class="text-xs text-blue-600 pt-1">${sale.repName || ''}</p></div><div class="text-left space-y-1"><p class="font-bold ${totalAmountClass}">${formatCurrency(sale.total)}</p>${getStatusBadge(sale.status)}</div>`; recentSalesList.appendChild(el); }); updateIcons();
-        }
-        
-        // --- CHART RENDERING FUNCTIONS ---
-        
-        // Helper function to filter sales by active period
-        function getActivePeriodSales() {
-            const activePeriod = state.activePeriod || '';
-            if (!activePeriod) return state.sales || [];
-            
-            return (state.sales || []).filter(sale => {
-                try {
-                    const saleDate = sale.date ? new Date(sale.date) : null;
-                    if (!saleDate || isNaN(saleDate.getTime())) return false;
-                    const saleYearMonth = `${saleDate.getFullYear()}-${String(saleDate.getMonth() + 1).padStart(2, '0')}`;
-                    return saleYearMonth === activePeriod;
-                } catch (_) {
-                    return false;
-                }
-            });
-        }
-        
-        function getSalesDataForLast7Days() { 
-            // تغيير: عرض المبيعات اليومية للشهر النشط بدلاً من آخر 7 أيام
-            const activePeriod = state.activePeriod || '';
-            if (!activePeriod) return { labels: [], data: [] };
-            
-            const [year, month] = activePeriod.split('-').map(Number);
-            const daysInMonth = new Date(year, month, 0).getDate();
-            const dataMap = new Map();
-            const labels = [];
-            
-            for (let day = 1; day <= daysInMonth; day++) {
-                const dateString = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
-                labels.push(String(day));
-                dataMap.set(dateString, 0);
-            }
-            
-            const monthSales = getActivePeriodSales();
-            monthSales.forEach(sale => {
-                try {
-                    const sd = sale.date ? new Date(sale.date) : null;
-                    if (!sd || isNaN(sd.getTime())) return;
-                    const saleDateString = sd.toISOString().split('T')[0];
-                    if (dataMap.has(saleDateString)) {
-                        dataMap.set(saleDateString, dataMap.get(saleDateString) + (Number(sale.total) || 0));
-                    }
-                } catch (_) { }
-            });
-            return { labels, data: Array.from(dataMap.values()) }; 
-        }
-        function getTopRepsData(count = 5) { 
-            const monthSales = getActivePeriodSales();
-            const repSalesMap = new Map(); 
-            monthSales.forEach(sale => { 
-                const repName = sale.repName || 'غير محدد'; 
-                repSalesMap.set(repName, (repSalesMap.get(repName) || 0) + sale.total); 
-            }); 
-            const sortedReps = Array.from(repSalesMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, count); 
-            return { labels: sortedReps.map(r => r[0]), data: sortedReps.map(r => r[1]) }; 
-        }
-        function getTopProductsData(count = 5) {
-            const productQtyMap = new Map();
-            const monthSales = getActivePeriodSales();
-            monthSales.forEach(sale => {
-                try {
-                    const items = Array.isArray(sale.items) ? sale.items : [];
-                    items.forEach(item => {
-                        try {
-                            const qty = Number(item && item.quantity ? item.quantity : 0) || 0;
-                            const product = findProduct(item && item.productId);
-                            const productName = product && product.name ? product.name : (item && item.name ? item.name : 'منتج محذوف');
-                            productQtyMap.set(productName, (productQtyMap.get(productName) || 0) + qty);
-                        } catch (_) { /* ignore item */ }
-                    });
-                } catch (_) { /* ignore sale */ }
-            });
-            const sortedProducts = Array.from(productQtyMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, count);
-            return { labels: sortedProducts.map(p => p[0]), data: sortedProducts.map(p => p[1]) };
-        }
-        function getTopCustomersData(count = 5) { 
-            const monthSales = getActivePeriodSales();
-            const customerSalesMap = new Map(); 
-            monthSales.forEach(sale => { 
-                const customer = findCustomer(sale.customerId); 
-                const customerName = customer ? customer.name : 'عميل محذوف'; 
-                customerSalesMap.set(customerName, (customerSalesMap.get(customerName) || 0) + sale.total); 
-            }); 
-            const sortedCustomers = Array.from(customerSalesMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, count); 
-            return { labels: sortedCustomers.map(c => c[0]), data: sortedCustomers.map(c => c[1]) }; 
-        }
-        function createOrUpdateChart(chartInstance, canvasId, type, data, options) { 
-             if (chartInstance) { chartInstance.data.labels = data.labels; chartInstance.data.datasets[0].data = data.data; chartInstance.update(); return chartInstance; }
-             const ctx = document.getElementById(canvasId)?.getContext('2d'); 
-             if (!ctx) return null; // Add check for context
-             return new Chart(ctx, { type: type, data: { labels: data.labels, datasets: [{ label: options.label || 'القيمة', data: data.data, backgroundColor: options.backgroundColor || 'rgba(59, 130, 246, 0.5)', borderColor: options.borderColor || 'rgba(59, 130, 246, 1)', borderWidth: options.borderWidth || 1, tension: 0.3, ...options.datasetOverrides }] }, options: { responsive: true, maintainAspectRatio: false, rtl: true, plugins: { legend: { labels: { font: { family: 'Cairo' } } } }, scales: { x: { reverse: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.xTitle, text: options.xTitle, font: { family: 'Cairo' } } }, y: { beginAtZero: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.yTitle, text: options.yTitle, font: { family: 'Cairo' } } } }, ...options.overrides } }); 
-        }
-        function renderSales7DaysChart() { const data = getSalesDataForLast7Days(); sales7DaysChart = createOrUpdateChart(sales7DaysChart, 'sales-7-days-chart', 'line', data, { label: 'إجمالي المبيعات (ج.م)', backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: 'rgba(59, 130, 246, 1)', yTitle: 'المبيعات (ج.م)', datasetOverrides: { fill: true } }); }
-        function renderTopRepsChart() { const data = getTopRepsData(5); topRepsChart = createOrUpdateChart(topRepsChart, 'top-reps-chart', 'bar', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: 'rgba(16, 185, 129, 0.7)', borderColor: 'rgba(16, 185, 129, 1)', yTitle: 'قيمة المبيعات', overrides: { indexAxis: 'y' } }); }
-        function renderTopProductsChart() { const data = getTopProductsData(5); topProductsChart = createOrUpdateChart(topProductsChart, 'top-products-chart', 'bar', data, { label: 'الكمية (قطع)', backgroundColor: 'rgba(234, 179, 8, 0.7)', borderColor: 'rgba(234, 179, 8, 1)', yTitle: 'الكمية', overrides: { indexAxis: 'y' } }); }
-        function renderTopCustomersChart() { const data = getTopCustomersData(5); topCustomersChart = createOrUpdateChart(topCustomersChart, 'top-customers-chart', 'doughnut', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'], borderColor: '#fff', overrides: { parsing: { key: 'data' } }, datasetOverrides: { hoverOffset: 4 } }); }
-        // --- END CHART FUNCTIONS ---
+        // Dashboard, chart rendering functions, and helpers now provided by js/reports-services.js
+        // window.renderDashboard, window.renderSales7DaysChart, window.renderTopRepsChart, etc.
 
         async function salesListClickHandler(e) {
             const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
@@ -11648,14 +10864,16 @@
                 try {
                     const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                     if (sale && String(sale.reviewStatus||'').toLowerCase() === 'pending') {
-                        // Determine why it's pending: adjusted-price vs legacy/manual pending
+                        // Determine why it's pending: adjusted-price, discount, or legacy/manual pending
                         const isAdjustedPending = (String(sale.reviewReason||'').toLowerCase() === 'adjusted') || (Array.isArray(sale.items) && sale.items.some(it => it && it.adjusted));
+                        const hasDiscount = Array.isArray(sale.items) && sale.items.some(it => it && (it.discountPercent || it.discount));
+                        const shouldShowRedBorder = isAdjustedPending || hasDiscount;
 
-                        if (isAdjustedPending) {
-                            // Visual highlight: red border for price-adjusted pending reviews
+                        if (shouldShowRedBorder) {
+                            // Visual highlight: red border for price-adjusted OR discount-added pending reviews
                             try { el.classList.add('ring-2','ring-red-400'); } catch(_){ }
                         } else {
-                            // Legacy pending (non-price-adjust) uses yellow ring as before
+                            // Legacy pending (non-price-adjust, no-discount) uses yellow ring as before
                             try { el.classList.add('ring-2','ring-yellow-300'); } catch(_){ }
                         }
 
@@ -12055,7 +11273,7 @@
             return { base: round2(base), taxAmount: round2(taxAmount), total: round2(total) };
         }
 
-        function round2(n){ return Math.round((n + Number.EPSILON)*100)/100; }
+        // round2 now provided by js/formatters.js
 
         // Transform internal sale to ETA invoice JSON (unsigned)
         function transformSaleToEtaInvoice(sale) {
@@ -12173,63 +11391,7 @@
             try { return renderCustomers(filter); } catch(e){ console.warn('renderCustomerList alias failed', e); }
         }
 
-        function renderReps() {
-            const repsList = document.getElementById('reps-list');
-            repsList.innerHTML = '';
-            if (state.reps.length === 0) {
-                repsList.innerHTML = '<p class="text-gray-500 text-center mt-8">لا يوجد مناديب. اضغط على زر "إضافة مندوب" للبدء.</p>';
-                return;
-            }
-            state.reps.forEach(rep => {
-                const el = document.createElement('div');
-                el.className = 'bg-white p-4 rounded-lg border shadow-sm';
-                el.innerHTML = `<div class="flex justify-between items-start">
-                    <div>
-                        <p class="font-bold text-lg">${rep.name}</p>
-                        <p class="text-sm text-gray-500 mt-1">السيريال: ${rep.serial || 'لا يوجد'}</p>
-                        <p class="text-sm text-blue-600 font-semibold mt-1">التارجت: ${formatCurrency(rep.target)}</p>
-                        <div class="text-sm text-red-600 font-semibold mt-1">
-                            رقم الفاتورة القادمة: 
-                            <input type="number" class="rep-invoice-input" value="${rep.nextInvoiceNumber || 1}" data-rep-id="${rep.id}" style="width:80px; padding:4px; border: 1px solid #d1d5db; border-radius: 4px; margin-right: 6px;">
-                            <button class="rep-invoice-save-btn" data-rep-id="${rep.id}" style="padding: 4px 8px; background: #3b82f6; color: white; border: none; border-radius: 4px; cursor: pointer; font-size: 12px;">حفظ</button>
-                        </div>
-                        <p class="text-sm text-gray-700 mt-1">البريد الإلكتروني: <span class="font-mono text-xs">${rep.email || '-'}</span></p>
-                    </div>
-                    <div class="flex">
-                        <button data-id="${rep.id}" class="edit-rep-btn p-2 text-gray-500 hover:text-blue-600"><i data-lucide="edit" class="w-5 h-5"></i></button>
-                        <button data-id="${rep.id}" class="delete-rep-btn p-2 text-gray-500 hover:text-red-600"><i data-lucide="trash-2" class="w-5 h-5"></i></button>
-                    </div>
-                </div>`;
-                repsList.appendChild(el);
-            });
-            
-            // ربط معالجات حفظ السيريال
-            document.querySelectorAll('.rep-invoice-save-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    const repId = btn.dataset.repId;
-                    const input = document.querySelector(`.rep-invoice-input[data-rep-id="${repId}"]`);
-                    if (!input) return;
-                    const newValue = parseInt(input.value);
-                    if (isNaN(newValue) || newValue < 1) {
-                        alert('يرجى إدخال رقم صحيح أكبر من 0');
-                        return;
-                    }
-                    const rep = state.reps.find(r => r.id === repId);
-                    if (!rep) return;
-                    rep.nextInvoiceNumber = newValue;
-                    try {
-                        await db.collection('reps').doc(repId).set({ nextInvoiceNumber: newValue }, { merge: true });
-                        console.log('✅ تم تحديث رقم الفاتورة للمندوب', rep.name, 'إلى', newValue);
-                        btn.textContent = '✓';
-                        setTimeout(() => { btn.textContent = 'حفظ'; }, 1500);
-                    } catch(err) {
-                        alert('فشل حفظ رقم الفاتورة: ' + err.message);
-                    }
-                });
-            });
-            
-            updateIcons();
-        }
+        // renderReps is now provided by staff-services.js
 
         function renderSettings(productFilter = '') {
             // Set sales target input
@@ -13600,14 +12762,7 @@
             try { updateDebtsFilterIndicators(); } catch(e){}
         })();
 
-        function escapeHtml(s){ return s.replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-        // Format numbers using English (en-US) digits with up to 2 decimals
-        function formatNumberEN(v){
-            const n = Number(v ?? 0);
-            if (isNaN(n)) return '0';
-            const hasFraction = Math.abs(n - Math.round(n)) > 0;
-            return n.toLocaleString('en-US', { minimumFractionDigits: hasFraction ? 2 : 0, maximumFractionDigits: 2 });
-        }
+        // escapeHtml and formatNumberEN now provided by js/formatters.js
         async function loadReps() {
             const repSelect = document.getElementById('debt-rep-filter');
             // If running from file:// (offline) the browser blocks fetch to absolute/relative endpoints due to CORS.
@@ -14626,7 +13781,18 @@
             const product = state.products.find(p => String(p.id) === scode) || state.products.find(p => String(p._id) === scode) || state.products.find(p => String(p.sku) === scode);
             if (!product) return null;
             const price = Number(product.price || 0);
-            const category = product.category === 'multi' ? 'مالتي' : (product.category === 'dairy' ? 'ألبان' : (product.category || ''));
+            // Normalize and map known category keys to Arabic labels
+            const rawCat = String(product.category || '').toLowerCase();
+            let category = '';
+            if (!rawCat) {
+                category = '';
+            } else if (rawCat.includes('multi') || rawCat.includes('finish') || rawCat.includes('finished') || rawCat.includes('finished-products') || rawCat.includes('finished_goods')) {
+                category = 'مالتي';
+            } else if (rawCat.includes('dairy') || rawCat.includes('milk')) {
+                category = 'ألبان';
+            } else {
+                category = product.category || '';
+            }
             return { id: product.id || product._id || product.sku, name: product.name || product.title || code, defaultPrice: price, categoryName: category };
         }
         function updateSpreadsheetPriceAndProductInfo(row, productId, customerId) { 
@@ -14659,10 +13825,10 @@
             // Use modified price if it's a valid number, otherwise use the original price
             const finalPrice = !isNaN(modifiedPrice) && modifiedPrice > 0 ? modifiedPrice : originalPrice;
             
-            const discount = parseFloat(row.querySelector('.spreadsheet-discount').value) || 0;
+            const discountPercent = parseFloat(row.querySelector('.spreadsheet-discount').value) || 0;
             const totalCell = row.querySelector('.spreadsheet-total');
             const itemSubtotal = quantity * finalPrice;
-            const itemTotal = itemSubtotal * (1 - discount / 100);
+            const itemTotal = itemSubtotal * (1 - discountPercent / 100);
             totalCell.textContent = formatCurrency(itemTotal);
         }
         
@@ -15556,916 +14722,18 @@
             document.body.removeChild(tempExportElement);
         }
 
-        function generateDailyReport() {
-            const date = dailyReportDateInput.value;
-            const repName = dailyReportRepSelect.value;
-            const chainId = document.getElementById('daily-report-chain').value;
-            
-            if (!date) {
-                customDialog({ message: 'الرجاء تحديد تاريخ التقرير اليومي.', title: 'بيانات ناقصة' });
-                return;
-            }
-            
-            // Get chain customer IDs if a chain is selected
-            let allowedCustomerIds = null;
-            if (chainId) {
-                const chains = loadChains();
-                const chain = chains.find(c => c.id === chainId);
-                if (chain) allowedCustomerIds = chain.customerIds || [];
-            }
-            
-            const salesForDay = state.sales.filter(s => {
-                const saleDate = new Date(s.date);
-                if (isNaN(saleDate.getTime())) return false; // skip invalid dates
-                const matchesDate = saleDate.toISOString().split('T')[0] === date;
-                const matchesRep = (repName === 'all' || s.repName === repName);
-                const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
-                return matchesDate && matchesRep && matchesChain;
-            }).sort((a, b) => a.invoiceNumber - b.invoiceNumber);
+        // generateDailyReport and generateRangeReport moved to js/reports-services.js
 
-            let totalSales = 0;
-            let totalReturns = 0;
-            
-            const reportRows = salesForDay.map(sale => {
-                const customer = findCustomer(sale.customerId);
-                const isReturn = sale.total < 0;
-                
-                if (isReturn) {
-                    totalReturns += sale.total;
-                } else {
-                    totalSales += sale.total;
-                }
+        // generateMonthlyReport moved to js/reports-services.js
 
-                const totalClass = isReturn ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
+        // ===== Targets Report moved to js/reports-services.js
 
-                return `<tr class="border-b ${isReturn ? 'bg-red-100/50' : ''}">
-                    <td class="px-4 py-2">${sale.invoiceNumber}</td>
-                    <td class="px-4 py-2">${customer?.name || 'عميل محذوف'}</td>
-                    <td class="px-4 py-2">${sale.repName || 'غير محدد'}</td>
-                    <td class="px-4 py-2 text-center ${totalClass}">${formatCurrency(sale.total)}</td>
-                    <td class="px-4 py-2 text-center">${getStatusBadge(sale.status)}</td>
-                </tr>`;
-            }).join('');
-            
-            const netSales = totalSales + totalReturns; // Returns are already negative
-            const chainName = chainId ? document.querySelector('#daily-report-chain option[value="' + chainId + '"]').textContent : '';
+        // ===== Customer Targets Report moved to js/reports-services.js (اكسبشن / سفير / الضحى)
+        // Helpers and report generation relocated; this stub intentionally left blank.
 
-            let outputHTML = `
-                <div id="daily-report-output" class="bg-white p-4 rounded-lg shadow-lg">
-                    <h3 class="text-xl font-bold mb-4">تقرير المبيعات اليومي لـ: ${date} (${repName === 'all' ? 'جميع المناديب' : repName}${chainId ? ' - السلسلة: ' + chainName : ''})</h3>
-                    <div class="grid grid-cols-3 gap-4 mb-4 text-center">
-                        <div class="p-3 bg-green-50 rounded-lg">
-                            <p class="text-sm text-green-700">إجمالي المبيعات:</p>
-                            <p class="text-xl font-bold text-green-800">${formatCurrency(totalSales)}</p>
-                        </div>
-                        <div class="p-3 bg-red-50 rounded-lg">
-                            <p class="text-sm text-red-700">إجمالي المرتجعات:</p>
-                            <p class="text-xl font-bold text-red-800">${formatCurrency(totalReturns)}</p>
-                        </div>
-                        <div class="p-3 bg-blue-50 rounded-lg">
-                            <p class="text-sm text-blue-700">صافي المبيعات:</p>
-                            <p class="text-xl font-bold text-blue-800">${formatCurrency(netSales)}</p>
-                        </div>
-                    </div>
-                    
-                    ${salesForDay.length > 0 ? `
-                        <div class="overflow-x-auto border rounded-lg">
-                            <table class="min-w-full divide-y divide-gray-200">
-                                <thead class="bg-gray-50">
-                                    <tr>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">رقم الفاتورة</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">العميل</th>
-                                        <th class="px-4 py-2 text-right text-xs font-medium text-gray-500 uppercase">المندوب</th>
-                                        <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">الإجمالي</th>
-                                        <th class="px-4 py-2 text-center text-xs font-medium text-gray-500 uppercase">الحالة</th>
-                                    </tr>
-                                </thead>
-                                <tbody class="bg-white divide-y divide-gray-100">
-                                    ${reportRows}
-                                </tbody>
-                            </table>
-                        </div>
-                    ` : '<p class="text-center text-gray-500 p-4">لا توجد فواتير أو مرتجعات مسجلة في هذا التاريخ.</p>'}
-                </div>
-                <div class="mt-4 flex gap-2 no-print">
-                    <button onclick="printSection('daily-report-output')" class="w-1/2 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
-                    <button onclick="generateReportImage('daily-report-output')" class="w-1/2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
-                </div>
-            `;
-            
-            reportOutputArea.innerHTML = outputHTML;
-            updateIcons();
-        }
-
-        // Placeholder for other reports (to be implemented later if requested)
-        function generateRangeReport() {
-            const start = rangeStartDateInput.value;
-            const end = rangeEndDateInput.value;
-            const repName = rangeReportRepSelect.value;
-            const chainId = document.getElementById('range-report-chain').value;
-            
-            if (!start || !end) {
-                customDialog({ message: 'الرجاء تحديد تاريخ البداية والنهاية.', title: 'بيانات ناقصة' });
-                return;
-            }
-            
-            // Get chain customer IDs if a chain is selected
-            let allowedCustomerIds = null;
-            if (chainId) {
-                const chains = loadChains();
-                const chain = chains.find(c => c.id === chainId);
-                if (chain) allowedCustomerIds = chain.customerIds || [];
-            }
-            
-            const startDate = new Date(start + 'T00:00:00Z');
-            const endDate = new Date(end + 'T23:59:59Z');
-            const salesInRange = state.sales.filter(s => {
-                const d = new Date(s.date);
-                if (isNaN(d.getTime())) return false; // skip invalid dates
-                const matchesDate = d >= startDate && d <= endDate;
-                const matchesRep = repName === 'all' || s.repName === repName;
-                const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
-                return matchesDate && matchesRep && matchesChain;
-            }).sort((a,b)=> new Date(a.date) - new Date(b.date));
-
-            let totalSales = 0; let totalReturns = 0;
-            const rowsHtml = salesInRange.map(sale => {
-                const customer = findCustomer(sale.customerId);
-                const isReturn = sale.total < 0;
-                if (isReturn) totalReturns += sale.total; else totalSales += sale.total;
-                const totalClass = isReturn ? 'text-red-600 font-bold' : 'text-green-600 font-bold';
-                return `<tr class="border-b ${isReturn ? 'bg-red-50' : ''}">\n                    <td class="px-3 py-1 text-center">${new Date(sale.date).toLocaleDateString('ar-EG')}</td>\n                    <td class="px-3 py-1">${sale.invoiceNumber || ''}</td>\n                    <td class="px-3 py-1">${customer?.name || 'عميل محذوف'}</td>\n                    <td class="px-3 py-1">${sale.repName || ''}</td>\n                    <td class="px-3 py-1 text-center ${totalClass}">${formatCurrency(sale.total)}</td>\n                    <td class="px-3 py-1 text-center">${getStatusBadge(sale.status)}</td>\n                </tr>`;
-            }).join('');
-            const netSales = totalSales + totalReturns;
-            const chainName = chainId ? document.querySelector('#range-report-chain option[value="' + chainId + '"]').textContent : '';
-
-            // تجميع يومي مختصر
-            const dailyMap = new Map();
-            salesInRange.forEach(s => {
-                const dayKey = new Date(s.date).toISOString().split('T')[0];
-                const prev = dailyMap.get(dayKey) || { sales:0, returns:0 };
-                if (s.total < 0) prev.returns += s.total; else prev.sales += s.total;
-                dailyMap.set(dayKey, prev);
-            });
-            const dailyRows = Array.from(dailyMap.entries()).sort((a,b)=> new Date(a[0]) - new Date(b[0]))
-                .map(([day, agg]) => {
-                    const net = agg.sales + agg.returns;
-                    return `<tr class="border-b">\n                        <td class="px-2 py-1">${day}</td>\n                        <td class="px-2 py-1 text-green-700 font-semibold">${formatCurrency(agg.sales)}</td>\n                        <td class="px-2 py-1 text-red-700 font-semibold">${formatCurrency(agg.returns)}</td>\n                        <td class="px-2 py-1 text-blue-700 font-semibold">${formatCurrency(net)}</td>\n                    </tr>`; }).join('');
-
-            reportOutputArea.innerHTML = `
-                <div id="range-report-output" class="bg-white p-4 rounded-lg shadow">
-                    <h3 class="text-xl font-bold mb-4">تقرير الفترة من ${start} إلى ${end} (${repName === 'all' ? 'جميع المناديب' : repName})</h3>
-                    <div class="grid grid-cols-3 gap-3 mb-4 text-center">
-                        <div class="p-2 bg-green-50 rounded"><p class="text-xs text-green-700">إجمالي المبيعات</p><p class="text-lg font-bold text-green-800">${formatCurrency(totalSales)}</p></div>
-                        <div class="p-2 bg-red-50 rounded"><p class="text-xs text-red-700">إجمالي المرتجعات</p><p class="text-lg font-bold text-red-800">${formatCurrency(totalReturns)}</p></div>
-                        <div class="p-2 bg-blue-50 rounded"><p class="text-xs text-blue-700">صافي المبيعات</p><p class="text-lg font-bold text-blue-800">${formatCurrency(netSales)}</p></div>
-                    </div>
-                    <h4 class="font-semibold mb-2">ملخص يومي</h4>
-                    ${dailyRows ? `<table class="min-w-full mb-4 text-sm"><thead class="bg-gray-50"><tr><th class="px-2 py-1 text-right">اليوم</th><th class="px-2 py-1 text-center">مبيعات</th><th class="px-2 py-1 text-center">مرتجعات</th><th class="px-2 py-1 text-center">صافي</th></tr></thead><tbody>${dailyRows}</tbody></table>` : '<p class="text-gray-500">لا بيانات في هذه الفترة.</p>'}
-                    <h4 class="font-semibold mb-2">الفواتير التفصيلية</h4>
-                    ${rowsHtml ? `<div class="overflow-x-auto border rounded"><table class="min-w-full text-sm"><thead class="bg-gray-50"><tr><th class="px-3 py-1">التاريخ</th><th class="px-3 py-1">رقم</th><th class="px-3 py-1">العميل</th><th class="px-3 py-1">المندوب</th><th class="px-3 py-1">الإجمالي</th><th class="px-3 py-1">الحالة</th></tr></thead><tbody>${rowsHtml}</tbody></table></div>` : '<p class="text-gray-500">لا فواتير ضمن النطاق.</p>'}
-                </div>
-                <div class="mt-4 flex gap-2 no-print">
-                    <button onclick="printSection('range-report-output')" class="w-1/2 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
-                    <button onclick="generateReportImage('range-report-output')" class="w-1/2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
-                </div>
-            `;
-            updateIcons();
-        }
-
-        function generateMonthlyReport() {
-            const month = monthlyReportMonthInput.value; // YYYY-MM
-            const repName = monthlyReportRepSelect.value;
-            const chainId = document.getElementById('monthly-report-chain').value;
-            
-            if (!month) { customDialog({ message: 'الرجاء اختيار شهر.', title: 'بيانات ناقصة' }); return; }
-            
-            // Get chain customer IDs if a chain is selected
-            let allowedCustomerIds = null;
-            if (chainId) {
-                const chains = loadChains();
-                const chain = chains.find(c => c.id === chainId);
-                if (chain) allowedCustomerIds = chain.customerIds || [];
-            }
-            
-            const [yearStr, monthStr] = month.split('-');
-            const year = parseInt(yearStr,10); const m = parseInt(monthStr,10) - 1;
-            const startDate = new Date(Date.UTC(year, m, 1));
-            const endDate = new Date(Date.UTC(year, m+1, 0, 23,59,59));
-            const monthSales = state.sales.filter(s => {
-                const d = new Date(s.date);
-                if (isNaN(d.getTime())) return false; // skip invalid dates
-                const matchesDate = d >= startDate && d <= endDate;
-                const matchesRep = repName === 'all' || s.repName === repName;
-                const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
-                return matchesDate && matchesRep && matchesChain;
-            });
-            let totalSales = 0; let totalReturns = 0;
-            const byRep = new Map();
-            monthSales.forEach(s => {
-                const key = s.repName || 'غير محدد';
-                const agg = byRep.get(key) || { sales:0, returns:0 };
-                if (s.total < 0) { agg.returns += s.total; totalReturns += s.total; } else { agg.sales += s.total; totalSales += s.total; }
-                byRep.set(key, agg);
-            });
-            const netSales = totalSales + totalReturns;
-            const repRows = Array.from(byRep.entries()).map(([rep, agg]) => {
-                const net = agg.sales + agg.returns;
-                return `<tr class="border-b">\n                    <td class="px-3 py-1">${rep}</td>\n                    <td class="px-3 py-1 text-center text-green-700 font-semibold">${formatCurrency(agg.sales)}</td>\n                    <td class="px-3 py-1 text-center text-red-700 font-semibold">${formatCurrency(agg.returns)}</td>\n                    <td class="px-3 py-1 text-center text-blue-700 font-semibold">${formatCurrency(net)}</td>\n                </tr>`; }).join('');
-            // أفضل 5 عملاء حسب صافي الإجمالي
-            const customerAgg = new Map();
-            monthSales.forEach(s => {
-                const cid = s.customerId || 'unknown';
-                const ag = customerAgg.get(cid) || { net:0 };
-                ag.net += s.total; customerAgg.set(cid, ag);
-            });
-            const chainName = chainId ? document.querySelector('#monthly-report-chain option[value="' + chainId + '"]').textContent : '';
-            const topCustomers = Array.from(customerAgg.entries()).sort((a,b)=> b[1].net - a[1].net).slice(0,5)
-                .map(([cid, ag]) => `<tr class="border-b"><td class="px-2 py-1">${findCustomer(cid)?.name || 'غير معروف'}</td><td class="px-2 py-1 text-center font-semibold">${formatCurrency(ag.net)}</td></tr>`).join('');
-
-            reportOutputArea.innerHTML = `
-                <div id="monthly-report-output" class="bg-white p-4 rounded-lg shadow">
-                    <h3 class="text-xl font-bold mb-4">التقرير الشهري ${month} (${repName === 'all' ? 'جميع المناديب' : repName})</h3>
-                    <div class="grid grid-cols-3 gap-3 mb-4 text-center">
-                        <div class="p-2 bg-green-50 rounded"><p class="text-xs text-green-700">إجمالي المبيعات</p><p class="text-lg font-bold text-green-800">${formatCurrency(totalSales)}</p></div>
-                        <div class="p-2 bg-red-50 rounded"><p class="text-xs text-red-700">إجمالي المرتجعات</p><p class="text-lg font-bold text-red-800">${formatCurrency(totalReturns)}</p></div>
-                        <div class="p-2 bg-blue-50 rounded"><p class="text-xs text-blue-700">صافي المبيعات</p><p class="text-lg font-bold text-blue-800">${formatCurrency(netSales)}</p></div>
-                    </div>
-                    <h4 class="font-semibold mb-2">ملخص حسب المندوب</h4>
-                    ${repRows ? `<table class="min-w-full text-sm mb-4"><thead class="bg-gray-50"><tr><th class="px-3 py-1 text-right">المندوب</th><th class="px-3 py-1 text-center">مبيعات</th><th class="px-3 py-1 text-center">مرتجعات</th><th class="px-3 py-1 text-center">صافي</th></tr></thead><tbody>${repRows}</tbody></table>` : '<p class="text-gray-500">لا بيانات.</p>'}
-                    <h4 class="font-semibold mb-2">أفضل العملاء (صافي)</h4>
-                    ${topCustomers ? `<table class="text-sm mb-4"><thead class="bg-gray-50"><tr><th class="px-2 py-1 text-right">العميل</th><th class="px-2 py-1 text-center">الصافي</th></tr></thead><tbody>${topCustomers}</tbody></table>` : '<p class="text-gray-500">لا عملاء.</p>'}
-                </div>
-                <div class="mt-4 flex gap-2 no-print">
-                    <button onclick="printSection('monthly-report-output')" class="w-1/2 bg-gray-500 text-white py-2 rounded-lg hover:bg-gray-600 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
-                    <button onclick="generateReportImage('monthly-report-output')" class="w-1/2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
-                </div>
-            `;
-            updateIcons();
-        }
-
-        // ===== Targets Report =====
-        function generateTargetsReport(){
-            const monthVal = (document.getElementById('targets-month')?.value)||'';
-            const chainId = (document.getElementById('targets-chain-filter')?.value)||'';
-            
-            if (!monthVal){ customDialog({title:'بيانات ناقصة', message:'اختر شهر التارجت.'}); return; }
-            
-            // Get chain customer IDs if a chain is selected
-            let allowedCustomerIds = null;
-            if (chainId) {
-                const chains = loadChains();
-                const chain = chains.find(c => c.id === chainId);
-                if (chain) allowedCustomerIds = chain.customerIds || [];
-            }
-            
-            const [yearStr, monthStr] = monthVal.split('-');
-            const year = parseInt(yearStr,10); const m = parseInt(monthStr,10)-1;
-            const monthStart = new Date(Date.UTC(year,m,1));
-            // Last moment of the month: first day of next month minus 1ms
-            const monthEnd = new Date(Date.UTC(year,m+1,1) - 1);
-            const today = new Date();
-            const daysInMonth = new Date(year,m+1,0).getDate();
-            const todayDay = (today.getMonth()===m && today.getFullYear()===year) ? today.getDate() : daysInMonth; // إذا شهر سابق اعتبره مكتمل
-
-            // Build reps list and populate filter options
-            const repsAll = (state.reps||[]).map(r => ({ id:r.id, name:r.name||r.id, target:Number(r.target||0) }));
-            const repFilterEl = document.getElementById('targets-rep-filter');
-            if (repFilterEl){
-                const selVal = repFilterEl.value || 'all';
-                // Rebuild options if counts differ or first time
-                if (repFilterEl.dataset.filled !== '1' || repFilterEl.options.length-1 !== repsAll.length){
-                    const current = selVal;
-                    repFilterEl.innerHTML = '<option value="all">عرض كل المناديب</option>' + repsAll.map(r=>`<option value="${escapeHtml(r.name)}">${escapeHtml(r.name)}</option>`).join('');
-                    repFilterEl.dataset.filled = '1';
-                    // try keep previous selection
-                    if ([...repFilterEl.options].some(o=>o.value===current)) repFilterEl.value = current;
-                }
-            }
-            const selectedRepName = (repFilterEl && repFilterEl.value && repFilterEl.value!=='all') ? repFilterEl.value : null;
-            const reps = selectedRepName ? repsAll.filter(r=>r.name===selectedRepName) : repsAll;
-            if (reps.length === 0){ reportOutputArea.innerHTML = '<p class="text-center text-gray-500">لا توجد مناديب مسجلة.</p>'; return; }
-
-            const dayAgg = new Map();
-            (state.sales||[]).forEach(s => {
-                const d = new Date(s.date);
-                if (isNaN(d.getTime())) return; // skip invalid dates
-                if (d < monthStart || d > monthEnd) return;
-                const matchesChain = !allowedCustomerIds || allowedCustomerIds.includes(s.customerId);
-                if (!matchesChain) return;
-                const dayKey = d.toISOString().split('T')[0];
-                const repName = s.repName || 'غير محدد';
-                const net = s.total;
-                const mapForDay = dayAgg.get(dayKey) || new Map();
-                mapForDay.set(repName, (mapForDay.get(repName)||0) + net);
-                dayAgg.set(dayKey, mapForDay);
-            });
-            // Soft column colors per rep
-            const colBgs = ['#f0f9ff','#eef2ff','#f5f3ff','#fdf2f8','#fff7ed','#fefce8','#ecfccb','#f0fdf4','#fafaf9','#e0f2fe'];
-            const colBgsStrong = ['#e0f2fe','#e0e7ff','#ede9fe','#fde2f3','#ffedd5','#fef3c7','#d9f99d','#dcfce7','#e7e5e4','#bae6fd'];
-            const rows = [];
-            const cumulativeByRep = {}; reps.forEach(r => cumulativeByRep[r.name]=0);
-            for (let day=1; day<=daysInMonth; day++){
-                const isoDay = `${year}-${String(m+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
-                const mapForDay = dayAgg.get(isoDay) || new Map();
-                let totalDay = 0;
-                const cells = reps.map((r, idx) => {
-                    const val = mapForDay.get(r.name)||0;
-                    cumulativeByRep[r.name] += val;
-                    totalDay += val;
-                    const base = colBgs[idx % colBgs.length];
-                    const strong = colBgsStrong[idx % colBgsStrong.length];
-                    const bg = val ? strong : base;
-                    return `<td style='background:${bg};color:#0b1b34;font-size:12px;font-weight:${val? '600':'400'}'>${val? formatCurrency(val):'0.00'}</td>`;
-                }).join('');
-                // اليوم أول عمود، والإجمالي آخر عمود
-                rows.push(`<tr>
-                    <td class='targets-col-day'>${String(day).padStart(2,'0')}/${String(m+1).padStart(2,'0')}/${year}</td>${cells}<td class='targets-col-total'>${totalDay? formatCurrency(totalDay):'0.00'}</td>
-                </tr>`);
-            }
-            const achievedRowCells = reps.map((r,idx) => `<td style='background:${colBgsStrong[idx%colBgsStrong.length]};color:#065f46;font-weight:700'>${formatCurrency(cumulativeByRep[r.name])}</td>`).join('');
-            const targetRowCells = reps.map((r,idx) => `<td style='background:${colBgs[idx%colBgs.length]};color:#111827;font-weight:700'>${formatCurrency(r.target)}</td>`).join('');
-            const remainingRowCells = reps.map(r => {
-                const rem = r.target - cumulativeByRep[r.name];
-                return `<td style='background:${rem>0?'#fde68a':'#bbf7d0'};color:#111827;font-weight:700'>${formatCurrency(rem)}</td>`;
-            }).join('');
-            const expectedPct = todayDay / daysInMonth;
-            const expectedRowCells = reps.map((r,idx) => `<td style='background:${idx%2===0?'#e0e7ff':'#e0f2fe'};color:#0b1b34;font-weight:700'>${(expectedPct*100).toFixed(1)}%</td>`).join('');
-            const achievedPctCells = reps.map(r => {
-                const pct = r.target? (cumulativeByRep[r.name]/r.target):0;
-                const good = pct >= expectedPct;
-                return `<td style='background:${good?'#bbf7d0':'#fecaca'};color:#065f46;font-weight:700'>${(pct*100).toFixed(1)}%</td>`;
-            }).join('');
-
-            const totalAchieved = Object.values(cumulativeByRep).reduce((a,b)=>a+b,0);
-            const totalTargets = reps.reduce((a,r)=>a+r.target,0);
-            const totalRemaining = totalTargets - totalAchieved;
-
-            const tableHtml = `
-            <div id='targets-report-output' style='direction:rtl;font-family:Cairo;'>
-                <table class='targets-table'>
-                    <thead>
-                        <tr style='color:#fff;'>
-                            <th style='background:#3b82f6;font-weight:bold'>اليوم</th>
-                            ${reps.map((r,idx)=>`<th style='background:#2563eb;font-weight:bold'>${r.name}</th>`).join('')}
-                            <th style='background:#ef4444;font-weight:bold'>إجمالي اليوم</th>
-                        </tr>
-                    </thead>
-                    <tbody>${rows.join('')}</tbody>
-                    <tfoot>
-                        <tr><td style='background:#e0f2fe;color:#065f46;font-weight:700'>${(expectedPct*100).toFixed(1)}%</td>${expectedRowCells}<td style='background:#e0f2fe;color:#065f46;font-weight:700'>نسبة مستهدفة حتى اليوم</td></tr>
-                        <tr><td style='background:#bbf7d0;color:#065f46;font-weight:700'>${totalTargets? ((totalAchieved/totalTargets)*100).toFixed(1):'0.0'}%</td>${achievedPctCells}<td style='background:#bbf7d0;color:#065f46;font-weight:700'>نسبة المحقق</td></tr>
-                        <tr><td style='background:#fef3c7;color:#111827;font-weight:700'>${formatCurrency(totalTargets)}</td>${targetRowCells}<td style='background:#fef3c7;color:#111827;font-weight:700'>التارجت</td></tr>
-                        <tr><td style='background:${totalRemaining>0?'#fde68a':'#bbf7d0'};color:#111827;font-weight:700'>${formatCurrency(totalRemaining)}</td>${remainingRowCells}<td style='background:${totalRemaining>0?'#fde68a':'#bbf7d0'};color:#111827;font-weight:700'>المتبقي</td></tr>
-                        <tr><td style='background:#bfdbfe;color:#0b1b34;font-weight:700'>${formatCurrency(totalAchieved)}</td>${achievedRowCells}<td style='background:#bfdbfe;color:#0b1b34;font-weight:700'>الإجمالي المحقق</td></tr>
-                    </tfoot>
-                </table>
-                <div style='display:flex;gap:12px;margin-top:12px;' class='no-print'>
-                    <button onclick="printSection('targets-report-output')" class='bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2'><i data-lucide='printer'></i> طباعة</button>
-                    <button onclick="generateReportImage('targets-report-output')" class='bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2'><i data-lucide='image'></i> صورة</button>
-                </div>
-            </div>`;
-            reportOutputArea.innerHTML = tableHtml;
-            updateIcons();
-        }
-
-        // ===== Customer Targets Report (اكسبشن / سفير / الضحى) =====
-        function getCustomerTargetsStore(){
-            state.customerTargets = state.customerTargets || {}; // month -> { customerId: { multi: number, dairy: number } }
-            return state.customerTargets;
-        }
-        function getCustomerTargetsForMonth(month){
-            const store = getCustomerTargetsStore();
-            if (!store[month]) store[month] = {};
-            return store[month];
-        }
-        function saveCustomerTargetsFromInputs(){
-            const monthVal = document.getElementById('customer-targets-month')?.value;
-            if (!monthVal){ customDialog({title:'تنبيه', message:'اختر الشهر أولاً.'}); return; }
-            const monthKey = monthVal;
-            const targetObj = getCustomerTargetsForMonth(monthKey);
-            const inputs = document.querySelectorAll('#customer-targets-report-output .cust-target-input');
-            inputs.forEach(inp => {
-                const cid = inp.dataset.customerId; const cat = inp.dataset.category; const val = parseFloat(inp.value)||0;
-                targetObj[cid] = targetObj[cid] || { multi:0, dairy:0 };
-                targetObj[cid][cat] = val;
-            });
-            saveState();
-            customDialog({title:'حفظ', message:'تم حفظ قيم التارجت.'});
-            generateCustomerTargetsReport();
-        }
-        function generateCustomerTargetsReport(){
-            const monthVal = document.getElementById('customer-targets-month')?.value || '';
-            const catVal = document.getElementById('customer-targets-category')?.value || 'both';
-            const out = document.getElementById('customer-targets-report-output');
-            if (!out) return;
-            if (!monthVal){ out.innerHTML = '<p class="text-center text-gray-500">اختر شهر.</p>'; return; }
-            const [yStr, mStr] = monthVal.split('-'); const year = parseInt(yStr,10); const m = parseInt(mStr,10)-1;
-            const monthStart = new Date(Date.UTC(year,m,1)); const monthEnd = new Date(Date.UTC(year,m+1,1) - 1);
-            // العملاء المطلوبون بالأسماء المطلوبة
-            const nameKeys = ['اكسبشن','سفير','الضحى'];
-            // استبعاد أي اسم يحتوي "اكسبشن" و"حلواني/حلوانى" معاً من القائمة (اكسبشن حلواني)
-            const customers = (state.customers||[]).filter(c => {
-                const nm = (c.name||'');
-                const include = nameKeys.some(k => nm.includes(k));
-                const isExcluded = /اكسبشن/.test(nm) && /(حلواني|حلوانى)/.test(nm);
-                return include && !isExcluded;
-            });
-            if (customers.length === 0){ out.innerHTML = '<p class="text-center text-gray-500">لا توجد عملاء مستهدفة.</p>'; return; }
-            const targetsMonthObj = getCustomerTargetsForMonth(monthVal);
-            // تجميع المبيعات مع استبعاد منتجات "شيلي" من اكسبشن
-            const agg = {}; // cid -> { multiAch: number, dairyAch: number }
-            (state.sales||[]).forEach(sale => {
-                const d = new Date(sale.date);
-                if (isNaN(d.getTime())) return; // skip invalid dates
-                if (d < monthStart || d > monthEnd) return;
-                const cid = sale.customerId;
-                const cust = customers.find(c => c.id === cid || c._id === cid);
-                if (!cust) return;
-                sale.items.forEach(item => {
-                    const p = findProduct(item.productId); if (!p) return;
-                    // استبعاد شيلي لعملاء اكسبشن
-                    const nameLower = (cust.name||'').toLowerCase();
-                    const prodLower = (p.name||'').toLowerCase();
-                    if (nameLower.includes('اكسبشن') && prodLower.includes('شيلي')) return;
-                    const qty = Number(item.quantity||item.qty||0);
-                    const price = Number(p.price||0);
-                    const value = qty * price;
-                    const cat = String(p.category||'').toLowerCase();
-                    const isMulti = cat.includes('مالت') || cat.includes('multi');
-                    const isDairy = cat.includes('بان') || cat.includes('جبن') || cat.includes('cheese') || cat.includes('dairy');
-                    agg[cid] = agg[cid] || { multiAch:0, dairyAch:0 };
-                    if (isMulti) agg[cid].multiAch += value; else if (isDairy) agg[cid].dairyAch += value;
-                });
-            });
-            function fmt(v){ return formatCurrency(v||0); }
-            const rows = customers.map(c => {
-                const cid = c.id || c._id; const a = agg[cid] || { multiAch:0, dairyAch:0 };
-                const targetData = targetsMonthObj[cid] || {}; // قد تكون فارغة (أشباح أصفار)
-                const hasMultiSaved = Object.prototype.hasOwnProperty.call(targetData,'multi');
-                const hasDairySaved = Object.prototype.hasOwnProperty.call(targetData,'dairy');
-                const multiTarget = hasMultiSaved ? Number(targetData.multi||0) : 0;
-                const dairyTarget = hasDairySaved ? Number(targetData.dairy||0) : 0;
-                const multiRem = multiTarget - a.multiAch; const dairyRem = dairyTarget - a.dairyAch;
-                const multiPct = multiTarget? (a.multiAch/multiTarget)*100:0; const dairyPct = dairyTarget? (a.dairyAch/dairyTarget)*100:0;
-                // إدخال بقيمة فارغة مع placeholder صفر إذا لم يُحفظ بعد (شبح صفر)
-                const multiInputVal = hasMultiSaved ? multiTarget : '';
-                const dairyInputVal = hasDairySaved ? dairyTarget : '';
-                const multiInput = `<input type='number' step='any' class='cust-target-input w-20 p-1 border rounded text-center text-xs' data-category='multi' data-customer-id='${cid}' value='${multiInputVal}' placeholder='0'/>`;
-                const dairyInput = `<input type='number' step='any' class='cust-target-input w-20 p-1 border rounded text-center text-xs' data-category='dairy' data-customer-id='${cid}' value='${dairyInputVal}' placeholder='0'/>`;
-                if (catVal === 'multi'){
-                    return `<tr>
-                        <td class='name'>${escapeHtml(c.name)}</td>
-                        <td>${multiInput}</td>
-                        <td class='ach-cell'>${fmt(a.multiAch)}</td>
-                        <td class='${multiRem>0?'rem-pos':'rem-zero'}'>${fmt(multiRem)}</td>
-                        <td class='${multiPct>=50?'pct-ok':'pct-low'}'>${multiPct.toFixed(1)}%</td>
-                    </tr>`;
-                } else if (catVal === 'dairy'){
-                    return `<tr>
-                        <td class='name'>${escapeHtml(c.name)}</td>
-                        <td>${dairyInput}</td>
-                        <td class='ach-cell'>${fmt(a.dairyAch)}</td>
-                        <td class='${dairyRem>0?'rem-pos':'rem-zero'}'>${fmt(dairyRem)}</td>
-                        <td class='${dairyPct>=50?'pct-ok':'pct-low'}'>${dairyPct.toFixed(1)}%</td>
-                    </tr>`;
-                } else { // both
-                    const totalTarget = multiTarget + dairyTarget;
-                    const totalAch = a.multiAch + a.dairyAch;
-                    const totalRem = totalTarget - totalAch;
-                    const totalPct = totalTarget? (totalAch/totalTarget)*100:0;
-                    return `<tr>
-                        <td class='name'>${escapeHtml(c.name)}</td>
-                        <td>${multiInput}</td>
-                        <td class='ach-cell'>${fmt(a.multiAch)}</td>
-                        <td>${dairyInput}</td>
-                        <td class='ach-cell'>${fmt(a.dairyAch)}</td>
-                        <td class='ach-cell'>${fmt(totalTarget)}</td>
-                        <td class='ach-cell'>${fmt(totalAch)}</td>
-                        <td class='${totalRem>0?'rem-pos':'rem-zero'}'>${fmt(totalRem)}</td>
-                        <td class='${totalPct>=50?'pct-ok':'pct-low'}'>${totalPct.toFixed(1)}%</td>
-                    </tr>`;
-                }
-            }).join('');
-            let thead;
-            if (catVal === 'multi'){
-                thead = `<tr>
-                    <th class='cth-name'>العميل</th>
-                    <th class='cth-multi-target'>تارجت مالتي</th>
-                    <th class='cth-multi-ach'>محقق مالتي</th>
-                    <th class='cth-rem'>متبقي</th>
-                    <th class='cth-pct'>% محقق</th>
-                </tr>`;
-            } else if (catVal === 'dairy'){
-                thead = `<tr>
-                    <th class='cth-name'>العميل</th>
-                    <th class='cth-dairy-target'>تارجت البان</th>
-                    <th class='cth-dairy-ach'>محقق البان</th>
-                    <th class='cth-rem'>متبقي</th>
-                    <th class='cth-pct'>% محقق</th>
-                </tr>`;
-            } else {
-                thead = `<tr>
-                    <th class='cth-name'>العميل</th>
-                    <th class='cth-multi-target'>تارجت مالتي</th>
-                    <th class='cth-multi-ach'>محقق مالتي</th>
-                    <th class='cth-dairy-target'>تارجت البان</th>
-                    <th class='cth-dairy-ach'>محقق البان</th>
-                    <th class='cth-total-target'>إجمالي التارجت</th>
-                    <th class='cth-total-ach'>إجمالي المحقق</th>
-                    <th class='cth-rem-total'>المتبقي الإجمالي</th>
-                    <th class='cth-pct-total'>% إجمالي</th>
-                </tr>`;
-            }
-            out.innerHTML = `<div id='customer-targets-report-wrapper' class='bg-white p-3 rounded-lg shadow'>
-                <table class='customer-targets-table'>
-                    <thead>${thead}</thead>
-                    <tbody>${rows}</tbody>
-                </table>
-                <div class='flex gap-2 mt-3 no-print'>
-                    <button onclick="printSection('customer-targets-report-wrapper')" class='bg-gray-600 text-white px-3 py-2 rounded hover:bg-gray-700 text-sm flex items-center gap-1'><i data-lucide='printer'></i> طباعة</button>
-                    <button onclick="generateReportImage('customer-targets-report-wrapper')" class='bg-blue-600 text-white px-3 py-2 rounded hover:bg-blue-700 text-sm flex items-center gap-1'><i data-lucide='image'></i> صورة</button>
-                </div>
-            </div>`;
-            updateIcons();
-        }
-
-                // Settlement (تسوية) report: aggregates dispatch note vs actual sales & returns per product for a rep/date
-                function generateSettlementReport(){
-                    // استخدم حقول التسوية إن وُجدت، وإلا fallback إلى اليومية
-                    const dateInput = document.getElementById('settlement-report-date');
-                    const repSelect = document.getElementById('settlement-report-rep');
-                    const date = (dateInput && dateInput.value) ? dateInput.value : (dailyReportDateInput ? dailyReportDateInput.value : '');
-                    const repName = (repSelect && repSelect.value) ? repSelect.value : (dailyReportRepSelect ? dailyReportRepSelect.value : '');
-                    if (!date) { customDialog({ message:'اختر تاريخاً للتسوية.', title:'بيانات ناقصة' }); return; }
-                    if (!repName || repName === 'all') { customDialog({ message:'اختر مندوب واحد للتسوية.', title:'تنبيه' }); return; }
-
-                        // Find dispatch note for that rep/day
-                        const dispatchNote = state.dispatchNotes.find(n => n.repName === repName && new Date(n.date).toISOString().split('T')[0] === date);
-                        // Build product baseline from products list to keep ordering stable
-                        const productIds = state.products.map(p => p.id);
-                        const salesForDay = state.sales.filter(s => s.repName === repName && new Date(s.date).toISOString().split('T')[0] === date);
-
-                        // Aggregations
-                        const agg = {}; // productId -> metrics
-                        function ensure(id){ if(!agg[id]) agg[id] = { productId:id, name: (findProduct(id)?.name)||id, dispatched:0, goodReturn:0, damagedReturn:0, freebie:0, sold:0, invoiceReturn:0 }; }
-                        // From dispatch note items
-                        if (dispatchNote && Array.isArray(dispatchNote.items)) {
-                            dispatchNote.items.forEach(it=>{
-                                ensure(it.productId);
-                                agg[it.productId].dispatched += Number(it.quantity||0);
-                                // دعم النموذج الجديد: actualReturn يعامل كمرتجع سليم
-                                agg[it.productId].goodReturn += Number(it.actualReturn||it.goodReturn||0);
-                                agg[it.productId].damagedReturn += Number(it.damagedReturn||0);
-                                agg[it.productId].freebie += Number(it.freebie||0);
-                            });
-                        }
-                        // From sales (positive quantities)
-                        salesForDay.forEach(sale => {
-                                sale.items.forEach(item => {
-                                        ensure(item.productId);
-                                        const q = Number(item.quantity||item.qty||0);
-                                        if (sale.total < 0 || q < 0) { agg[item.productId].invoiceReturn += Math.abs(q); }
-                                        else { agg[item.productId].sold += q; }
-                                });
-                        });
-                        // Include any product ids missing but present in sales/dispatch
-                        Object.keys(agg).forEach(id=>{ if(!productIds.includes(id)) productIds.push(id); });
-                        // Rows
-                        const rowsHtml = productIds.map(pid => {
-                                ensure(pid);
-                                const m = agg[pid];
-                                // Diff = dispatched - (sold + freebie + returns good + returns damaged)
-                                const used = m.sold + m.freebie + m.goodReturn + m.damagedReturn + m.invoiceReturn;
-                                const diff = m.dispatched - used;
-                                return `<tr style="background:#0b2d5e;color:#fff;font-size:12px;">
-                                        <td style='text-align:center;background:#1f3f79'>${formatCurrency(0)}</td>
-                                        <td style='text-align:center;background:#111'>${diff}</td>
-                                        <td style='text-align:center;background:#062c5c'>${m.dispatched}</td>
-                                        <td style='text-align:center;background:#094b2e'>${m.goodReturn}</td>
-                                        <td style='text-align:center;background:#062c5c'>${m.invoiceReturn}</td>
-                                        <td style='text-align:center;background:#051c44'>${m.sold}</td>
-                                        <td style='text-align:center;background:#062c5c'>${m.damagedReturn}</td>
-                                        <td style='text-align:center;background:#094b2e'>${m.freebie}</td>
-                                        <td style='text-align:center;background:#051c44'>${m.dispatched - m.goodReturn - m.damagedReturn}</td>
-                                        <td style='text-align:center;background:#041635'>${m.name}</td>
-                                </tr>`;
-                        }).join('');
-
-                        const billNumber = salesForDay.length ? (salesForDay[0].invoiceNumber||'') : (dispatchNote?.serial||'');
-                        const dayNum = date.split('-')[2];
-                        const yearNum = date.split('-')[0];
-                        const monthNum = date.split('-')[1];
-
-                        reportOutputArea.innerHTML = `
-                                <div id='settlement-report-output' style='direction:rtl;font-family:Cairo;'>
-                                    <table style='width:100%;border:4px solid #001a3d;font-size:12px;border-collapse:separate;'>
-                                        <thead>
-                                            <tr style='background:#0b2d5e;color:#fff;'>
-                                                <th style='width:60px;background:#331b6d'>قيمة</th>
-                                                <th style='background:#0b0b0b'>العجز / الفائض</th>
-                                                <th style='background:#041a3f'>الفرق بين اذن السيارة وبيع الفواتير</th>
-                                                <th style='background:#094b2e'>هالك واكراميات</th>
-                                                <th style='background:#041a3f'>صافي فواتير للمندوب</th>
-                                                <th style='background:#051c44'>مرتجع فواتير للمندوب</th>
-                                                <th style='background:#041a3f'>صافي بيع الفواتير</th>
-                                                <th style='background:#051c44'>مرتجع اذن السيارة</th>
-                                                <th style='background:#094b2e'>اذن خروج السيارة</th>
-                                                <th style='background:#0b0b0b'>اسم الصنف</th>
-                                            </tr>
-                                            <tr style='background:#062c5c;color:#fff;'>
-                                                <th style='background:#331b6d'>0.00</th>
-                                                <th style='background:#111'>${yearNum}</th>
-                                                <th style='background:#062c5c'>${monthNum}</th>
-                                                <th style='background:#fff;color:#000;font-weight:bold'><img src='' alt='' style='height:20px'></th>
-                                                <th style='background:#d49c3b;color:#000;font-weight:bold'>${date.split('-').reverse().join('/')}</th>
-                                                <th style='background:#1f3f79'>${repName}</th>
-                                                <th style='background:#8d0000;color:#fff'>${billNumber||''}</th>
-                                                <th style='background:#b46900;color:#fff'>${dayNum}</th>
-                                                <th style='background:#041a3f'>${repName}</th>
-                                                <th style='background:#041635'>اسم الصنف</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody>${rowsHtml}</tbody>
-                                    </table>
-                                    <div style='display:flex;gap:16px;margin-top:12px;'>
-                                        <div style='background:#331b6d;color:#fff;padding:8px 24px;font-weight:bold;'>Total</div>
-                                        <div style='background:#271056;color:#fff;padding:8px 24px;font-weight:bold;'>0.0</div>
-                                        <div style='flex:1;background:linear-gradient(90deg,#008a00,#006400);color:#fff;text-align:center;font-weight:bold;padding:12px 8px;border:2px solid #004c00;'>لا توجد عجوزات وزيادات</div>
-                                    </div>
-                                    <div class='mt-4 grid grid-cols-3 gap-2 no-print'>
-                                        <button onclick="printSection('settlement-report-output')" class='bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2'><i data-lucide='printer'></i> طباعة</button>
-                                        <button onclick="generateReportImage('settlement-report-output')" class='bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2'><i data-lucide='image'></i> نسخ كصورة</button>
-                                        <button onclick="shareSettlementWhatsApp('settlement-report-output')" class='bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2'><i data-lucide='send'></i> مشاركة واتساب</button>
-                                    </div>
-                                </div>`;
-                        updateIcons();
-                }
+                // Settlement report moved to js/reports-services.js
         
-        async function generateReconciliationReport() {
-            const date = document.getElementById('recon-report-date').value;
-            const repName = document.getElementById('recon-report-rep').value;
-            const chainId = document.getElementById('recon-report-chain').value;
-            const reportOutputArea = document.getElementById('report-output-area');
-
-            if (!date || !repName) {
-                await customDialog({ message: 'الرجاء تحديد التاريخ والمندوب.', title: 'بيانات ناقصة' });
-                return;
-            }
-            
-            // Get chain customer IDs if a chain is selected
-            let allowedCustomerIds = null;
-            if (chainId) {
-                const chains = loadChains();
-                const chain = chains.find(c => c.id === chainId);
-                if (chain) allowedCustomerIds = chain.customerIds || [];
-            }
-
-            // 1. Find the dispatch note
-            const dispatchNote = state.dispatchNotes.find(n => {
-                const d = new Date(n.date);
-                if (isNaN(d.getTime())) return false;
-                return n.repName === repName && d.toISOString().split('T')[0] === date;
-            });
-
-            if (!dispatchNote) {
-                reportOutputArea.innerHTML = '<p class="text-center text-red-500 p-4">لم يتم العثور على إذن استلام لهذا المندوب في التاريخ المحدد.</p>';
-                return;
-            }
-
-            // 2. Find all sales for the rep on that day (apply chain filter)
-            const sales = state.sales.filter(s => {
-                const d = new Date(s.date);
-                if (isNaN(d.getTime())) return false; // skip invalid dates
-                return s.repName === repName && d.toISOString().split('T')[0] === date && 
-                    (!allowedCustomerIds || allowedCustomerIds.includes(s.customerId));
-            });
-
-            // 3. Aggregate sales by product ID
-            const salesByProduct = {};
-            sales.forEach(sale => {
-                sale.items.forEach(item => {
-                    salesByProduct[item.productId] = (salesByProduct[item.productId] || 0) + item.quantity;
-                });
-            });
-
-            // 4. Create a master list of all products involved
-            const allProductIds = new Set([
-                ...dispatchNote.items.map(i => i.productId),
-                ...Object.keys(salesByProduct)
-            ]);
-
-            // 5. Generate report rows
-            let reportRowsHtml = '';
-            let totalDeficitValue = 0;
-            let totalSurplusValue = 0;
-
-            allProductIds.forEach(productId => {
-                const product = findProduct(productId);
-                if (!product) return;
-
-                const dispatchItem = dispatchNote.items.find(i => i.productId === productId) || {};
-                const takenOut = dispatchItem.quantity || 0;
-                const goodReturn = dispatchItem.goodReturn || 0;
-                const damagedReturn = dispatchItem.damagedReturn || 0;
-                const freebie = dispatchItem.freebie || 0;
-                
-                const sold = salesByProduct[productId] || 0;
-
-                const expectedReturn = takenOut - sold - freebie;
-                const actualReturn = goodReturn + damagedReturn;
-                const difference = actualReturn - expectedReturn;
-
-                const differenceValue = difference * (product.price || 0);
-                let diffClass = 'text-gray-700';
-                if (difference < 0) {
-                    diffClass = 'text-red-600 font-bold';
-                    totalDeficitValue += differenceValue; // differenceValue will be negative
-                } else if (difference > 0) {
-                    diffClass = 'text-green-600 font-bold';
-                    totalSurplusValue += differenceValue;
-                }
-
-                // إعادة ترتيب الأعمدة: الصنف أولاً ثم المستلم (المخرج) .. إلخ + تلوين الخلايا
-                reportRowsHtml += `
-                    <tr style="border-bottom:1px solid #112b57;">
-                        <td style="background:#041635;color:#fff;padding:6px 4px;text-align:right;font-weight:600">${escapeHtml(product.name)}</td>
-                        <td style="background:#d49c3b;color:#000;padding:6px 4px;text-align:center;font-weight:600">${takenOut}</td>
-                        <td style="background:#0b0b0b;color:#fff;padding:6px 4px;text-align:center">${sold}</td>
-                        <td style="background:#062c5c;color:#fff;padding:6px 4px;text-align:center">${freebie}</td>
-                        <td style="background:#041a3f;color:#fff;padding:6px 4px;text-align:center;font-weight:600">${expectedReturn}</td>
-                        <td style="background:#062c5c;color:#fff;padding:6px 4px;text-align:center">${goodReturn}</td>
-                        <td style="background:#041a3f;color:#fff;padding:6px 4px;text-align:center">${damagedReturn}</td>
-                        <td style="background:#062c5c;color:#fff;padding:6px 4px;text-align:center;font-weight:600">${actualReturn}</td>
-                        <td style="background:#041a3f;color:${difference<0?'#ff2e2e':(difference>0?'#25d366':'#fff')};padding:6px 4px;text-align:center;font-weight:${difference!==0?'700':'400'}">${difference}</td>
-                        <td style="background:#062c5c;color:${differenceValue<0?'#ff2e2e':(differenceValue>0?'#25d366':'#fff')};padding:6px 4px;text-align:center;font-weight:${differenceValue!==0?'700':'400'}">${formatCurrency(differenceValue)}</td>
-                    </tr>`;
-            });
-
-            // 6. Build final report HTML
-            const finalHtml = `
-                <div id='recon-report-output' style='direction:rtl;font-family:Cairo;'>
-                    <div style='display:grid;grid-template-columns:120px 1fr 120px;align-items:center;margin-bottom:4px;'>
-                        <div style='background:#3b0d00;color:#fff;padding:12px 8px;text-align:center;font-weight:bold;font-size:20px;border:2px solid #210600;'>${date.split('-')[2]}</div>
-                        <div style='background:linear-gradient(90deg,#002aa8,#004dff);color:#fff;text-align:center;padding:12px 8px;font-size:24px;font-weight:bold;border:2px solid #001a3d;'>بيان بعجوزات وزيادات الموزعين</div>
-                        <div style='background:#041a3f;color:#fff;padding:12px 8px;text-align:center;font-weight:bold;font-size:20px;border:2px solid #001a3d;'>${repName}</div>
-                    </div>
-                    <table style='width:100%;border:4px solid #001a3d;font-size:13px;border-collapse:separate;'>
-                        <thead>
-                            <tr style='color:#fff;'>
-                                <th style='background:#041635;text-align:center;font-weight:bold'>الصنف</th>
-                                <th style='background:#d49c3b;color:#000;font-weight:bold;width:70px;text-align:center'>المستلم</th>
-                                <th style='background:#0b0b0b;text-align:center;font-weight:bold'>المباع</th>
-                                <th style='background:#062c5c;text-align:center;font-weight:bold'>المجاني</th>
-                                <th style='background:#041a3f;text-align:center;font-weight:bold'>المرتجع المتوقع</th>
-                                <th style='background:#062c5c;text-align:center;font-weight:bold'>مرتجع سليم</th>
-                                <th style='background:#041a3f;text-align:center;font-weight:bold'>مرتجع تالف</th>
-                                <th style='background:#062c5c;text-align:center;font-weight:bold'>المرتجع الفعلي</th>
-                                <th style='background:#041a3f;text-align:center;font-weight:bold'>الفرق كمية</th>
-                                <th style='background:#062c5c;text-align:center;font-weight:bold'>الفرق قيمة</th>
-                            </tr>
-                        </thead>
-                        <tbody>${reportRowsHtml}</tbody>
-                    </table>
-                    <div style='display:flex;gap:16px;margin-top:12px;'>
-                        <div style='background:#3b0d00;color:#fff;padding:8px 24px;font-weight:bold;'>إجمالي عجز</div>
-                        <div style='background:#5c1a00;color:#fff;padding:8px 24px;font-weight:bold;'>${formatCurrency(totalDeficitValue)}</div>
-                        <div style='background:#d49c3b;color:#000;padding:8px 24px;font-weight:bold;'>إجمالي زيادة</div>
-                        <div style='background:#094b2e;color:#fff;padding:8px 24px;font-weight:bold;'>${formatCurrency(totalSurplusValue)}</div>
-                        <div style='flex:1;background:linear-gradient(90deg,#007a00,#00b300);color:#fff;text-align:center;font-weight:bold;padding:12px 8px;border:2px solid #004c00;'>${(totalDeficitValue===0 && totalSurplusValue===0)?'لا توجد عجوزات وزيادات':'مراجعة القيم أعلاه'}</div>
-                    </div>
-                    <div class='mt-4 grid grid-cols-3 gap-2 no-print'>
-                        <button onclick="printSection('recon-report-output')" class='bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2'><i data-lucide='printer'></i> طباعة</button>
-                        <button onclick="generateReportImage('recon-report-output')" class='bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2'><i data-lucide='image'></i> صورة HD</button>
-                        <button onclick="shareReconciliationWhatsApp('recon-report-output')" class='bg-green-600 text-white py-2 rounded-lg hover:bg-green-700 flex items-center justify-center gap-2'><i data-lucide='send'></i> مشاركة واتساب</button>
-                    </div>
-                </div>`;
-
-            reportOutputArea.innerHTML = finalHtml;
-        }
-
-        // مشاركة تقرير التسوية النهائية عبر واتساب
-        async function shareReconciliationWhatsApp(elementId){
-            const el = document.getElementById(elementId);
-            const date = document.getElementById('recon-report-date')?.value || '';
-            const rep = document.getElementById('recon-report-rep')?.value || '';
-            if (!el){ await customDialog({title:'خطأ', message:'تعذر العثور على التقرير.'}); return; }
-            try {
-                showLoading('جارٍ تجهيز مشاركة واتساب...');
-                // تكبير الصورة لسهولة القراءة داخل واتساب ويب
-                el.classList.add('recon-export-scale');
-                const canvas = await captureElementCanvas(el, 4);
-                el.classList.remove('recon-export-scale');
-                const blob = await new Promise(r => canvas.toBlob(r,'image/png'));
-                if (!blob) throw new Error('فشل إنشاء الصورة');
-                const url = await uploadImageBlobToStorage(blob, 'shares/final_settlements');
-                hideLoading(); // أخفِ التحميل قبل فتح النافذة لتجنب المنع
-                const msg = `التسوية النهائية للمندوب ${rep} - ${date}\n${url}`;
-                const desktopUrl = `https://web.whatsapp.com/send?text=${encodeURIComponent(msg)}`;
-                let popup = window.open(desktopUrl, '_blank');
-                // fallback للهواتف أو منع النوافذ المنبثقة
-                setTimeout(() => {
-                    try {
-                        if (!popup || popup.closed) {
-                            window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-                        }
-                    } catch(_) {
-                        window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, '_blank');
-                    }
-                }, 1800);
-            } catch(e){
-                console.warn('shareReconciliationWhatsApp failed', e);
-                hideLoading();
-                // بناء مشاركة بديلة في حال فشل الرفع (غالباً origin null أو قواعد التخزين)
-                try {
-                    const el2 = document.getElementById(elementId);
-                    if (el2){
-                        el2.classList.add('recon-export-scale');
-                        const cnv = await captureElementCanvas(el2, 2);
-                        el2.classList.remove('recon-export-scale');
-                        const dataUrl = cnv.toDataURL('image/png');
-                        // فتح الصورة في نافذة جديدة للحفظ اليدوي
-                        const w = window.open('about:blank','_blank');
-                        if (w) {
-                            w.document.write('<title>صورة التسوية النهائية</title><p style="font-family:sans-serif">احفظ الصورة ثم أرفقها في واتساب.</p><img style="max-width:100%;" src="'+dataUrl+'" />');
-                        }
-                        // نسخ رسالة نصية بدون رابط (رفع فشل)
-                        const altMsg = `التسوية النهائية للمندوب ${rep} - ${date} (مرفق صورة يدوياً)`;
-                        try { navigator.clipboard.writeText(altMsg); } catch(_){}
-                        await customDialog({title:'مشاركة بديلة', message:'تم تجهيز الصورة. تم فتح نافذة للحفظ، والرسالة نُسخت (إن سمح المتصفح). لتعمل المشاركة التلقائية: شغل الصفحة عبر http:// (خادم محلي) وراجع قواعد Storage.'});
-                        return; // خروج بعد مشاركة بديلة
-                    }
-                } catch(_) { /* ignore secondary failure */ }
-                await customDialog({title:'خطأ', message:'تعذر مشاركة أو تجهيز مشاركة بديلة للصورة.'});
-            }
-        }
-
-        // --- END NEW REPORTING FUNCTIONS ---
-
-
-        function openCustomerModal(id = null) {
-            customerForm.reset();
-            document.getElementById('customer-id').value = '';
-            populatePriceListDropdown(document.getElementById('customer-price-list'));
-            populateRepDropdown(document.getElementById('customer-rep'));
-
-            if (id) {
-                // Edit mode
-                const sid = String(id);
-                const customer = state.customers.find(c => String(c.id) === sid || String(c._id) === sid);
-                if (customer) {
-                    document.getElementById('customer-modal-title').textContent = 'تعديل بيانات العميل';
-                    document.getElementById('customer-id').value = customer.id || customer._id || '';
-                    document.getElementById('customer-name').value = customer.name;
-                    document.getElementById('customer-tax-number').value = customer.taxNumber || '';
-                    document.getElementById('customer-phone').value = customer.phone || '';
-                    document.getElementById('customer-address').value = customer.address || '';
-                    document.getElementById('customer-requires-tax').checked = customer.requiresTaxFiling || false;
-                    document.getElementById('customer-price-list').value = customer.priceListId || '';
-                    document.getElementById('customer-rep').value = customer.repName || '';
-                }
-            } else {
-                // Add mode
-                document.getElementById('customer-modal-title').textContent = 'إضافة عميل جديد';
-                // في وضع الإضافة: إن كان المستخدم الحالي مندوباً، عيّن حقل المندوب تلقائياً
-                try {
-                    const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                    if (role === 'rep') {
-                        const current = AuthSystem.getCurrentUser();
-                        if (current) {
-                            const myRep = (state.reps||[]).find(r => r.id === current.id);
-                            if (myRep && myRep.name) {
-                                const repSel = document.getElementById('customer-rep');
-                                if (repSel) repSel.value = myRep.name;
-                            }
-                        }
-                    }
-                } catch(e) { /* ignore */ }
-            }
-            openModal(customerModal);
-        }
-
-        function openRepModal(id = null) {
-            repForm.reset();
-            document.getElementById('rep-id').value = '';
-
-            if (id) {
-                // Edit mode
-                const rep = state.reps.find(r => r.id === id);
-                if (rep) {
-                    document.getElementById('rep-modal-title').textContent = 'تعديل بيانات المندوب';
-                    document.getElementById('rep-id').value = rep.id;
-                    document.getElementById('rep-name').value = rep.name;
-                    document.getElementById('rep-serial').value = rep.serial || '';
-                    document.getElementById('rep-target').value = rep.target || 0;
-                    document.getElementById('rep-next-invoice').value = rep.nextInvoiceNumber || '';
-                }
-            } else {
-                // Add mode
-                document.getElementById('rep-modal-title').textContent = 'إضافة مندوب جديد';
-            }
-            openModal(repModal);
-        }
+        // generateReconciliationReport moved to js/reports-services.js
 
         // --- PRODUCT & PRICE-LIST MODALS & SAVERS ---
         function openProductModal(id = null) {
@@ -16501,11 +14769,7 @@
             } else {
                 tbody.innerHTML = '';
 
-                function parseDiscount(str){
-                    if (!str) return 0;
-                    const n = parseFloat(String(str).replace('%','').trim());
-                    return isNaN(n) ? 0 : n;
-                }
+                const parseDiscount = (s) => (window.parseDiscount ? window.parseDiscount(s) : 0);
                 function updateAllPricesAfterDiscount(){
                     const d = parseDiscount(discountInput.value);
                     Array.from(tbody.querySelectorAll('tr')).forEach(tr=>{
@@ -17183,14 +15447,45 @@
             });
 
             let filteredSales = salesInRange;
+            
+            // إذا تم اختيار فئة محددة (مالتي أو ألبان)، نفلتر المبيعات والأصناف
             if (category !== 'all') {
-                filteredSales = salesInRange.filter(sale => {
-                    return sale.items.some(item => {
+                console.log(`🔍 Filtering sales by category: ${category}`);
+                
+                // تحويل الفئة لتدعم العربي والإنجليزي
+                const categoryVariants = {
+                    'multi': ['multi', 'مالتي', 'مالتى'],
+                    'dairy': ['dairy', 'ألبان', 'البان', 'الألبان']
+                };
+                const acceptedCategories = categoryVariants[category] || [category];
+                
+                console.log(`📋 Accepted category values:`, acceptedCategories);
+                
+                // نفلتر المبيعات ونعدل محتوياتها
+                filteredSales = salesInRange.map(sale => {
+                    // نفلتر الأصناف داخل كل فاتورة
+                    const filteredItems = sale.items.filter(item => {
                         const product = findProduct(item.productId);
-                        // Ensure product exists and has a category property before checking
-                        return product && product.category === category;
+                        const matches = product && acceptedCategories.includes(product.category);
+                        return matches;
                     });
-                });
+                    
+                    // إذا لم يكن هناك أصناف تطابق الفلتر، لا نشمل الفاتورة
+                    if (filteredItems.length === 0) return null;
+                    
+                    // إعادة حساب الإجمالي بناءً على الأصناف المفلترة فقط
+                    const newTotal = filteredItems.reduce((sum, item) => sum + (item.total || 0), 0);
+                    
+                    return {
+                        ...sale,
+                        items: filteredItems,
+                        total: newTotal,
+                        originalTotal: sale.total, // نحتفظ بالإجمالي الأصلي للمرجع
+                        isFiltered: true
+                    };
+                }).filter(sale => sale !== null); // نزيل الفواتير التي لا تحتوي على أصناف مطابقة
+                
+                console.log(`✅ Filtered from ${salesInRange.length} to ${filteredSales.length} sales with category ${category}`);
             }
             
             // Sort by date
@@ -17212,10 +15507,26 @@
                 <div class="printable-statement-content">
                     <h2 class="text-2xl font-bold mb-2">${title}</h2>
                     <p class="text-sm text-gray-600 mb-2">الفترة من: ${startDate.toLocaleDateString('ar-EG')} إلى: ${endDate.toLocaleDateString('ar-EG')}</p>
-                    <p class="text-sm text-gray-600 mb-4">العملاء: ${customerNames}</p>`;
+                    <p class="text-sm text-gray-600 mb-2">العملاء: ${customerNames}</p>`;
+                    
+            // إضافة رسالة توضيحية عند الفلترة
+            if (category !== 'all') {
+                const categoryName = category === 'multi' ? 'مالتي' : (category === 'dairy' ? 'ألبان' : category);
+                html += `<div class="bg-blue-50 border border-blue-200 rounded-lg p-3 mb-3">
+                    <p class="text-sm font-semibold text-blue-800">
+                        📊 تم الفلترة: يعرض فقط المبيعات من فئة <span class="font-bold">${categoryName}</span>
+                    </p>
+                    <p class="text-xs text-blue-600 mt-1">ملاحظة: المبالغ المعروضة تشمل فقط الأصناف من الفئة المحددة</p>
+                </div>`;
+            }
+            
+            html += `</div>`; // close first div started above
 
             if (filteredSales.length === 0) {
-                html += '<p class="text-center text-gray-500 p-4">لا توجد فواتير في هذه الفترة.</p>';
+                const noResultsMsg = category !== 'all' 
+                    ? `لا توجد مبيعات من فئة ${category === 'multi' ? 'مالتي' : 'ألبان'} في هذه الفترة.`
+                    : 'لا توجد فواتير في هذه الفترة.';
+                html += `<p class="text-center text-gray-500 p-4">${noResultsMsg}</p>`;
             } else {
                 html += '<div class="overflow-x-auto border rounded-lg"><table class="min-w-full divide-y divide-gray-200 text-sm">';
                 html += `<thead class="bg-gray-100"><tr>
@@ -18659,86 +16970,6 @@
                         } catch (err) {
                             const msg = (err && err.code === 'permission-denied') ? 'ليست لديك صلاحية حذف العملاء' : 'فشل حذف العميل';
                             await customDialog({ title: 'خطأ', message: msg });
-                        }
-                    }
-                }
-            });
-
-            // Reps Page
-            document.getElementById('add-rep-btn').addEventListener('click', () => openRepModal());
-            document.getElementById('cancel-rep-btn').addEventListener('click', () => closeModal(repModal));
-
-            repForm.addEventListener('submit', async (e) => {
-                e.preventDefault();
-                const id = document.getElementById('rep-id').value;
-                const name = document.getElementById('rep-name').value.trim();
-                const serial = document.getElementById('rep-serial').value.trim();
-                const target = parseFloat(document.getElementById('rep-target').value) || 0;
-                const nextInvoiceNumber = parseInt(document.getElementById('rep-next-invoice').value) || null;
-
-                if (!name) {
-                    await customDialog({ title: 'بيانات ناقصة', message: 'الرجاء إدخال اسم المندوب.' });
-                    return;
-                }
-
-                const isDuplicate = (state.reps||[]).some(r => r.name === name && r.id !== id);
-                if (isDuplicate) {
-                    await customDialog({ title: 'اسم مكرر', message: 'يوجد مندوب آخر بنفس الاسم. الرجاء استخدام اسم مختلف.' });
-                    return;
-                }
-
-                try {
-                    if (id) {
-                        await updateRepDoc(id, { name, serial, target, nextInvoiceNumber });
-                    } else {
-                        await addRepDoc(undefined, { name, serial, target, nextInvoiceNumber });
-                    }
-                    closeModal(repModal);
-                    await customDialog({ message: 'تم حفظ بيانات المندوب في السحابة.', title: 'نجاح' });
-                } catch (err) {
-                    console.warn('saveRep cloud failed', err);
-                    await customDialog({ title: 'خطأ', message: 'تعذر حفظ بيانات المندوب. تحقق من الاتصال والصلاحيات.' });
-                }
-            });
-
-            document.getElementById('reps-list').addEventListener('click', async (e) => {
-                const editBtn = e.target.closest('.edit-rep-btn');
-                const deleteBtn = e.target.closest('.delete-rep-btn');
-
-                if (editBtn) {
-                    const repId = editBtn.dataset.id;
-                    openRepModal(repId);
-                }
-
-                if (deleteBtn) {
-                    const repId = deleteBtn.dataset.id;
-                    const rep = (state.reps||[]).find(r => r.id === repId);
-                    if (!rep) return;
-
-                    const repHasSales = (state.sales||[]).some(s => s.repName === rep.name);
-                    if (repHasSales) {
-                        await customDialog({
-                            title: 'لا يمكن الحذف',
-                            message: `لا يمكن حذف المندوب "${rep.name}" لأن لديه فواتير مسجلة. يمكنك تعديل بياناته بدلاً من ذلك.`
-                        });
-                        return;
-                    }
-
-                    const confirmed = await customDialog({
-                        title: 'تأكيد الحذف',
-                        message: `هل أنت متأكد أنك تريد حذف المندوب "${rep.name}"؟`,
-                        isConfirm: true,
-                        confirmText: 'نعم، احذف',
-                        confirmClass: 'bg-red-600 hover:bg-red-700'
-                    });
-
-                    if (confirmed) {
-                        try {
-                            await deleteRepDoc(repId);
-                            await customDialog({ message: 'تم حذف المندوب نهائياً.' });
-                        } catch (err) {
-                            console.warn('deleteRep failed', err);
-                            await customDialog({ title: 'خطأ', message: 'تعذر حذف المندوب من السحابة.' });
                         }
                     }
                 }
@@ -20738,16 +18969,16 @@
 
         // Raw price registry handlers
         function renderRawPriceTable(){
-            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
-            const stockPage = document.getElementById('page-stock-control');
+            // OPTIMIZED: Only render if stock-control-v2 page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control-v2');
             if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
-                console.log('⏭️ renderRawPriceTable: stock-control page not visible, skipping render');
+                console.log('⏭️ renderRawPriceTable: stock-control-v2 page not visible, skipping render');
                 return;
             }
-            // Delegate to inventorySystem for Stock Control page rendering
-            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+            // Delegate to inventorySystem for Stock Control V2 page rendering
+            if (window.appV2 && typeof window.appV2.loadData === 'function') {
                 try {
-                    window.inventorySystem.loadInventoryData('raw');
+                    window.appV2.loadData();
                 } catch(e) {
                     console.error('renderRawPriceTable delegation failed:', e);
                 }
@@ -20755,16 +18986,16 @@
         }
 
         function renderFinishedPriceTable(){
-            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
-            const stockPage = document.getElementById('page-stock-control');
+            // OPTIMIZED: Only render if stock-control-v2 page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control-v2');
             if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
-                console.log('⏭️ renderFinishedPriceTable: stock-control page not visible, skipping render');
+                console.log('⏭️ renderFinishedPriceTable: stock-control-v2 page not visible, skipping render');
                 return;
             }
-            // Delegate to inventorySystem for Stock Control page rendering
-            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+            // Delegate to inventorySystem for Stock Control V2 page rendering
+            if (window.appV2 && typeof window.appV2.loadData === 'function') {
                 try {
-                    window.inventorySystem.loadInventoryData('finished');
+                    window.appV2.loadData();
                 } catch(e) {
                     console.error('renderFinishedPriceTable delegation failed:', e);
                 }
@@ -20772,16 +19003,16 @@
         }
 
         function renderPackPriceTable(){
-            // OPTIMIZED: Only render if stock-control page is visible (avoid blocking on login)
-            const stockPage = document.getElementById('page-stock-control');
+            // OPTIMIZED: Only render if stock-control-v2 page is visible (avoid blocking on login)
+            const stockPage = document.getElementById('page-stock-control-v2');
             if (!stockPage || stockPage.style.display === 'none' || !stockPage.classList.contains('active')) {
-                console.log('⏭️ renderPackPriceTable: stock-control page not visible, skipping render');
+                console.log('⏭️ renderPackPriceTable: stock-control-v2 page not visible, skipping render');
                 return;
             }
-            // Delegate to inventorySystem for Stock Control page rendering
-            if (window.inventorySystem && typeof window.inventorySystem.loadInventoryData === 'function') {
+            // Delegate to inventorySystem for Stock Control V2 page rendering
+            if (window.appV2 && typeof window.appV2.loadData === 'function') {
                 try {
-                    window.inventorySystem.loadInventoryData('pack');
+                    window.appV2.loadData();
                 } catch(e) {
                     console.error('renderPackPriceTable delegation failed:', e);
                 }
@@ -23296,3 +21527,112 @@
             }
         };
     
+// ==========================================
+// كود التجهيز والإرسال للضرائب (ETA Integration)
+// ==========================================
+window.uploadSaleToEta = async function(saleId) {
+    try {
+        // 1. البحث عن الفاتورة
+        const sale = state.sales.find(s => s.id === saleId);
+        if (!sale) {
+            alert("❌ خطأ: لم يتم العثور على الفاتورة.");
+            return;
+        }
+
+        // 2. البحث عن بيانات العميل
+        const customer = state.customers.find(c => c.id === sale.customerId || c.name === sale.customerName);
+        if (!customer) {
+            alert("❌ خطأ: بيانات العميل غير مكتملة.");
+            return;
+        }
+
+        // 3. تجهيز شكل الفاتورة حسب مواصفات الضرائب المصرية
+        // ملاحظة: هذه البيانات تجريبية، يجب ضبط الأكواد (GS1/EGS) بدقة
+        const invoiceData = {
+            "issuer": {
+                "name": "اسم شركتك هنا", // مفروض ييجي من الإعدادات
+                "id": "رقم التسجيل الضريبي للشركة",
+                "type": "B" // B=Business
+            },
+            "receiver": {
+                "name": customer.name,
+                "id": customer.taxNumber || "", // الرقم الضريبي للعميل
+                "type": "B", // B=Business, P=Person
+                "address": {
+                    "country": "EG",
+                    "governate": "Cairo", // افتراضي
+                    "regionCity": "City",
+                    "street": customer.address || "General Street",
+                    "buildingNumber": "1"
+                }
+            },
+            "documentType": "I", // I=Invoice
+            "documentTypeVersion": "1.0",
+            "dateTimeIssued": new Date(sale.date).toISOString(), // تنسيق التاريخ
+            "taxpayerActivityCode": "4610", // كود النشاط (يجب تعديله)
+            "internalID": sale.invoiceNumber,
+            
+            // تحويل الأصناف
+            "invoiceLines": sale.items.map(item => ({
+                "description": item.name,
+                "itemType": "EGS", // أو GS1
+                "itemCode": item.code || "EG-111111111-1111", // كود الصنف الدولي
+                "unitType": "EA", // الوحدة
+                "quantity": parseFloat(item.qty),
+                "unitValue": {
+                    "currencySold": "EGP",
+                    "amountEGP": parseFloat(item.price)
+                },
+                "salesTotal": parseFloat(item.qty) * parseFloat(item.price),
+                "total": parseFloat(item.total),
+                "valueDifference": 0,
+                "totalTaxableFees": 0,
+                "netTotal": parseFloat(item.total),
+                "itemsDiscount": 0,
+                "taxableItems": [
+                    {
+                        "taxType": "T1", // ضريبة القيمة المضافة
+                        "amount": 0, // قيمة الضريبة (محتاجة حساب)
+                        "subType": "V009", // معفي أو خاضع (محتاج تظبيط)
+                        "rate": 0
+                    }
+                ]
+            })),
+            "totalAmount": sale.total,
+            "totalSalesAmount": sale.subTotal || sale.total,
+            "netAmount": sale.total, // يحتاج حساب دقيق مع الضرائب
+            "taxTotals": [
+                {
+                    "taxType": "T1",
+                    "amount": 0
+                }
+            ],
+            "extraDiscountAmount": 0,
+            "totalItemsDiscountAmount": 0
+        };
+
+        console.log("تم تجهيز الفاتورة:", invoiceData);
+
+        // 4. محاولة الإرسال للبرنامج الوسيط (الذي سنقوم بإنشائه لاحقاً)
+        // هذا الرابط هو "الجسر" بين المتصفح والفلاشة
+        const response = await fetch('http://localhost:9000/sign-invoice', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(invoiceData)
+        });
+
+        if (response.ok) {
+            const result = await response.json();
+            alert("✅ تم إرسال الفاتورة للضرائب بنجاح!\nUUID: " + result.uuid);
+            // تحديث حالة الفاتورة في التطبيق
+            // window.updateInvoiceStatus(saleId, 'submitted');
+        } else {
+            alert("⚠️ فشل الاتصال ببرنامج التوقيع.\nتأكد أن برنامج (Local Signer) يعمل والفلاشة موصلة.");
+        }
+
+    } catch (error) {
+        console.error(error);
+        alert("⚠️ تنبيه: هذه الميزة تتطلب تشغيل 'برنامج التوقيع' على الكمبيوتر لقراءة الفلاشة.");
+    }
+};
+})();})();

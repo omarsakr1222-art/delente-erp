@@ -116,6 +116,7 @@
 
     // expose init on window so caller can run when page shown
     window.initTaxesPage = initTaxesPage;
+    window.renderTaxesPage = initTaxesPage; // Alias for compatibility with renderer
 
     // auto-init when page element exists and db is ready
     document.addEventListener('DOMContentLoaded', function(){

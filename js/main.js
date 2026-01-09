@@ -537,23 +537,23 @@ function customDialog({ message, title = '?????', isConfirm = false, confirmText
 
 function populateRepDropdown(selectEl, selectedRepName = '') {
     if (!selectEl) return;
-    let repNames = (state.reps||[]).map(r => r.name).filter(n => !!n);
+    const reps = (state.reps||[]);
+    if (!Array.isArray(reps) || reps.length === 0) {
+        selectEl.innerHTML = '<option value="">جاري تحميل المناديب...</option>';
+        return;
+    }
+    let repNames = reps.map(r => r.name).filter(n => !!n);
     const prev = selectedRepName || selectEl.value;
-    // ????? ?? ??????? ?????? ????? ??? ??? ??????? ?????? ??? ?? ??? ????
+    // تقييد عرض المندوب للمندوب الحالي فقط إن وُجد، وإلا عرض الجميع
     if (selectEl.id === 'spreadsheet-rep') {
         let role = typeof getUserRole === 'function' ? getUserRole() : 'rep';
         let currentEmail = (window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null;
         if (role === 'rep' && currentEmail) {
-            // ???? ?? ??? ??????? ??????? ???? ???????
-            const currentRep = (state.reps||[]).find(r => (r.email||'').toLowerCase() === currentEmail);
-            if (currentRep) {
-                repNames = [currentRep.name];
-            } else {
-                repNames = [];
-            }
+            const currentRep = reps.find(r => (r.email||'').toLowerCase() === currentEmail);
+            repNames = currentRep ? [currentRep.name] : repNames;
         }
     }
-    let html = '<option value="">-- ???? ???????? --</option>';
+    let html = '<option value="">-- جميع المناديب --</option>';
     html += repNames.map(name => `<option value="${name}" ${name === prev ? 'selected' : ''}>${name}</option>`).join('');
     selectEl.innerHTML = html;
     // Restore previous selection if still present
