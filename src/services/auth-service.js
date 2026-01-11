@@ -202,12 +202,13 @@ function isReadOnly(){
     }
 }
 
-// Auto-create test user if none exist
-document.addEventListener('DOMContentLoaded', () => {
-    if (AuthSystem.getAllUsers().length === 0) {
-        AuthSystem.register('test@example.com', 'test123', 'مستخدم تجريبي');
-    }
-});
+// ✅ DISABLED: Auto-registration removed - users must login manually
+// This was causing automatic signup attempts and 400 errors
+// document.addEventListener('DOMContentLoaded', () => {
+//     if (AuthSystem.getAllUsers().length === 0) {
+//         AuthSystem.register('test@example.com', 'test123', 'مستخدم تجريبي');
+//     }
+// });
 
 // Make AuthSystem and helpers globally available
 if (typeof window !== 'undefined') {

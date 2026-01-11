@@ -1,4 +1,12 @@
 // Stock Control V2 - Firebase Compat API Version
+// ✅ AUTH GUARD: Prevent execution before login
+if (!window.AuthSystem?.getCurrentUser?.()) {
+    console.log('⚠️ Stock Control V2: Waiting for user login...');
+    window.__stockV2Ready = false;
+} else {
+    window.__stockV2Ready = true;
+}
+
 console.log('⏳ Stock Control V2 script loading...');
 
 const appV2 = {
@@ -8,31 +16,25 @@ const appV2 = {
     currentProdFilter: 'all',
     stockCategory: 'finished_goods',
     selectedDate: null,
-    logSelectedDate: null,
 
     async init() {
         try {
-            // Wait for parent app Firebase to be ready
-            if (!window.db || !window.auth) {
-                console.warn('⏳ Waiting for parent Firebase...');
-                setTimeout(() => this.init(), 500);
-                return;
-            }
-            
+            // Expect Firebase to be ready before calling
+            if (!window.db) return;
+
             this.db = window.db;
             this.auth = window.auth;
-            
+
             console.log('✅ V2 using parent app Firebase instance');
             this.startListeners();
             this.loadLogs();
-            
-            // Set initial status
+
             const badge = document.getElementById('connectionStatus-v2');
             if (badge) {
                 badge.className = "badge online w-fit mt-1 text-[10px]";
                 badge.innerHTML = '<span class="w-1.5 h-1.5 rounded-full bg-green-600"></span> متصل';
             }
-        } catch (err) { 
+        } catch (err) {
             console.error('V2 Init Error:', err);
         }
     },
@@ -114,29 +116,7 @@ const appV2 = {
 
     filterProd(cat) {
         this.currentProdFilter = cat;
-        console.log(`🔍 Filter clicked: ${cat}`);
-        console.log(`📊 Total products in memory: ${this.products.length}`);
-        
-        // طباعة عدد المنتجات لكل فئة
-        const categoryCounts = {};
-        this.products.forEach(p => {
-            const pCat = p.category || 'no-category';
-            categoryCounts[pCat] = (categoryCounts[pCat] || 0) + 1;
-        });
-        console.log('📋 Products per category:', categoryCounts);
-        
-        // حساب عدد المنتجات بعد الفلترة
-            let filteredCount;
-            if (cat === 'all') {
-                filteredCount = this.products.length;
-            } else if (cat === 'finished_goods') {
-                // حساب جميع المنتجات التامة
-                const finishedCategories = ['finished_goods', 'مالتى', 'مالتي', 'multi', 'البان', 'ألبان', 'الألبان', 'dairy'];
-                filteredCount = this.products.filter(p => finishedCategories.includes(p.category)).length;
-            } else {
-                filteredCount = this.products.filter(p => p.category === cat).length;
-            }
-        console.log(`✅ After filtering by "${cat}": ${filteredCount} products will be shown`);
+        console.log(`🔍 Filter clicked: ${cat}, Products count before: ${this.products.length}`);
         
         // Only toggle active state - keep all classes intact
         const buttons = document.querySelectorAll('.filter-chip-v2');
@@ -164,63 +144,27 @@ const appV2 = {
         tbody.innerHTML = '';
         const filter = this.currentProdFilter || 'all';
         
-        console.log(`📦 Rendering products - Filter: "${filter}", Date filter: ${this.selectedDate ? this.selectedDate.toLocaleDateString('ar-EG') : 'None'}`);
+        console.log(`📦 Current filter: "${filter}"`);
+        console.log(`📦 Total products in memory: ${this.products.length}`);
         
         // Filter products based on currentProdFilter
         let list = this.products;
         if (filter !== 'all') {
-                list = this.products.filter(p => {
-                    // إذا كان الفلتر "finished_goods"، نشمل جميع المنتجات التامة
-                    if (filter === 'finished_goods') {
-                        const finishedCategories = [
-                            'finished_goods',
-                            'مالتى', 'مالتي', 'multi',
-                            'البان', 'ألبان', 'الألبان', 'dairy'
-                        ];
-                        return finishedCategories.includes(p.category);
-                    }
-                    // للفئات الأخرى، نطابق مباشرة
-                    return p.category === filter;
-                });
+            list = this.products.filter(p => {
+                const matches = p.category === filter;
+                if (p.id === 'sample' || p.name?.includes('Test')) {
+                    console.log(`  - Product "${p.name}": category="${p.category}", filter="${filter}", matches=${matches}`);
+                }
+                return matches;
+            });
         }
         
         console.log(`✅ Filtered to ${list.length} products for category "${filter}"`);
         
-        // طباعة أسماء المنتجات المعروضة للتأكد
-        if (list.length > 0 && list.length <= 10) {
-            console.log(`📝 Products to display:`, list.map(p => `${p.name} (${p.category})`));
-        }
-        
-        // تأكد من أن الجدول ظاهر/مخفي حسب النتائج
-        const tableContainer = document.getElementById('tableContainer-v2');
-        const emptyState = document.getElementById('emptyState-v2');
-        
         if (list.length === 0) {
-            const categoryNames = {
-                'finished_goods': 'الإنتاج التام',
-                'raw_material': 'الخامات',
-                'packaging': 'التغليف'
-            };
-            const catDisplayName = categoryNames[filter] || 'هذه الفئة';
-            
-            // إخفاء الجدول
-            if (tableContainer) tableContainer.classList.add('hidden');
-            
-            tbody.innerHTML = `<tr><td colspan="3" class="p-6 text-center">
-                <div class="text-gray-400 text-sm">
-                    <p class="mb-2">لا توجد منتجات في فئة ${catDisplayName}</p>
-                    <p class="text-xs text-gray-500">يمكنك إضافة منتجات جديدة من قسم "إضافة منتج" أعلاه</p>
-                </div>
-            </td></tr>`;
+            tbody.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
             return;
         }
-        
-        // إظهار الجدول
-        if (tableContainer) tableContainer.classList.remove('hidden');
-        if (emptyState) emptyState.classList.add('hidden');
-        
-        // استخدم الرصيد التاريخي إن كان هناك تصفية بالتاريخ
-        const stock = (p) => this.selectedDate ? (p.historicalStock || 0) : (p.currentStock || 0);
         
         list.forEach(p => {
             const row = document.createElement('tr');
@@ -228,13 +172,11 @@ const appV2 = {
             const catName = p.category ? this.getCatName(p.category) : '<span class="text-red-400">غير مصنف</span>';
             row.innerHTML = `
                 <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
-                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(stock(p))} ${p.unit || ''}</td>
+                <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(p.currentStock)} ${p.unit || ''}</td>
                 <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
             `;
             tbody.appendChild(row);
         });
-        
-        console.log(`✅ Added ${list.length} rows to tbody`);
     },
 
     async saveTrans(e) {
@@ -469,30 +411,19 @@ const appV2 = {
         const isAdmin = window.isAdmin || (window.currentUserRole === 'admin');
         console.log(`📋 Loading logs - Admin: ${isAdmin}, Current user: ${window.auth?.currentUser?.email}`);
         
-        // إعداد تاريخ التصفية (افتراضي: اليوم)
-        const selected = this.logSelectedDate instanceof Date ? this.logSelectedDate : new Date();
-        const startOfDay = new Date(selected);
-        startOfDay.setHours(0,0,0,0);
-        const endOfDay = new Date(selected);
-        endOfDay.setHours(23,59,59,999);
-        console.log(`📅 Logs date filter: ${selected.toLocaleDateString('ar-EG')}`);
-        
         try {
             this.db.collection('transactions')
                 .orderBy('date', 'desc')
-                .limit(500)
+                .limit(50)
                 .onSnapshot((snap) => {
                     tbody.innerHTML = '';
                     if (snap.empty) {
                         tbody.innerHTML = '<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات</td></tr>';
                         return;
                     }
-                    let count = 0;
                     snap.forEach(doc => {
                         const d = doc.data();
                         const dateObj = d.date?.toDate?.() || new Date(d.date);
-                        // تطبيق فلتر اليوم المحدد
-                        if (!(dateObj >= startOfDay && dateObj <= endOfDay)) return;
                         const date = dateObj.toLocaleDateString('ar-EG');
                         const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : (d.type === 'adjustment' ? 'تسوية' : 'إلغاء'));
                         const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
@@ -530,30 +461,10 @@ const appV2 = {
                             <td class="p-3 text-center flex gap-0.5 justify-center">${actions}</td>
                         `;
                         tbody.appendChild(row);
-                        count++;
                     });
-                    if (count === 0) {
-                        tbody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-400 text-xs">لا توجد حركات في هذا التاريخ</td></tr>`;
-                    }
                 }, err => console.error('V2 loadLogs error:', err));
         } catch (err) {
             console.error('V2 loadLogs exception:', err);
-        }
-    },
-
-    setLogsDate(dateStr) {
-        try {
-            if (!dateStr) {
-                this.logSelectedDate = new Date();
-            } else {
-                const parts = dateStr.split('-');
-                // yyyy-mm-dd
-                this.logSelectedDate = new Date(Number(parts[0]), Number(parts[1]) - 1, Number(parts[2]));
-            }
-            console.log('📅 setLogsDate ->', this.logSelectedDate?.toLocaleDateString('ar-EG'));
-            this.loadLogs();
-        } catch (e) {
-            console.warn('setLogsDate failed', e);
         }
     },
 
@@ -568,13 +479,6 @@ const appV2 = {
         
         if (id === 'stocktake') this.renderStock();
         if (id === 'movements') this.updateDropdowns();
-        if (id === 'reports') {
-            // اضبط التاريخ الافتراضي لليوم عند فتح السجلات
-            const input = document.getElementById('logs-date-filter-v2');
-            const todayStr = new Date().toISOString().slice(0,10);
-            if (input) input.value = todayStr;
-            this.setLogsDate(todayStr);
-        }
     },
     
     toggleModal(id) {
@@ -776,20 +680,8 @@ const appV2 = {
             hint.innerText = p ? `رصيد: ${p.currentStock} ${p.unit}` : '';
         }
     },
-    getCatName(c) {
-        const names = {
-            'raw_material': 'خامات',
-            'packaging': 'تغليف',
-            'finished_goods': 'منتج تام',
-            'مالتى': 'مالتي',
-            'مالتي': 'مالتي',
-            'multi': 'مالتي',
-            'البان': 'ألبان',
-            'ألبان': 'ألبان',
-            'الألبان': 'ألبان',
-            'dairy': 'ألبان'
-        };
-        return names[c] || c;
+    getCatName(c) { 
+        return c === 'raw_material' ? 'خامات' : (c === 'packaging' ? 'تغليف' : 'منتج تام'); 
     },
     formatNum(n) { 
         return parseFloat((n || 0).toFixed(2)); 
@@ -856,6 +748,48 @@ appV2.calculateHistoricalStock = async function() {
         console.error('calculateHistoricalStock error:', err);
         alert('خطأ في حساب الأرصدة التاريخية: ' + err.message);
     }
+};
+
+// تعديل دالة renderProducts لتدعم التاريخ والفلترة معاً
+appV2.renderProducts = function() {
+    const tbody = document.getElementById('productsBody-v2');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+    const filter = this.currentProdFilter || 'all';
+    
+    console.log(`📦 Rendering products - Filter: "${filter}", Date filter: ${this.selectedDate ? this.selectedDate.toLocaleDateString('ar-EG') : 'None'}`);
+    
+    let list = this.products;
+    
+    // تطبيق الفلترة بالفئة
+    if (filter !== 'all') {
+        list = list.filter(p => p.category === filter);
+    }
+    
+    console.log(`✅ Filtered to ${list.length} products`);
+    
+    if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="3" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة</td></tr>';
+        return;
+    }
+    
+    // load any saved draft values for stocktake
+    const draftKey = `stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`;
+    const drafts = (() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch(e){return {}} })();
+
+    list.forEach(p => {
+        // استخدم الرصيد التاريخي إن كان هناك تصفية بالتاريخ، وإلا استخدم الرصيد الحالي
+        const stock = this.selectedDate ? (p.historicalStock || 0) : (p.currentStock || 0);
+        const row = document.createElement('tr');
+        row.className = "hover:bg-blue-50 border-b last:border-0";
+        const catName = p.category ? this.getCatName(p.category) : '<span class="text-red-400">غير مصنف</span>';
+        row.innerHTML = `
+            <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
+            <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(stock)} ${p.unit || ''}</td>
+            <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
+        `;
+        tbody.appendChild(row);
+    });
 };
 
 // إضافة تأكيد في saveTrans
@@ -1133,12 +1067,25 @@ appV2.submitStocktake = async function() {
 window.appV2 = appV2;
 
 // Initialize when Firebase is ready
+let __initV2Attempts = 0;
+const __MAX_INIT_V2_ATTEMPTS = 60; // up to ~60s waiting for auth/db
 function initV2() {
-    if (window.db && window.auth) {
+    // Require authenticated user before initializing
+    const isLoggedIn = !!(window.AuthSystem && typeof window.AuthSystem.getCurrentUser === 'function' && window.AuthSystem.getCurrentUser());
+    if (!isLoggedIn) {
+        if (__initV2Attempts < __MAX_INIT_V2_ATTEMPTS) {
+            __initV2Attempts++;
+            return setTimeout(initV2, 1000);
+        }
+        console.warn('⚠️ Stock Control V2: init skipped (no authenticated user).');
+        return;
+    }
+
+    if (window.db) {
         console.log('🚀 Initializing Stock Control V2...');
         appV2.init();
-    } else {
-        console.log('⏳ Firebase not ready yet, retrying...');
+    } else if (__initV2Attempts < __MAX_INIT_V2_ATTEMPTS) {
+        __initV2Attempts++;
         setTimeout(initV2, 1000);
     }
 }

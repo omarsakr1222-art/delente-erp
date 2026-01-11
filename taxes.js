@@ -1,9 +1,15 @@
+// ✅ AUTH GUARD: Prevent taxes module execution before login
+if (!window.AuthSystem?.getCurrentUser?.()) {
+    console.log('⚠️ Taxes Module: Waiting for user login...');
+    window.__taxesReady = false;
+    // Don't execute the module yet
+} else {
 (function(){
     // Taxes module: renders tax report and e-invoice log
     async function fetchProductsMap(){
         const map = {};
         try{
-            const snap = await db.collection('products').get();
+            const snap = await window.db.collection('products').get();
             snap.forEach(d => { const data = d.data() || {}; map[d.id] = data; });
         }catch(e){ console.warn('fetchProductsMap failed', e); }
         return map;
@@ -27,7 +33,7 @@
         let totalSalesTaxable = 0;
         let totalOutputVat = 0;
         try{
-            const snap = await db.collection('sales').where('date','>=', range.start).where('date','<=', range.end).get();
+            const snap = await window.db.collection('sales').where('date','>=', range.start).where('date','<=', range.end).get();
             for (const doc of snap.docs){
                 const s = doc.data() || {};
                 // Prefer precomputed fields when available (saved by app): subtotal and taxAmount
@@ -59,7 +65,7 @@
         let totalInputVat = 0;
         try{
             const types = ['supply','add_stock'];
-            const queries = types.map(t => db.collection('transactions').where('type','==', t).where('date','>=', range.start).where('date','<=', range.end).get());
+            const queries = types.map(t => window.db.collection('transactions').where('type','==', t).where('date','>=', range.start).where('date','<=', range.end).get());
             const snaps = await Promise.all(queries);
             snaps.forEach(snap => {
                 snap.forEach(d => {
@@ -83,7 +89,7 @@
         if (!tbody) return;
         tbody.innerHTML = '<tr><td colspan="6" class="p-2 text-sm text-gray-500">جارٍ التحميل...</td></tr>';
         try{
-            const snap = await db.collection('einvoice_logs').orderBy('date','desc').limit(50).get();
+            const snap = await window.db.collection('einvoice_logs').orderBy('date','desc').limit(50).get();
             if (snap.empty) { tbody.innerHTML = '<tr><td colspan="6" class="p-2 text-sm text-gray-500">لا توجد سجلات.</td></tr>'; return; }
             let html = '';
             snap.forEach(d => {
@@ -118,8 +124,23 @@
     window.initTaxesPage = initTaxesPage;
     window.renderTaxesPage = initTaxesPage; // Alias for compatibility with renderer
 
-    // auto-init when page element exists and db is ready
+    // auto-init when page element exists and Firestore is ready
     document.addEventListener('DOMContentLoaded', function(){
-        setTimeout(() => { try { if (document.getElementById('page-taxes')) initTaxesPage(); } catch(e){} }, 800);
+        setTimeout(() => {
+            try {
+                if (document.getElementById('page-taxes')) {
+                    let attempts = 0;
+                    const timer = setInterval(() => {
+                        if (window.db) {
+                            clearInterval(timer);
+                            initTaxesPage();
+                        } else if (++attempts >= 60) { // ~30s max
+                            clearInterval(timer);
+                        }
+                    }, 500);
+                }
+            } catch(e){}
+        }, 800);
     });
-})();
+}); // End IIFE if guard
+} // End auth guard else

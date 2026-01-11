@@ -8,13 +8,9 @@
     'use strict';
 
     // ===== HELPER FUNCTIONS FOR REPORTS =====
+    // NOTE: Chart rendering functions (createOrUpdateChart, renderSales7DaysChart, etc.)
+    // have been moved to js/reports-ui.js to reduce file size.
     
-    // Global chart instances for active reports
-    window.sales7DaysChart = null;
-    window.topRepsChart = null;
-    window.topProductsChart = null;
-    window.topCustomersChart = null;
-
     // Helper function to filter sales by active period
     window.getActivePeriodSales = function() {
         const state = window.state || {};
@@ -193,32 +189,12 @@
         return { labels: sortedCustomers.map(c => c[0]), data: sortedCustomers.map(c => c[1]) }; 
     };
 
-    window.createOrUpdateChart = function(chartInstance, canvasId, type, data, options) { 
-        if (chartInstance) { chartInstance.data.labels = data.labels; chartInstance.data.datasets[0].data = data.data; chartInstance.update(); return chartInstance; }
-        const ctx = document.getElementById(canvasId)?.getContext('2d'); 
-        if (!ctx) return null;
-        return new Chart(ctx, { type: type, data: { labels: data.labels, datasets: [{ label: options.label || 'القيمة', data: data.data, backgroundColor: options.backgroundColor || 'rgba(59, 130, 246, 0.5)', borderColor: options.borderColor || 'rgba(59, 130, 246, 1)', borderWidth: options.borderWidth || 1, tension: 0.3, ...options.datasetOverrides }] }, options: { responsive: true, maintainAspectRatio: false, rtl: true, plugins: { legend: { labels: { font: { family: 'Cairo' } } } }, scales: { x: { reverse: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.xTitle, text: options.xTitle, font: { family: 'Cairo' } } }, y: { beginAtZero: true, ticks: { font: { family: 'Cairo' } }, title: { display: !!options.yTitle, text: options.yTitle, font: { family: 'Cairo' } } } }, ...options.overrides } }); 
-    };
-
-    window.renderSales7DaysChart = function() { 
-        const data = window.getSalesDataForLast7Days(); 
-        window.sales7DaysChart = window.createOrUpdateChart(window.sales7DaysChart, 'sales-7-days-chart', 'line', data, { label: 'إجمالي المبيعات (ج.م)', backgroundColor: 'rgba(59, 130, 246, 0.2)', borderColor: 'rgba(59, 130, 246, 1)', yTitle: 'المبيعات (ج.م)', datasetOverrides: { fill: true } }); 
-    };
-
-    window.renderTopRepsChart = function() { 
-        const data = window.getTopRepsData(5); 
-        window.topRepsChart = window.createOrUpdateChart(window.topRepsChart, 'top-reps-chart', 'bar', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: 'rgba(16, 185, 129, 0.7)', borderColor: 'rgba(16, 185, 129, 1)', yTitle: 'قيمة المبيعات', overrides: { indexAxis: 'y' } }); 
-    };
-
-    window.renderTopProductsChart = function() { 
-        const data = window.getTopProductsData(5); 
-        window.topProductsChart = window.createOrUpdateChart(window.topProductsChart, 'top-products-chart', 'bar', data, { label: 'الكمية (قطع)', backgroundColor: 'rgba(234, 179, 8, 0.7)', borderColor: 'rgba(234, 179, 8, 1)', yTitle: 'الكمية', overrides: { indexAxis: 'y' } }); 
-    };
-
-    window.renderTopCustomersChart = function() { 
-        const data = window.getTopCustomersData(5); 
-        window.topCustomersChart = window.createOrUpdateChart(window.topCustomersChart, 'top-customers-chart', 'doughnut', data, { label: 'قيمة المبيعات (ج.م)', backgroundColor: ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'], borderColor: '#fff', overrides: { parsing: { key: 'data' } }, datasetOverrides: { hoverOffset: 4 } }); 
-    };
+    // NOTE: Chart creation and rendering functions moved to js/reports-ui.js
+    // - createOrUpdateChart()
+    // - renderSales7DaysChart()
+    // - renderTopRepsChart()
+    // - renderTopProductsChart()
+    // - renderTopCustomersChart()
 
     // ===== REPORT GENERATION FUNCTIONS =====
 
@@ -684,6 +660,9 @@
 
         document.body.removeChild(tempExportElement);
     };
+
+    // Alias for legacy callers expecting exportToExcel name
+    window.exportToExcel = window.exportSelectedRows;
 
     // ===== TARGETS REPORT =====
     window.generateTargetsReport = function() {

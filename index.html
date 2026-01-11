@@ -209,7 +209,7 @@
         #inq-report-table tr:nth-child(even) td { background:#ffffff; }
         #inq-report-table tr:nth-child(odd) td { background:#f3f6fa; }
         #inq-report-table .qty-cell { font-weight:600;color:#0b3d91; }
-        #inq-report-table .total-cell { font-weight:600;color:#064e3b; }
+        #inq-report-table .total-cell { font-weight:600;color:#07523e; }
         #inq-summary .card { background:#041a3f;color:#fff;padding:12px 10px;border-radius:8px;display:flex;flex-direction:column;gap:4px; }
         #inq-summary .card span.val { font-size:16px;font-weight:700; }
 
@@ -870,21 +870,21 @@
             background: linear-gradient(180deg, #fff7e6, #ffe180) !important;
         }
 
-        /* Splash Screen Styles */
+        /* Splash Screen Styles - IMPROVED WITH INLINE FALLBACK */
         #splash-screen {
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: #8b5fbf;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            flex-direction: column;
-            z-index: 9999;
-            font-family: 'Montserrat', sans-serif;
-            overflow: hidden;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(135deg, #8b5fbf 0%, #5a3d8a 100%) !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            flex-direction: column !important;
+            z-index: 9999 !important;
+            font-family: 'Montserrat', sans-serif, -apple-system, BlinkMacSystemFont, sans-serif !important;
+            overflow: hidden !important;
         }
 
         #splash-logo-wrapper {
@@ -1011,6 +1011,34 @@
             border-radius: 4px;
         }
 
+        /* LOGIN PAGE IMPROVED STYLES */
+        #login-page {
+            display: none !important;
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            width: 100% !important;
+            height: 100% !important;
+            background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e8ba3 100%) !important;
+            z-index: 9998 !important;
+            min-height: 100vh !important;
+        }
+
+        /* Centered login card */
+        #login-page > div {
+            position: fixed !important;
+            top: 50% !important;
+            left: 50% !important;
+            transform: translate(-50%, -50%) !important;
+            width: calc(100% - 32px) !important;
+            max-width: 500px !important;
+            background: #ffffff !important;
+            border-radius: 12px !important;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important;
+            padding: 40px !important;
+            z-index: 9999 !important;
+        }
+
     </style>
 </head>
 <body class="bg-gray-100">
@@ -1099,86 +1127,49 @@
     </div>
 
     <!-- LOGIN PAGE -->
-    <div id="login-page" class="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4" style="display: none;">
-        <div class="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-            <div class="text-center mb-8">
-                <h1 class="text-3xl font-bold text-gray-800">مرحباً</h1>
-                <p class="text-gray-600 mt-2">نظام إدارة المبيعات</p>
-            </div>
-            
-            <form id="login-form" class="space-y-4">
-                <div>
-                    <label for="login-email" class="block text-sm font-medium text-gray-700 mb-1">البريد الإلكتروني</label>
-                    <input type="email" id="login-email" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="أدخل بريدك الإلكتروني" required>
+    <div id="login-page" style="display: none !important; position: fixed !important; top: 0 !important; left: 0 !important; width: 100% !important; height: 100% !important; background: linear-gradient(135deg, #1e3c72 0%, #2a5298 50%, #7e8ba3 100%) !important; z-index: 9998 !important; min-height: 100vh !important; padding: 0 !important; margin: 0 !important; overflow: auto !important;">
+        <div style="display: flex !important; align-items: center !important; justify-content: center !important; min-height: 100% !important; padding: 20px !important;">
+            <div style="background: #ffffff !important; border-radius: 12px !important; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3) !important; padding: 40px !important; width: 100% !important; max-width: 450px !important;">
+                <div style="text-align: center !important; margin-bottom: 32px !important;">
+                    <h1 style="font-size: 28px !important; font-weight: bold !important; color: #1f2937 !important; margin: 0 !important;">مرحباً</h1>
+                    <p style="color: #6b7280 !important; margin-top: 8px !important; font-size: 14px !important;">نظام إدارة المبيعات</p>
                 </div>
                 
-                <div>
-                    <label for="login-password" class="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
-                    <div class="relative">
-                        <input type="password" id="login-password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent pr-10" placeholder="أدخل كلمة المرور" required>
-                        <button type="button" class="absolute inset-y-0 left-2 text-gray-500 hover:text-gray-800 toggle-password" data-target="login-password" title="إظهار/إخفاء">
-                            👁️
-                        </button>
+                <form id="login-form" style="display: flex !important; flex-direction: column !important; gap: 16px !important;">
+                    <div style="display: flex !important; flex-direction: column !important;">
+                        <label for="login-email" style="display: block !important; font-size: 14px !important; font-weight: 500 !important; color: #374151 !important; margin-bottom: 4px !important;">البريد الإلكتروني</label>
+                        <input type="email" id="login-email" style="width: 100% !important; padding: 10px 16px !important; border: 1px solid #d1d5db !important; border-radius: 8px !important; font-size: 14px !important; outline: none !important; box-sizing: border-box !important;" placeholder="أدخل بريدك الإلكتروني" required>
                     </div>
-                </div>
+                    
+                    <div style="display: flex !important; flex-direction: column !important;">
+                        <label for="login-password" style="display: block !important; font-size: 14px !important; font-weight: 500 !important; color: #374151 !important; margin-bottom: 4px !important;">كلمة المرور</label>
+                        <div style="position: relative !important;">
+                            <input type="password" id="login-password" style="width: 100% !important; padding: 10px 16px !important; padding-left: 40px !important; border: 1px solid #d1d5db !important; border-radius: 8px !important; font-size: 14px !important; outline: none !important; box-sizing: border-box !important;" placeholder="أدخل كلمة المرور" required>
+                            <button type="button" class="toggle-password" data-target="login-password" style="position: absolute !important; right: 12px !important; top: 50% !important; transform: translateY(-50%) !important; background: none !important; border: none !important; cursor: pointer !important; color: #6b7280 !important; font-size: 16px !important;" title="إظهار/إخفاء">👁️</button>
+                        </div>
+                    </div>
 
-                <div class="flex items-center">
-                    <input type="checkbox" id="login-remember" class="h-4 w-4 text-blue-600 rounded">
-                    <label for="login-remember" class="mr-2 text-sm text-gray-600">تذكرني</label>
-                </div>
+                    <div style="display: flex !important; align-items: center !important;">
+                        <input type="checkbox" id="login-remember" style="width: 16px !important; height: 16px !important; margin-right: 8px !important;">
+                        <label for="login-remember" style="font-size: 14px !important; color: #6b7280 !important;">تذكرني</label>
+                    </div>
 
-                <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-semibold transition">دخول</button>
+                    <button type="submit" style="width: 100% !important; background: #2563eb !important; color: white !important; padding: 10px !important; border: none !important; border-radius: 8px !important; font-weight: 600 !important; cursor: pointer !important; font-size: 16px !important; transition: background 0.2s !important; margin-top: 8px !important;">دخول</button>
 
-                <div class="text-center text-sm text-gray-600">
-                    <p>لا تملك حساب؟ <button type="button" id="go-to-register-btn" class="text-blue-600 hover:underline font-semibold">إنشاء حساب جديد</button></p>
-                </div>
-            </form>
-
-            <div class="mt-6 p-3 bg-yellow-50 border border-yellow-200 rounded-lg text-xs text-yellow-800">
-                <p><strong>للاختبار السريع:</strong></p>
-                <p>البريد: test@example.com</p>
-                <p>كلمة المرور: test123</p>
+                    <div style="text-align: center !important; font-size: 12px !important; color: #6b7280 !important; margin-top: 16px !important; background: #fef3c7 !important; border: 1px solid #fcd34d !important; border-radius: 6px !important; padding: 12px !important;">
+                        <p style="margin: 0 !important; margin-bottom: 4px !important;"><strong>للاختبار السريع:</strong></p>
+                        <p style="margin: 0 !important; margin-bottom: 2px !important;">البريد: test@example.com</p>
+                        <p style="margin: 0 !important;">كلمة المرور: test123</p>
+                    </div>
+                </form>
             </div>
         </div>
     </div>
 
-    <!-- REGISTER PAGE -->
-    <div id="register-page" class="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4 hidden">
-        <div class="bg-white rounded-lg shadow-2xl p-8 w-full max-w-md">
-            <div class="text-center mb-8">
-                <h1 class="text-3xl font-bold text-gray-800">إنشاء حساب جديد</h1>
-                <p class="text-gray-600 mt-2">نظام إدارة المبيعات</p>
-            </div>
-            
-            <form id="register-form" class="space-y-4">
-                <div>
-                    <label for="register-name" class="block text-sm font-medium text-gray-700 mb-1">الاسم الكامل</label>
-                    <input type="text" id="register-name" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="أدخل اسمك الكامل" required>
-                </div>
-
-                <div>
-                    <label for="register-email" class="block text-sm font-medium text-gray-700 mb-1">البريد الإلكتروني</label>
-                    <input type="email" id="register-email" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="أدخل بريدك الإلكتروني" required>
-                </div>
-
-                <div>
-                    <label for="register-password" class="block text-sm font-medium text-gray-700 mb-1">كلمة المرور</label>
-                    <input type="password" id="register-password" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="أدخل كلمة مرور قوية" required>
-                </div>
-
-                <div>
-                    <label for="register-password-confirm" class="block text-sm font-medium text-gray-700 mb-1">تأكيد كلمة المرور</label>
-                    <input type="password" id="register-password-confirm" class="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent" placeholder="أعد كتابة كلمة المرور" required>
-                </div>
-
-                <button type="submit" class="w-full bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 font-semibold transition">إنشاء الحساب</button>
-
-                <div class="text-center text-sm text-gray-600">
-                    <p>لديك حساب بالفعل؟ <button type="button" id="go-to-login-btn" class="text-blue-600 hover:underline font-semibold">دخول</button></p>
-                </div>
-            </form>
-        </div>
-    </div>
+    <!-- REGISTER PAGE - DISABLED (يتم الدخول فقط يدويًا) -->
+    <!-- <div id="register-page" class="min-h-screen bg-gradient-to-br from-blue-600 to-blue-800 flex items-center justify-center p-4 hidden">
+        ... form removed ...
+    </div> -->
 
     <div id="app-container" class="mx-auto bg-white shadow-lg min-h-screen hidden">
         
@@ -4047,113 +4038,35 @@
     </div>
 
 
-    <script>
-        // Splash Screen Animation
-        const splashContainer = document.getElementById('splash-container');
-        const rows = 12;
-        const cols = 12;
-        const width = 500;
-        const height = 400;
-        const pieceW = width / cols;
-        const pieceH = height / rows;
-
-        // إعداد قطع اللوجو (متشتتة)
-        function createSplashPieces() {
-            for (let r = 0; r < rows; r++) {
-                for (let c = 0; c < cols; c++) {
-                    const piece = document.createElement('div');
-                    piece.classList.add('splash-piece');
-                    piece.style.width = `${pieceW + 1}px`;
-                    piece.style.height = `${pieceH + 1}px`;
-                    piece.style.left = `${c * pieceW}px`;
-                    piece.style.top = `${r * pieceH}px`;
-                    piece.style.backgroundPosition = `-${c * pieceW}px -${r * pieceH}px`;
-
-                    // تشتيت عشوائي
-                    const angle = Math.random() * Math.PI * 2;
-                    const distance = 800 + Math.random() * 500;
-                    const startX = Math.cos(angle) * distance;
-                    const startY = Math.sin(angle) * distance;
-                    const rotate = Math.random() * 720 - 360;
-
-                    piece.style.transform = `translate(${startX}px, ${startY}px) rotate(${rotate}deg) scale(0.5)`;
-                    piece.style.transitionDelay = `${Math.random() * 0.5}s`;
-
-                    splashContainer.appendChild(piece);
-                }
-            }
-        }
-
-        // إعداد حروف النصوص (للموجة الرأسية)
-        function setupWaveText(elementId, text) {
-            const el = document.getElementById(elementId);
-            el.innerHTML = '';
-            const chars = text.split('');
-
-            chars.forEach((char, i) => {
-                const span = document.createElement('span');
-                span.innerText = char === ' ' ? '\u00A0' : char;
-                span.classList.add('splash-letter');
-
-                span.style.animation = `splashSeaWaveVertical 4s ease-in-out forwards`;
-                span.style.animationDelay = `${i * 0.1}s`;
-
-                el.appendChild(span);
-            });
-        }
-
-        function animateSplash() {
-            // التجهيز
-            createSplashPieces();
-            setupWaveText('title1', 'DELENTE');
-            setupWaveText('title2', "IT'S JUST MILK.");
-
-            // بدء كل الحركات معاً
-            setTimeout(() => {
-                // بدء تجميع اللوجو
-                const pieces = document.querySelectorAll('.splash-piece');
-                pieces.forEach(p => {
-                    p.style.opacity = '1';
-                    p.style.transform = 'translate(0, 0) rotate(0) scale(1)';
-                });
-
-                // بدء الحركة الأفقية للنصوص
-                document.getElementById('wrapper1').classList.add('splash-slide-from-left');
-                document.getElementById('wrapper2').classList.add('splash-slide-from-right');
-            }, 100);
-
-            // ظهور العناصر النهائية بعد اكتمال الحركة
-            setTimeout(() => {
-                document.querySelector('.splash-trademark').style.opacity = '1';
-                document.getElementById('splash-enter-btn').style.opacity = '1';
-            }, 5000);
-        }
-
-        function hideSplash() {
-            const splash = document.getElementById('splash-screen');
-            splash.style.display = 'none';
-            document.getElementById('login-page').style.display = 'flex';
-        }
-
-        window.onload = function() {
-            animateSplash();
-            document.getElementById('splash-enter-btn').addEventListener('click', hideSplash);
-        };
-    </script>
-
     <!-- Bluetooth Printer Module -->
     <script src="src/utils/bluetooth-printer.js?v=2" charset="UTF-8"></script>
     
     <!-- New Advanced Print System -->
     <script src="src/utils/new-print-system.js?v=1.0.1" charset="UTF-8"></script>
     
-    <!-- Core initialization - must load before main.js -->
+    <!-- Authentication System - must load before firebase-init -->
+    <script src="src/services/auth-service.js?v=1" charset="UTF-8"></script>
+    
+    <!-- Main application logic - must load before firebase-init -->
+    <script src="js/inline-scripts.js?v=11" charset="UTF-8"></script>
+    
+    <!-- Realtime sync services -->
+    <script src="src/services/realtime-sync.js?v=1" charset="UTF-8"></script>
+    
+    <!-- ✅ CLEANED: ترتيب صحيح للسكريبتات -->
+    
+    <!-- 1. Firebase initialization (MUST BE FIRST) -->
+    <script src="src/services/firebase-init.js?v=1" charset="UTF-8"></script>
+    
+    <!-- 2. Core initialization (before main logic) -->
     <script src="src/core/init.js?v=10" charset="UTF-8"></script>
     
+    <!-- 3. Main app logic -->
     <script src="js/main.js?v=20260108073000" charset="UTF-8" defer></script>
-
-    <!-- Taxes Page Logic -->
-    <script src="taxes.js?v=1" charset="UTF-8"></script>
+    
+    <!-- ⚠️ REMOVED: reports-logic.js (missing file - 404 error) -->
+    <!-- ⚠️ REMOVED: sales-logic.js (missing file - 404 error) -->
+    <!-- ⚠️ REMOVED: taxes.js (loads after login only via inline-scripts.js) -->
 
     <!-- Shared formatters (load before inline-scripts) -->
     <script src="js/formatters.js?v=1" charset="UTF-8"></script>
@@ -4188,11 +4101,21 @@
     <script src="js/staff-services.js?v=1" charset="UTF-8"></script>
     <!-- Reports/Charts/Export services -->
     <script src="js/reports-services.js?v=1" charset="UTF-8"></script>
+    
+    <!-- Reports UI (Chart rendering & export extracted) -->
+    <script src="js/reports-ui.js?v=1" charset="UTF-8"></script>
 
-    <script src="js/inline-scripts.js?v=10" charset="UTF-8"></script>
+    <!-- Application Core Services (Cache-first architecture) -->
+    <script src="js/app-services.js?v=1" charset="UTF-8"></script>
+
+    <!-- Printer Services (Bluetooth + PDF) -->
+    <script src="js/printer-services.js?v=1" charset="UTF-8"></script>
 
     <!-- Stock Control V2 Logic -->
     <script src="js/stock-control-v2.js?v=2" charset="UTF-8"></script>
+
+    <!-- Stock UI (Rendering & UI helpers extracted from V2) -->
+    <script src="js/stock-ui.js?v=1" charset="UTF-8"></script>
 
 
 
