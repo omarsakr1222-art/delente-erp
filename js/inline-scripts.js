@@ -1,4 +1,4 @@
-﻿
+
         // Safe global error handler: log only, never alter the UI
         window.onerror = function (msg, url, line, col, error) {
             try {
@@ -18,6 +18,24 @@
                 // swallow
             }
             return true;
+        };
+        
+        // ===== Subscription Manager (منع نزيف الـ Firebase Reads) =====
+        window.__subscriptions = new Map();
+        window.storeSubscription = function(key, unsubscribeFn) {
+            if (window.__subscriptions.has(key)) {
+                try { window.__subscriptions.get(key)(); } catch(e){ console.warn('🔌 Failed to unsubscribe:', key, e); }
+            }
+            if (unsubscribeFn) window.__subscriptions.set(key, unsubscribeFn);
+        };
+        window.unsubscribeAll = function() {
+            console.log(`🔌 Unsubscribing ${window.__subscriptions.size} listeners`);
+            window.__subscriptions.forEach((unsub, key) => {
+                try { unsub(); console.log(`   ✓ Unsubscribed: ${key}`); } catch(e){ console.warn('   ✗ Failed:', key, e); }
+            });
+            window.__subscriptions.clear();
+            // Reset flag to allow re-attachment when needed
+            window.__listenersAttached = false;
         };
     
 
@@ -105,41 +123,21 @@
 
         // Global safe guards to prevent early crashes
         // ===== Render Scheduler (performance) =====
-        (function(){
-            const scheduled = new Map();
-            const lastRun = new Map();
-            const MIN_INTERVAL = 80; // ms between same-key renders
-            function runTask(key, fn){
-                scheduled.delete(key);
-                try {
-                    const start = performance.now();
-                    fn();
-                    lastRun.set(key, start);
-                } catch(e){ console.warn('render task failed', key, e); }
-            }
-            window.scheduleRender = function(key, fn){
-                try {
-                    if (typeof key !== 'string') key = 'anon';
-                    const now = performance.now();
-                    const prev = lastRun.get(key) || 0;
-                    if (scheduled.has(key)) return; // already queued
-                    if ((now - prev) < MIN_INTERVAL) { // defer a bit more to batch
-                        const handle = setTimeout(()=>{ scheduled.delete(key); window.requestIdleCallback ? requestIdleCallback(()=>runTask(key, fn), { timeout: 300 }) : requestAnimationFrame(()=>runTask(key, fn)); }, MIN_INTERVAL);
-                        scheduled.set(key, handle);
-                        return;
-                    }
-                    const handle = window.requestIdleCallback ? requestIdleCallback(()=>runTask(key, fn), { timeout: 300 }) : requestAnimationFrame(()=>runTask(key, fn));
-                    scheduled.set(key, handle);
-                } catch(e){ try { fn(); } catch(_){} }
-            };
-        })();
-        (function(){
-            try { window.state = window.state || {}; } catch(e) { window.state = {}; }
-            if (typeof window.formatCurrency !== 'function') {
-                window.formatCurrency = function(n){ try { return new Intl.NumberFormat('ar-EG',{style:'currency',currency:'EGP',maximumFractionDigits:2}).format(Number(n||0)); } catch(e){ return (Number(n||0)).toFixed(2)+' ج.م'; } };
-            }
-            if (typeof window.findCustomer !== 'function') {
-                window.findCustomer = function(id){ try { return (state.customers||[]).find(c => (c.id||c._id) === id) || null; } catch(e){ return null; } };
+            function hideSplash(){
+                // Remove splash screen completely
+                const splash = document.getElementById('splash-screen');
+                if (splash) {
+                    splash.classList.add('hidden');
+                    splash.style.display = 'none';
+                    splash.remove();
+                }
+
+                // Firebase سيتعامل مع التسجيل التلقائي عبر onAuthStateChanged
+                // لا نظهر صفحة الدخول هنا - دع onAuthStateChanged يتولى العرض
+                console.log('🔍 Firebase will handle auth state...');
+
+                // Do NOT render data before authentication
+                try { if (typeof updateIcons === 'function') updateIcons(); } catch(_){ }
             }
             if (typeof window.findProduct !== 'function') {
                 window.findProduct = function(id){
@@ -164,12 +162,44 @@
             if (!window.LOCAL_REVIEW_KEY) {
                 window.LOCAL_REVIEW_KEY = 'mandoobi_review_state';
             }
-        })();
 
         // Global state bootstrap (prevents TDZ errors before later declarations)
         // Ensure both `state` and `window.state` reference the same object early in startup.
         var state = window.state || {};
         window.state = state;
+
+        // Enforce login gate: if no authenticated user, keep splash visible and show login prompt
+        (function enforceLoginGate(){
+            try {
+                const user = (window.AuthSystem && typeof window.AuthSystem.getCurrentUser === 'function') ? window.AuthSystem.getCurrentUser() : null;
+                const splash = document.getElementById('splash-screen');
+                const login = document.getElementById('login-page');
+                const appContainer = document.getElementById('app-container');
+                
+                // إذا كان المستخدم مسجل دخول، أخفِ splash و login وأظهر app
+                if (user && user.id) {
+                    if (splash) { splash.style.display = 'none'; }
+                    if (login) { login.style.display = 'none'; }
+                    if (appContainer) { appContainer.style.display = 'block'; }
+                    return;
+                }
+                
+                // إذا لم يكن مسجل دخول، أظهر splash فقط
+                if (splash) { splash.style.display = 'flex'; }
+                if (login) { login.style.display = 'none'; }
+                if (appContainer) { appContainer.style.display = 'none'; }
+            } catch(e){ console.warn('enforceLoginGate error:', e); }
+        })();
+
+        // Safe currency formatter (early definition to avoid TDZ/undefined issues)
+        if (typeof window.formatCurrency !== 'function') {
+            window.formatCurrency = function(num){
+                const n = Number(num);
+                if (!Number.isFinite(n)) return '0.00';
+                try { return n.toLocaleString('ar-EG', { style: 'currency', currency: 'EGP' }); }
+                catch(_) { return n.toFixed(2); }
+            };
+        }
     
 
 
@@ -181,11 +211,17 @@
                     var ov = document.getElementById('error-overlay');
                     if (ov) { try { ov.remove(); } catch(_){} }
                 } catch(e){}
+                return true; // Suppress error display
             }
             window.addEventListener('error', function(e){
                 try {
+                    if (e && e.message && e.message.includes('Script error')) {
+                        // Ignore CORS/script errors silently
+                        return true;
+                    }
                     console.warn('Ignored runtime error:', String(e && e.message));
                 } catch(_){}
+                return true; // Prevent error propagation
             });
 
         // ===== Bluetooth printer helpers moved to js/printer-services.js =====
@@ -235,7 +271,12 @@
                 if (window.FORCED_REVIEWERS.includes((user.email||'').toLowerCase())) return 'reviewer';
                 // أولوية 3: من خريطة الأدوار المحملة من مجموعة roles
                 if (window.__rolesMap && window.__rolesMap[user.id]) return window.__rolesMap[user.id];
-                // أولوية 2: من مجموعة users التي يتم تزامنها لحظياً (المصدر الوحيد الآن)
+                // أولوية 4: تحقق من state.reps للمندوبين (قبل users لتجنب مشكلة التوقيت)
+                if (window.state && Array.isArray(state.reps)) {
+                    const rep = state.reps.find(r => (r.email||'').toLowerCase() === (user.email||'').toLowerCase());
+                    if (rep) return 'rep';
+                }
+                // أولوية 5: من مجموعة users التي يتم تزامنها لحظياً
                 if (window.state && Array.isArray(state.users)) {
                     const byId = state.users.find(u => u._id === user.id);
                     if (byId && byId.role) return byId.role;
@@ -619,9 +660,23 @@
                     try {
                         // Flag to track if we've already shown the app (prevent reload loop)
                         let appShownForUser = false;
+                        let userJustLoggedIn = false; // Track manual login
+                        
+                        // Function to mark that user manually logged in
+                        window.__markUserLoggedIn = function() {
+                            userJustLoggedIn = true;
+                        };
                         
                         auth.onAuthStateChanged(async function(u){
                             if (u) {
+                                // منع الدخول التلقائي إذا لم يضغط المستخدم على زر ENTER بعد
+                                if (!window.__splashSkipped) {
+                                    console.log('⏳ Waiting for user to press ENTER button...');
+                                    return;
+                                }
+                                
+                                console.log('✅ Firebase Auto-Login: User session found -', u.email);
+                                
                                 // 🔐 Guard: Prevent double initialization for same user
                                 if (appShownForUser && window.currentUser && window.currentUser.uid === u.uid) {
                                     console.warn('🔒 onAuthStateChanged: User already initialized - skipping duplicate setup');
@@ -640,16 +695,31 @@
                                 // الاستماع لدور المستخدم من مجموعة roles وتحديث خريطة الأدوار
                                 try {
                                     window.__rolesMap = window.__rolesMap || {};
-                                    window.db.collection('roles').doc(u.uid).onSnapshot(snap => {
+                                    const unsubRole = window.db.collection('roles').doc(u.uid).onSnapshot(snap => {
                                         if (snap.exists) {
                                             window.__rolesMap[u.uid] = snap.data().role || 'user';
                                             document.dispatchEvent(new Event('role-ready'));
                                         }
                                     }, err => console.warn('role doc snapshot error', err));
+                                    try { window.storeSubscription && window.storeSubscription('role_current_user', unsubRole); } catch(_){ }
                                 } catch(e){ console.warn('setup role listener failed', e); }
                                 try { UIController.showApp(); appShownForUser = true; } catch(e){ console.error('showApp error:', e); }
+                                // Fallback: ensure splash/login hidden and app visible
+                                try {
+                                    const splash = document.getElementById('splash-screen');
+                                    const loginPage = document.getElementById('login-page');
+                                    const loginModalEl = document.getElementById('login-modal');
+                                    const appEl = document.getElementById('app-container');
+                                    if (splash) splash.style.display = 'none';
+                                    if (loginPage) { loginPage.classList.add('hidden'); loginPage.style.display = 'none'; }
+                                    if (loginModalEl) { loginModalEl.style.display = 'none'; loginModalEl.classList.add('modal-hidden'); }
+                                    if (appEl) { appEl.classList.remove('hidden'); appEl.style.display = 'block'; }
+                                } catch(_){}
                             try { initializeAppForUser(); } catch(e){ console.error('initializeAppForUser error:', e); }
-                            try { setupRealtimeListeners(); } catch(e){ console.error('setupRealtimeListeners error:', e); }
+                            // ⚠️ تشغيل setupRealtimeListeners مباشرة (no delay)
+                            try {
+                                setupRealtimeListeners();
+                            } catch(e){ console.error('setupRealtimeListeners error:', e); }
                             try { if (typeof autoRestoreSalesIfEmpty === 'function') autoRestoreSalesIfEmpty(); } catch(e){ console.error('autoRestoreSalesIfEmpty error:', e); }
                             
                             // 🔐 Guard functions for safety check
@@ -743,9 +813,9 @@
                             try { applyRoleNavRestrictions(); } catch(e){ console.error('applyRoleNavRestrictions error:', e); }
                             
                             // محاولات إضافية خلال أول 10 ثواني بعد تسجيل الدخول
-                            let tries = 0; const tmr = setInterval(()=>{ tries++; try { applyRoleNavRestrictions(); } catch(e){ console.error('roleNavRestrictions retry error:', e); } if (tries>10) clearInterval(tmr); },1000);
+                            let tries = 0; const tmr = setInterval(()=>{ tries++; try { applyRoleNavRestrictions(); } catch(e){ console.error('roleNavRestrictions retry error', e); } if (tries>10) clearInterval(tmr); },1000);
                         } else {
-                            try { AuthSystem.logout(); } catch(e){}
+                            // No user logged in - show login page
                             try { UIController.showLoginPage(); } catch(e){}
                             try { setPresenceOffline(); } catch(e){}
                         }
@@ -766,6 +836,12 @@
 
         // مستمعات لحظية للمجموعات بعد أول نجاح توثيق (يتم استدعاؤها من onAuthStateChanged بعد تسجيل الدخول)
         function setupRealtimeListeners(){
+            // ⚠️ منع التشغيل المتكرر
+            if (window.__listenersAttached) {
+                console.log('⏭️ Listeners already attached - skipping');
+                return;
+            }
+            
             // ⚠️ CRITICAL GUARD: منع جلب البيانات قبل تسجيل الدخول
             const currentUser = AuthSystem.getCurrentUser();
             if (!currentUser || !currentUser.id) {
@@ -775,6 +851,9 @@
             
             if (!window.db) { console.warn('Firestore غير جاهز بعد'); return; }
             window.state = window.state || {};
+            
+            console.log('🎧 Setting up Firebase listeners...');
+            window.__listenersAttached = true;
             // المبيعات (Admin/Reviewer: كل الفواتير؛ المندوب: فواتيره فقط)
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
@@ -821,7 +900,130 @@
                 };
 
                 if (role === 'admin' || role === 'reviewer' || role === 'manager') {
-                    db.collection('sales').onSnapshot(applySnap, onErr);
+                    // ⚡ دالة لإنشاء استعلام المبيعات بناءً على activePeriod الحالي
+                    window.setupSalesQuery = function() {
+                        // إلغاء الاشتراك القديم إن وُجد
+                        const oldPeriodUnsub = window.__subscriptions?.get('sales_admin_period');
+                        const oldDateUnsub = window.__subscriptions?.get('sales_admin_fallback');
+                        const oldCgPeriodUnsub = window.__subscriptions?.get('sales_admin_period_cg');
+                        const oldCgDateUnsub = window.__subscriptions?.get('sales_admin_fallback_cg');
+                        if (oldPeriodUnsub && typeof oldPeriodUnsub === 'function') {
+                            try { oldPeriodUnsub(); } catch(e){}
+                            window.__subscriptions.delete('sales_admin_period');
+                        }
+                        if (oldDateUnsub && typeof oldDateUnsub === 'function') {
+                            try { oldDateUnsub(); } catch(e){}
+                            window.__subscriptions.delete('sales_admin_fallback');
+                        }
+                        if (oldCgPeriodUnsub && typeof oldCgPeriodUnsub === 'function') {
+                            try { oldCgPeriodUnsub(); } catch(e){}
+                            window.__subscriptions.delete('sales_admin_period_cg');
+                        }
+                        if (oldCgDateUnsub && typeof oldCgDateUnsub === 'function') {
+                            try { oldCgDateUnsub(); } catch(e){}
+                            window.__subscriptions.delete('sales_admin_fallback_cg');
+                        }
+                        
+                        // استخدام activePeriod من state أو الشهر الحالي كـ fallback
+                        const now = new Date();
+                        const currentPeriod = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+                        const queryPeriod = (window.state?.activePeriod) || currentPeriod;
+
+                        // حاوية دمج موحدة لمنع التكرار بين استعلام الفترة واستعلام التاريخ
+                        const adminById = new Map();
+                        const mergeAdminAndRender = () => {
+                            const arr = Array.from(adminById.values());
+                            arr.sort((a,b)=>{
+                                const ta = new Date(a.date || 0).getTime();
+                                const tb = new Date(b.date || 0).getTime();
+                                if (ta !== tb) return tb - ta; // تنازلي حسب التاريخ
+                                // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
+                                const ca = new Date(a.createdAt || 0).getTime();
+                                const cb = new Date(b.createdAt || 0).getTime();
+                                return cb - ca; // الأحدث إنشاءاً أولاً
+                            });
+                            state.sales = arr.slice(0,500);
+                            console.log(`📊 Admin mergeAdminAndRender: ${adminById.size} invoices in map, ${state.sales.length} in state.sales`);
+                            try { localStorage.setItem('cache_sales', JSON.stringify(state.sales)); } catch(e){}
+                            try {
+                                const textFilter = document.getElementById('search-sales-text')?.value || '';
+                                const dateFilter = document.getElementById('search-sales-date')?.value || '';
+                                const taxStatusFilter = document.getElementById('tax-status-filter')?.value || 'all';
+                                console.log(`📋 Admin calling renderAllSales IMMEDIATELY with filters: text="${textFilter}", date="${dateFilter}", taxStatus="${taxStatusFilter}"`);
+                                // ⚡ استدعاء مباشر بدون تأجيل لضمان التحديث الفوري
+                                if (typeof renderAllSales === 'function') renderAllSales(textFilter, dateFilter, taxStatusFilter);
+                                else if (typeof renderSalesList === 'function') renderSalesList();
+                                console.log(`📊 Admin calling renderDashboard() IMMEDIATELY`);
+                                if (typeof renderDashboard === 'function') renderDashboard();
+                            } catch(e){ console.error('Admin mergeAdminAndRender render error:', e); }
+                        };
+
+                        console.log(`📅 Admin sales query: period == ${queryPeriod}`);
+
+                        // الاستعلام الأساسي باستخدام period (الأكثر كفاءة)
+                        const unsubPeriod = db.collection('sales')
+                            .where('period', '==', queryPeriod)
+                            .orderBy('date', 'desc')
+                            .limit(500)
+                            .onSnapshot(snap => {
+                                snap.docChanges().forEach(change => {
+                                    if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
+                                    const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id; adminById.set(change.doc.id, d);
+                                });
+                                mergeAdminAndRender();
+                            }, onErr);
+                        window.storeSubscription('sales_admin_period', unsubPeriod);
+
+                        // استعلام مجموعة فرعية للفواتير المخزنة تحت users/{repId}/invoices بدون فلاتر لتفادي متطلبات المؤشرات
+                        try {
+                            console.log('🔍 Admin: collectionGroup("invoices") snapshot (client-side period filter)...');
+                            const unsubCgPeriod = db.collectionGroup('invoices')
+                                .limit(500)
+                                .onSnapshot(snap => {
+                                    console.log(`📦 Admin collectionGroup('invoices') (unfiltered): ${snap.size} invoices found`);
+                                    snap.docChanges().forEach(change => {
+                                        if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
+                                        const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id;
+                                        const docPeriod = d.period || '';
+                                        if (!docPeriod || docPeriod === queryPeriod) {
+                                            console.log(`  ✅ CG invoice: ${d.invoiceNumber} repName: ${d.repName} period: ${docPeriod || 'n/a'} path: ${change.doc.ref.path}`);
+                                            adminById.set(change.doc.id, d);
+                                        }
+                                    });
+                                    console.log(`📊 Admin total invoices merged: ${adminById.size}`);
+                                    mergeAdminAndRender();
+                                }, err => {
+                                    console.warn('❌ Admin collectionGroup invoices error:', err.code, err.message);
+                                    onErr(err);
+                                });
+                            window.storeSubscription('sales_admin_period_cg', unsubCgPeriod);
+                        } catch(e){ console.warn('❌ sales admin collectionGroup period query failed:', e.message); }
+
+                        // استعلام احتياطي يغطي الفواتير التي لا تحتوي على period (legacy) باستخدام نطاق التاريخ
+                        try {
+                            const [year, month] = queryPeriod.split('-').map(Number);
+                            const start = new Date(year, month - 1, 1, 0, 0, 0, 0).toISOString();
+                            const end = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
+                            const unsubDateRange = db.collection('sales')
+                                .where('date', '>=', start)
+                                .where('date', '<=', end)
+                                .orderBy('date', 'desc')
+                                .limit(500)
+                                .onSnapshot(snap => {
+                                    snap.docChanges().forEach(change => {
+                                        if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
+                                        const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id; adminById.set(change.doc.id, d);
+                                    });
+                                    mergeAdminAndRender();
+                                }, onErr);
+                            window.storeSubscription('sales_admin_fallback', unsubDateRange);
+
+                            // أزلنا استعلام collectionGroup بنطاق التاريخ لتجنب متطلبات المؤشر؛ نعتمد على الاستعلام غير المفلتر أعلاه
+                        } catch(e){ console.warn('sales admin date-range fallback failed', e); }
+                    };
+                    
+                    // إنشاء الاستعلام الأولي
+                    window.setupSalesQuery();
                     } else if ((role === 'rep' || role === 'user') && current && current.id) {
                     const uid = String(current.id);
                     const email = (current.email||'').toLowerCase();
@@ -830,9 +1032,13 @@
                     const mergeAndRender = () => {
                         const arr = Array.from(byId.values());
                         arr.sort((a,b)=>{
-                            const ta = new Date(a.date || a.createdAt || 0).getTime();
-                            const tb = new Date(b.date || b.createdAt || 0).getTime();
-                            return tb - ta;
+                            const ta = new Date(a.date || 0).getTime();
+                            const tb = new Date(b.date || 0).getTime();
+                            if (ta !== tb) return tb - ta; // تنازلي حسب التاريخ
+                            // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
+                            const ca = new Date(a.createdAt || 0).getTime();
+                            const cb = new Date(b.createdAt || 0).getTime();
+                            return cb - ca; // الأحدث إنشاءاً أولاً
                         });
                         state.sales = arr.slice(0,500);
                         try { localStorage.setItem('cache_sales', JSON.stringify(state.sales)); } catch(e){}
@@ -841,7 +1047,7 @@
                     };
                     // CRITICAL FIX: Listen to the rep's personal invoices subcollection
                     // This ensures admin-created invoices appear on the rep's screen
-                    db.collection('users').doc(uid).collection('invoices').onSnapshot(snap => {
+                    const unsub1 = db.collection('users').doc(uid).collection('invoices').onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
                                 if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
@@ -850,8 +1056,10 @@
                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
+                    window.storeSubscription('sales_rep_invoices', unsub1);
+                    
                     // الاستعلامات المتعددة لدعم الأسماء القديمة للحقول
-                    db.collection('sales').where('createdBy','==', uid).onSnapshot(snap => {
+                    const unsub2 = db.collection('sales').where('createdBy','==', uid).onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
                                 if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
@@ -860,7 +1068,9 @@
                         } catch(e){ /* fallback to full snapshot */ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
-                    db.collection('sales').where('repId','==', uid).onSnapshot(snap => {
+                    window.storeSubscription('sales_rep_createdBy', unsub2);
+                    
+                    const unsub3 = db.collection('sales').where('repId','==', uid).onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
                                 if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
@@ -869,13 +1079,14 @@
                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
+                    window.storeSubscription('sales_rep_repId_uid', unsub3);
                     // Legacy support: بعض الفواتير القديمة تستخدم معرف مستند المندوب بدلاً من uid
                     // حاول الحصول على معرف مستند المندوب من قائمة المناديب بناءً على البريد أو الاسم
                     try {
                         const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email) || (state.reps||[]).find(r => (r.name||'') === (current && current.name));
                         const repDocId = currentRepDoc && currentRepDoc.id ? String(currentRepDoc.id) : null;
                         if (repDocId && repDocId !== uid) {
-                            db.collection('sales').where('repId','==', repDocId).onSnapshot(snap => {
+                            const unsub4 = db.collection('sales').where('repId','==', repDocId).onSnapshot(snap => {
                                 try {
                                     snap.docChanges().forEach(change => {
                                         if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
@@ -884,11 +1095,14 @@
                                 } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                                 mergeAndRender();
                             }, onErr);
-                            // attach error-only listener to surface failures
-                            db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, err => console.warn('sales repDocId query error', err));
+                            window.storeSubscription('sales_rep_repDocId', unsub4);
+                            // attach error-only listener to surface failures - REGISTER IT TOO
+                            const unsub_repDocId_errorOnly = db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, err => console.warn('sales repDocId query error', err));
+                            window.storeSubscription('sales_repDocId_errorOnly', unsub_repDocId_errorOnly);
                         }
                     } catch(e){ console.warn('setupRealtimeListeners: repDocId mapping failed', e); }
-                    db.collection('sales').where('createdByEmail','==', email).onSnapshot(snap => {
+                    
+                    const unsub5 = db.collection('sales').where('createdByEmail','==', email).onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
                                 if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
@@ -897,12 +1111,23 @@
                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
+                    window.storeSubscription('sales_rep_createdByEmail', unsub5);
                     // Try to listen by repName. If rep not found in state.reps, look up in users collection once.
                     (function(){
                         let repNameAttempts = 0;
                         const setupRepNameListener = async () => {
                             try {
                                 repNameAttempts++;
+                                
+                                // 🔥 CRITICAL: إذا state.reps فارغة، احفظ الدالة لإعادة المحاولة لاحقاً
+                                if (!state.reps || state.reps.length === 0) {
+                                    if (repNameAttempts === 1) {
+                                        console.log('⏳ Reps not loaded yet - will retry when reps are available');
+                                        window.__repListenerPending = setupRepNameListener;
+                                        return;
+                                    }
+                                }
+                                
                                 const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email);
                                 let repName = currentRepDoc ? currentRepDoc.name : null;
 
@@ -920,7 +1145,7 @@
 
                                 if (repName) {
                                     console.log('✅ Rep listener: watching sales where repName ==', repName);
-                                    db.collection('sales').where('repName','==', repName).onSnapshot(snap => {
+                                    const unsub_repName = db.collection('sales').where('repName','==', repName).onSnapshot(snap => {
                                         console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
                                         try {
                                             snap.docChanges().forEach(change => {
@@ -932,6 +1157,7 @@
                                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                                         mergeAndRender();
                                     }, err => console.warn('sales repName query error', err));
+                                    window.storeSubscription('sales_repName', unsub_repName);
                                 } else {
                                     if (repNameAttempts < 4) {
                                         console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds (attempt', repNameAttempts, ')');
@@ -949,18 +1175,26 @@
                         setupRepNameListener();
                     })();
                     const salesErrorHandler = err => { salesErrCount++; console.warn('sales legacy query error', err); if (salesErrCount >= 3) { tryBroadSalesFallback(); } };
-                    // reattach with dedicated handlers (original above kept minimal)
-                    db.collection('sales').where('createdBy','==', uid).onSnapshot(()=>{}, salesErrorHandler);
-                    db.collection('sales').where('repId','==', uid).onSnapshot(()=>{}, salesErrorHandler);
-                    db.collection('sales').where('createdByEmail','==', email).onSnapshot(()=>{}, salesErrorHandler);
+                    // reattach with dedicated handlers - REGISTER all listeners for cleanup
+                    const unsub_createdBy = db.collection('sales').where('createdBy','==', uid).onSnapshot(()=>{}, salesErrorHandler);
+                    window.storeSubscription('sales_createdBy_error_handler', unsub_createdBy);
+                    
+                    const unsub_repId = db.collection('sales').where('repId','==', uid).onSnapshot(()=>{}, salesErrorHandler);
+                    window.storeSubscription('sales_repId_error_handler', unsub_repId);
+                    
+                    const unsub_createdByEmail = db.collection('sales').where('createdByEmail','==', email).onSnapshot(()=>{}, salesErrorHandler);
+                    window.storeSubscription('sales_createdByEmail_error_handler', unsub_createdByEmail);
+                    
                     try {
                         const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email) || (state.reps||[]).find(r => (r.name||'') === (current && current.name));
                         const repDocId = currentRepDoc && currentRepDoc.id ? String(currentRepDoc.id) : null;
                         if (repDocId && repDocId !== uid) {
-                            db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, salesErrorHandler);
+                            const unsub_repDocId = db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, salesErrorHandler);
+                            window.storeSubscription('sales_repDocId_error_handler', unsub_repDocId);
                         }
                     } catch(e){ /* ignore */ }
-                    db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => console.warn('user-invoices subcollection error', err));
+                    const unsub_userInvoices = db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => console.warn('user-invoices subcollection error', err));
+                    window.storeSubscription('user_invoices_error_handler', unsub_userInvoices);
                     function tryBroadSalesFallback(){
                         // محاولة أخيرة: قراءة محدودة بالشهر الحالي لتقليل الاستهلاك
                         const now = new Date();
@@ -991,15 +1225,29 @@
                         }
                     }, 2000);
                 } else {
-                    db.collection('sales').onSnapshot(applySnap, onErr);
+                    const unsub = db.collection('sales').onSnapshot(applySnap, onErr);
+                    window.storeSubscription('sales_other_role', unsub);
                 }
             } catch(e){ console.warn('sales listener init failed', e); }
             // العملاء (تصفية للمندوب حسب القواعد: يرى عملاءه فقط + غير المعيّنين)
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 const current = AuthSystem.getCurrentUser();
+                
+                // ⚡ INSTANT LOAD: Load from cache immediately
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cache_customers') || '[]');
+                    if (Array.isArray(cached) && cached.length > 0) {
+                        state.customers = cached;
+                        console.log(`⚡ customers loaded from cache: ${cached.length} items`);
+                        try { if (typeof renderCustomerList === 'function') renderCustomerList(); } catch(e){}
+                        try { if (typeof updateAllCustomerDropdowns === 'function') updateAllCustomerDropdowns(); } catch(e){}
+                    }
+                } catch(e){ console.warn('cache load failed', e); }
+                
+                // 🔄 BACKGROUND SYNC: Then sync from server
                 if (role === 'admin') {
-                    db.collection('customers').onSnapshot(function(snap){
+                    const unsub = db.collection('customers').onSnapshot(function(snap){
                         // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                         const arr = [];
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; arr.push(d); });
@@ -1022,6 +1270,7 @@
                             }
                         } catch(e){}
                     });
+                    window.storeSubscription('customers_admin', unsub);
                 } else if ((role === 'rep' || role === 'user') && current && current.id) {
                     const uid = String(current.id);
                     const byId = new Map();
@@ -1050,7 +1299,7 @@
                     };
 
                     // 1) عملاء المندوب - assignedRepId
-                    db.collection('customers').where('assignedRepId','==', uid).onSnapshot(function(snap){
+                    const unsub1 = db.collection('customers').where('assignedRepId','==', uid).onSnapshot(function(snap){
                         if (!shouldApplySnapshot(snap, 'customers_local_ts')) { console.log('🔄 customers(rep) listener: skipping (local newer or missing ts)'); return; }
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; byId.set(doc.id, d); });
                         applyAndRender();
@@ -1068,28 +1317,32 @@
                         } catch(e){}
                         custErrCount++; if (custErrCount>=3) tryBroadCustomersFallback();
                     });
+                    window.storeSubscription('customers_rep_assignedRepId', unsub1);
 
                     // legacy queries: repId and ownerId
-                    db.collection('customers').where('repId','==', uid).onSnapshot(function(snap){
+                    const unsub2 = db.collection('customers').where('repId','==', uid).onSnapshot(function(snap){
                         if (!shouldApplySnapshot(snap, 'customers_local_ts')) { console.log('🔄 customers(legacy) listener: skipping (local newer or missing ts)'); return; }
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; byId.set(doc.id, d); });
                         applyAndRender();
                     }, err => { console.warn('customers snapshot (legacy repId) error', err); custErrCount++; if (custErrCount>=3) tryBroadCustomersFallback(); });
+                    window.storeSubscription('customers_rep_repId', unsub2);
 
-                    db.collection('customers').where('ownerId','==', uid).onSnapshot(function(snap){
+                    const unsub3 = db.collection('customers').where('ownerId','==', uid).onSnapshot(function(snap){
                         if (!shouldApplySnapshot(snap, 'customers_local_ts')) { console.log('🔄 customers(owner) listener: skipping (local newer or missing ts)'); return; }
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; byId.set(doc.id, d); });
                         applyAndRender();
                     }, err => { console.warn('customers snapshot (legacy ownerId) error', err); custErrCount++; if (custErrCount>=3) tryBroadCustomersFallback(); });
+                    window.storeSubscription('customers_rep_ownerId', unsub3);
                     function tryBroadCustomersFallback(){
-                        db.collection('customers').limit(500).onSnapshot(snap => {
+                        const unsub = db.collection('customers').limit(500).onSnapshot(snap => {
                             snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; byId.set(doc.id,d); });
                             applyAndRender();
                         }, err => console.warn('broad customers fallback failed', err));
+                        window.storeSubscription('customers_rep_fallback', unsub);
                     }
                 } else {
                     // أدوار أخرى: حاول القراءة، وإن رُفضت اعتمد على النسخة المحلية
-                    db.collection('customers').onSnapshot(function(snap){
+                    const unsub = db.collection('customers').onSnapshot(function(snap){
                         const arr = [];
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; if (!d.id) d.id = doc.id; arr.push(d); });
                         state.customers = arr;
@@ -1109,11 +1362,23 @@
                             }
                         } catch(e){}
                     });
+                    window.storeSubscription('customers_other_role', unsub);
                 }
             } catch(e){ console.warn('customers listener init failed', e); }
             // المنتجات
             try {
-                db.collection('products').onSnapshot(function(snap){
+                // ⚡ INSTANT LOAD from cache
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cache_products') || '[]');
+                    if (Array.isArray(cached) && cached.length > 0) {
+                        state.products = cached;
+                        console.log(`⚡ products loaded from cache: ${cached.length} items`);
+                        try { if (typeof renderProductList === 'function') renderProductList(''); } catch(e){}
+                    }
+                } catch(e){ console.warn('products cache load failed', e); }
+                
+                // 🔄 BACKGROUND SYNC
+                const unsub = db.collection('products').onSnapshot(function(snap){
                     if (snap.metadata && snap.metadata.hasPendingWrites) {
                         try {
                             let maxTs = null;
@@ -1134,8 +1399,20 @@
                         // إذا لا يوجد سعر لكن يوجد productPrices منفصلة أو حقل price داخل قائمة أسعار لاحقاً سيتم استخدامه
                         arr.push(d);
                     });
+                    
+                    // Track price changes for sync verification
+                    if (state.products && state.products.length > 0) {
+                        arr.forEach(newProd => {
+                            const oldProd = state.products.find(p => p.id === newProd.id);
+                            if (oldProd && (oldProd.price !== newProd.price || oldProd.avgCost !== newProd.avgCost)) {
+                                console.log(`💰 Product price changed: ${newProd.name} - New: ${newProd.price}, Old: ${oldProd.price}`);
+                            }
+                        });
+                    }
+                    
                     state.products = arr;
                     try { localStorage.setItem('cache_products', JSON.stringify(arr)); localStorage.setItem('products_local_ts', new Date().toISOString()); } catch(e){}
+                    console.log(`📦 state.products updated from Firestore: ${arr.length} products (Time: ${new Date().toLocaleTimeString('ar')})`);
                     try { if (typeof renderProductList === 'function') renderProductList(''); } catch(e){}
                 }, err => {
                     console.warn('products snapshot error', err);
@@ -1149,10 +1426,24 @@
                         }
                     } catch(e){}
                 });
+                window.storeSubscription('products_admin', unsub);
             } catch(e){ console.warn('products listener init failed', e); }
             // قوائم الأسعار
             try {
-                db.collection('priceLists').onSnapshot(function(snap){
+                // ⚡ INSTANT LOAD from cache
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cache_priceLists') || '[]');
+                    if (Array.isArray(cached) && cached.length > 0) {
+                        state.priceLists = cached;
+                        console.log(`⚡ priceLists loaded from cache: ${cached.length} items`);
+                        try { if (typeof renderSettings === 'function') renderSettings(''); } catch(e){}
+                        try { updateAllPriceListDropdowns(); } catch(e){}
+                        try { if (typeof renderPriceListsPage === 'function') renderPriceListsPage(); } catch(e){}
+                    }
+                } catch(e){ console.warn('priceLists cache load failed', e); }
+                
+                // 🔄 BACKGROUND SYNC
+                const unsub = db.collection('priceLists').onSnapshot(function(snap){
                     // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                     const arr = [];
                     snap.forEach(doc => {
@@ -1212,10 +1503,21 @@
                         }
                     } catch(e){}
                 });
+                window.storeSubscription('priceLists_admin', unsub);
             } catch(e){ console.warn('priceLists listener init failed', e); }
             // المناديب - مع إعادة محاولة الحفظ عند الاتصال
             try {
-                db.collection('reps').onSnapshot(function(snap){
+                // ⚡ INSTANT LOAD from cache
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cache_reps') || '[]');
+                    if (Array.isArray(cached) && cached.length > 0) {
+                        state.reps = cached;
+                        console.log(`⚡ reps loaded from cache: ${cached.length} items`);
+                    }
+                } catch(e){ console.warn('reps cache load failed', e); }
+                
+                // 🔄 BACKGROUND SYNC
+                const unsub = db.collection('reps').onSnapshot(function(snap){
                     // دائماً معالجة البيانات من السحابة (حتى لو كانت معاملات معلقة)
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data(); d.id = doc.id; arr.push(d); });
@@ -1228,6 +1530,19 @@
                     
                     // احفظ المحلي أيضاً كـ backup
                     try { localStorage.setItem('cache_reps', JSON.stringify(arr)); } catch(e){}
+                    
+                    // 🔥 CRITICAL: إعادة تفعيل setupRepNameListener بعد تحميل المناديب
+                    if (typeof window.__repListenerPending === 'function') {
+                        console.log('🔄 Reps loaded - retrying rep name listener setup');
+                        window.__repListenerPending();
+                        delete window.__repListenerPending;
+                    }
+                    
+                    // 🔒 إعادة تطبيق قيود الأدوار بعد تحميل المناديب لضمان عرض الأيقونات الصحيحة
+                    if (typeof window.applyRoleNavRestrictions === 'function') {
+                        console.log('🔒 Reps loaded - reapplying role nav restrictions');
+                        window.applyRoleNavRestrictions();
+                    }
                     
                     // تحديث الواجهة
                     try { if (typeof renderReps === 'function') renderReps(); } catch(e){}
@@ -1248,13 +1563,14 @@
                         }
                     } catch(e){}
                 });
+                window.storeSubscription('reps_admin', unsub);
             } catch(e){ console.warn('reps listener init failed', e); }
             
             // Listen to current user document for chains and other state
             try {
                 const currentUser = auth.currentUser;
                 if (currentUser) {
-                    db.collection('users').doc(currentUser.uid).onSnapshot(function(snap){
+                    const unsub = db.collection('users').doc(currentUser.uid).onSnapshot(function(snap){
                         if (!snap.exists) return;
                         const data = snap.data() || {};
                         const appState = data.appState || {};
@@ -1269,29 +1585,31 @@
                             console.log('📦 Loaded chains from cloud:', appState.chains.length);
                         }
                     }, err => console.warn('user doc snapshot error', err));
+                    window.storeSubscription('user_doc', unsub);
                 }
             } catch(e){ console.warn('user doc listener init failed', e); }
             
-            // المستخدمون (للأدوار) — Admin only
+            // المستخدمون (للأدوار) — تحميل للجميع لتحديد الأدوار بشكل صحيح
             try {
-                const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                if (role === 'admin') {
-                    db.collection('users').onSnapshot(function(snap){
-                        const usersArr = [];
-                        snap.forEach(doc => {
-                            const d = doc.data();
-                            d._id = doc.id;
-                            if (!d.uid) d.uid = doc.id;
-                            if (d.email) { try { d.email = String(d.email).toLowerCase(); } catch(_){} }
-                            usersArr.push(d);
-                        });
-                        state.users = usersArr;
-                        try {
+                const unsubUsers = db.collection('users').onSnapshot(function(snap){
+                    const usersArr = [];
+                    snap.forEach(doc => {
+                        const d = doc.data();
+                        d._id = doc.id;
+                        if (!d.uid) d.uid = doc.id;
+                        if (d.email) { try { d.email = String(d.email).toLowerCase(); } catch(_){} }
+                        usersArr.push(d);
+                    });
+                    state.users = usersArr;
+                    try {
+                        const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+                        if (role === 'admin') {
                             UIController.updateCurrentUserDisplay();
                             if (typeof renderUsersTable === 'function') renderUsersTable();
-                        } catch(e){}
-                    }, err => console.warn('users snapshot error', err));
-                }
+                        }
+                    } catch(e){}
+                }, err => console.warn('users snapshot error', err));
+                window.storeSubscription('users_all', unsubUsers);
             } catch(e){ console.warn('users listener init failed', e); }
 
             // تم إلغاء الاستماع للمستند القديم shared/public_app_state نهائياً؛ المصدر الوحيد الآن هو المجموعات العلوية
@@ -1300,7 +1618,7 @@
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 if (role === 'admin') {
-                    db.collection('presence').onSnapshot(function(snap){
+                    const unsubPresence = db.collection('presence').onSnapshot(function(snap){
                         const arr = [];
                         snap.forEach(doc => { const d = doc.data(); d._id = doc.id; arr.push(d); });
                         state.presence = arr;
@@ -1331,12 +1649,13 @@
                         try { renderRepMap(); } catch(e){}
                         try { if (typeof renderUsersTable === 'function') renderUsersTable(); } catch(e){}
                     }, err => console.warn('presence snapshot error', err));
+                    window.storeSubscription('presence_all', unsubPresence);
                 }
             } catch(e){ console.warn('presence listener init failed', e); }
 
             // أذونات الخروج (dispatchNotes)
             try {
-                db.collection('dispatchNotes').onSnapshot(function(snap){
+                const unsubDispatch = db.collection('dispatchNotes').onSnapshot(function(snap){
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data() || {}; d._id = doc.id; if (!d.id) d.id = doc.id; arr.push(d); });
                     // فرز تنازلي بالتاريخ
@@ -1356,11 +1675,12 @@
                         } catch(e){}
                     }
                 });
+                window.storeSubscription('dispatchNotes_all', unsubDispatch);
             } catch(e){ console.warn('dispatchNotes listener init failed', e); }
 
             // Daily collections (rep expenses + daily collection sheet)
             try {
-                db.collection('daily_collections').onSnapshot(function(snap){
+                const unsubDailyCollections = db.collection('daily_collections').onSnapshot(function(snap){
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data() || {}; d.id = doc.id; arr.push(d); });
                     state.dailyCollections = arr;
@@ -1375,11 +1695,12 @@
                         }
                     } catch(e){}
                 });
+                window.storeSubscription('daily_collections_all', unsubDailyCollections);
             } catch(e){ console.warn('daily_collections listener init failed', e); }
 
             // العروض الترويجية (promotions)
             try {
-                db.collection('promotions').onSnapshot(function(snap){
+                const unsubPromotions = db.collection('promotions').onSnapshot(function(snap){
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data() || {}; d.id = doc.id; arr.push(d); });
                     state.promotions = arr;
@@ -1394,11 +1715,12 @@
                         if (raw) state.promotions = JSON.parse(raw);
                     } catch(e){}
                 });
+                window.storeSubscription('promotions_all', unsubPromotions);
             } catch(e){ console.warn('promotions listener init failed', e); }
 
             // الأرصدة الافتتاحية (openingBalances) — تُستخدم للترحيل بين الشهور
             try {
-                db.collection('openingBalances').onSnapshot(function(snap){
+                const unsubOpeningBalances = db.collection('openingBalances').onSnapshot(function(snap){
                     const arr = [];
                     snap.forEach(doc => { const d = doc.data() || {}; d.id = doc.id; arr.push(d); });
                     state.openingBalances = arr;
@@ -1410,11 +1732,12 @@
                         if (raw) state.openingBalances = JSON.parse(raw);
                     } catch(e){}
                 });
+                window.storeSubscription('openingBalances_all', unsubOpeningBalances);
             } catch(e){ console.warn('openingBalances listener init failed', e); }
 
             // الإعدادات العامة (settings) — الهدف الشهري والإعدادات الأخرى
             try {
-                db.collection('settings').doc('global-settings').onSnapshot(function(snap){
+                const unsubSettings = db.collection('settings').doc('global-settings').onSnapshot(function(snap){
                     if (snap.exists) {
                         const settings = snap.data() || {};
                         state.settings = state.settings || {};
@@ -1435,7 +1758,21 @@
                 }, err => {
                     console.warn('settings snapshot error', err);
                 });
+                window.storeSubscription('settings_global', unsubSettings);
             } catch(e){ console.warn('settings listener init failed', e); }
+            
+            // 🌐 تحميل customer targets من السحابة - LIGHTWEIGHT
+            // ملاحظة: لا نحمل كل الأهداف في state، نجلبها عند الطلب فقط
+            try {
+                if (!window.__customerTargetsListenerAttached) {
+                    window.__customerTargetsListenerAttached = true;
+                    // نستمع فقط للشهر النشط الحالي لتوفير bandwidth
+                    // سيتم تحميل الأشهر الأخرى عند الطلب في generateCustomerTargetsReport
+                    console.log('📊 Customer targets listener: جاهز للتحميل عند الطلب');
+                    // لا نستخدم onSnapshot هنا لتوفير الموارد
+                    // سيتم استخدام .get() في generateCustomerTargetsReport
+                }
+            } catch(e){ console.warn('customerTargets listener init failed', e); }
         }
 
         // ===== GPS Tracking (Presence Location) =====
@@ -1902,6 +2239,18 @@
                 updatedAt: serverTs(),
                 updatedBy: (window.auth && auth.currentUser) ? auth.currentUser.uid : null
             };
+            
+            // 🔧 FIX: Add period field so admin listeners can find invoices
+            try {
+                const invoiceDate = new Date(obj.date);
+                const year = invoiceDate.getFullYear();
+                const month = String(invoiceDate.getMonth() + 1).padStart(2, '0');
+                obj.period = `${year}-${month}`;
+            } catch(e) {
+                // fallback to current month
+                const now = new Date();
+                obj.period = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+            }
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 // افتراض: المندوب/المستخدم/المبيعات => تحت المراجعة، غير ذلك تُعتبر مُراجَعة
@@ -2033,7 +2382,136 @@
             };
             const ref = data && data.id ? db.collection('dispatchNotes').doc(String(data.id)) : db.collection('dispatchNotes').doc();
             if (!data.id) base.id = ref.id; else base.id = data.id;
-            await ref.set(base, { merge:false });
+            
+            // ✅ ربط مع المخزن: خصم الكميات وتسجيل الحركات
+            try {
+                const batch = db.batch();
+                
+                // حفظ الإذن
+                batch.set(ref, base, { merge: false });
+                
+                // معالجة كل صنف في الإذن
+                for (const item of base.items) {
+                    if (!item.productId) continue;
+                    
+                    const quantity = item.quantity || 0;
+                    // fallback: إذا كان النموذج القديم يحفظ actualReturn فقط
+                    const fallbackActual = (item.actualReturn !== undefined && item.actualReturn !== null) ? Number(item.actualReturn) : 0;
+                    const goodReturn = (Number(item.goodReturn) || 0) + (fallbackActual && !item.goodReturn && !item.damagedReturn ? fallbackActual : 0);
+                    const damagedReturn = Number(item.damagedReturn) || 0;
+                    const freebie = Number(item.freebie) || 0;
+                    
+                    // حساب الفرق: إذا كان المندوب رجع أقل أو أكثر من المتوقع
+                    // المتوقع = الكمية المستلمة - المباع (سنفترض المباع = 0 للتبسيط، أو يمكن حسابه من المبيعات)
+                    const actualReturn = goodReturn + damagedReturn + freebie;
+                    const expectedReturn = quantity; // أو يمكن حساب: quantity - soldQty
+                    const difference = actualReturn - expectedReturn;
+                    
+                    // الحصول على معلومات المنتج
+                    const productRef = db.collection('products').doc(item.productId);
+                    const productSnap = await productRef.get();
+                    
+                    if (productSnap.exists) {
+                        const product = productSnap.data();
+                        const currentStock = product.currentStock || 0;
+                        
+                        // حساب الرصيد الجديد:
+                        // - نخصم الكمية المستلمة
+                        // + نضيف المرتجع السليم
+                        // المرتجع التالف لا يضاف للمخزن
+                        const netChange = -quantity + goodReturn;
+                        const newStock = currentStock + netChange;
+                        
+                        // التحقق من توفر الكمية (فقط إذا كان صافي الحركة خصم)
+                        if (netChange < 0 && newStock < 0) {
+                            throw new Error(`رصيد المنتج "${product.name}" غير كافٍ. الرصيد الحالي: ${currentStock}، المطلوب: ${Math.abs(netChange)}`);
+                        }
+                        
+                        // تحديث رصيد المنتج
+                        batch.update(productRef, { currentStock: newStock });
+                        
+                        // تسجيل حركة الخروج (إذن الاستلام)
+                        if (quantity > 0) {
+                            const transRef = db.collection('transactions').doc();
+                            batch.set(transRef, {
+                                date: new Date(),
+                                type: 'outbound',
+                                productId: item.productId,
+                                prodName: product.name || 'غير معروف',
+                                qty: quantity,
+                                party: `إذن استلام - ${base.repName}`,
+                                stockAfter: currentStock - quantity,
+                                dispatchNoteId: base.id,
+                                dispatchNoteNumber: base.noteNumber
+                            });
+                        }
+                        
+                        // تسجيل حركة الدخول (المرتجع السليم)
+                        if (goodReturn > 0) {
+                            const transRef = db.collection('transactions').doc();
+                            batch.set(transRef, {
+                                date: new Date(),
+                                type: 'inbound',
+                                productId: item.productId,
+                                prodName: product.name || 'غير معروف',
+                                qty: goodReturn,
+                                party: `مرتجع سليم - ${base.repName}`,
+                                stockAfter: newStock,
+                                dispatchNoteId: base.id,
+                                dispatchNoteNumber: base.noteNumber,
+                                difference: difference !== 0 ? difference : null // تسجيل الفرق إن وُجد
+                            });
+                        }
+                        
+                        // تسجيل المرتجع التالف (بدون إضافة للمخزن)
+                        if (damagedReturn > 0) {
+                            const transRef = db.collection('transactions').doc();
+                            batch.set(transRef, {
+                                date: new Date(),
+                                type: 'damaged',
+                                productId: item.productId,
+                                prodName: product.name || 'غير معروف',
+                                qty: damagedReturn,
+                                party: `مرتجع تالف/هالك - ${base.repName}`,
+                                stockAfter: newStock,
+                                dispatchNoteId: base.id,
+                                dispatchNoteNumber: base.noteNumber,
+                                difference: difference !== 0 ? difference : null
+                            });
+                        }
+                        
+                        // تسجيل الفرق (النقص أو الزيادة) إذا كان كبيراً
+                        if (difference !== 0) {
+                            const transRef = db.collection('transactions').doc();
+                            const diffType = difference < 0 ? 'shortage' : 'surplus'; // نقص أو زيادة
+                            const diffParty = difference < 0 
+                                ? `نقص في المرتجع - ${base.repName} (نقص: ${Math.abs(difference)})`
+                                : `زيادة في المرتجع - ${base.repName} (زيادة: ${difference})`;
+                            
+                            batch.set(transRef, {
+                                date: new Date(),
+                                type: diffType,
+                                productId: item.productId,
+                                prodName: product.name || 'غير معروف',
+                                qty: Math.abs(difference),
+                                party: diffParty,
+                                stockAfter: newStock,
+                                dispatchNoteId: base.id,
+                                dispatchNoteNumber: base.noteNumber,
+                                isDiscrepancy: true // علامة للتمييز
+                            });
+                        }
+                    }
+                }
+                
+                // تنفيذ جميع العمليات دفعة واحدة
+                await batch.commit();
+                
+            } catch(e) {
+                console.error('خطأ في ربط الإذن مع المخزن:', e);
+                throw e; // إعادة رفع الخطأ ليتم التعامل معه في الواجهة
+            }
+            
             // تحديث محلي سريع إذا لم يصل السnapshot بعد
             try {
                 if (!state.dispatchNotes) state.dispatchNotes = [];
@@ -2275,13 +2753,23 @@
         // ===== ضمان تحميل البيانات الأساسية (العملاء + قوائم الأسعار) مع استرجاع من النسخ المحلية عند الحاجة =====
         async function ensureCoreData(){
             if (!db) return;
-            if (window.__coreDataEnsured) return;
+            // ⚠️ CRITICAL: تعمل مرة واحدة فقط عند الدخول
+            if (window.__coreDataEnsured) {
+                console.log('✅ Core data already loaded - skipping');
+                return;
+            }
+            
+            window.__coreDataEnsured = true; // منع التكرار فوراً
+            
             const needCustomers = !state.customers || state.customers.length === 0;
             const needPriceLists = !state.priceLists || state.priceLists.length === 0;
             const needProducts = !state.products || state.products.length === 0;
             const needReps = !state.reps || state.reps.length === 0;
-            if (!needCustomers && !needPriceLists && !needProducts && !needReps) { window.__coreDataEnsured = true; return; }
-            console.log('ensureCoreData: محاولة تعبئة البيانات الأساسية');
+            if (!needCustomers && !needPriceLists && !needProducts && !needReps) {
+                console.log('✅ All core data already in state - skipping fetch');
+                return;
+            }
+            console.log('📥 ensureCoreData: Loading missing data...');
             try {
                 // استيراد النسخة المدمجة أولاً (إذا كانت المجموعات فارغة فعلاً) قبل القراءة السحابية
                 try { await importEmbeddedBackupIfNeeded(); } catch(e){ console.warn('importEmbeddedBackupIfNeeded early call failed', e); }
@@ -2521,14 +3009,99 @@
             }
             if (state.customers && state.customers.length && state.priceLists && state.priceLists.length && state.products && state.products.length && state.reps && state.reps.length) window.__coreDataEnsured = true;
         }
+        
+        // ===== 🔧 Backfill 'period' field on sales documents =====
+        window.backfillSalesPeriods = async function(limit=500, autoRun=false){
+            try {
+                if (!window.db) throw new Error('Firestore غير جاهز');
+                if (!window.auth || !auth.currentUser) throw new Error('لم يتم تسجيل الدخول');
+                const role = (typeof getUserRole==='function') ? getUserRole() : 'user';
+                if (role !== 'admin') { 
+                    if (!autoRun) alert('هذه العملية للمشرف فقط'); 
+                    return; 
+                }
+                
+                console.log(`🔧 Backfilling sales.period for up to ${limit} recent docs...`);
+                
+                // Fetch recent sales without period field
+                const snap = await db.collection('sales')
+                    .orderBy('date','desc')
+                    .limit(limit)
+                    .get();
+                
+                if (snap.empty) { 
+                    console.log('✅ No sales documents found for backfill');
+                    if (autoRun) localStorage.setItem('sales_period_backfilled', 'true');
+                    return; 
+                }
+                
+                let batch = db.batch(); 
+                let count = 0; 
+                let updated = 0;
+                const BATCH_LIMIT = 450;
+                
+                snap.forEach(doc => {
+                    const d = doc.data() || {};
+                    let period = d.period;
+                    
+                    // Only update if period is missing
+                    if (!period) {
+                        try {
+                            const dt = d.date?.toDate?.() || new Date(d.date);
+                            if (!isNaN(dt.getTime())) {
+                                const y = dt.getFullYear();
+                                const m = String(dt.getMonth()+1).padStart(2,'0');
+                                period = `${y}-${m}`;
+                                
+                                batch.set(doc.ref, { period }, { merge:true });
+                                count++;
+                                updated++;
+                                
+                                if (count >= BATCH_LIMIT) { 
+                                    batch.commit(); 
+                                    batch = db.batch(); 
+                                    count = 0; 
+                                }
+                            }
+                        } catch(e){ 
+                            console.warn('Failed to parse date for doc', doc.id, e);
+                        }
+                    }
+                });
+                
+                if (count > 0) await batch.commit();
+                
+                console.log(`✅ Backfill completed: updated ${updated} sales documents with period field`);
+                
+                if (autoRun) {
+                    localStorage.setItem('sales_period_backfilled', 'true');
+                    console.log('🎯 Auto-backfill complete - flag set to prevent re-run');
+                } else {
+                    alert(`✅ تم تحديث ${updated} فاتورة بحقل الفترة (period)`);
+                }
+                
+                // Trigger a refresh to show updated data
+                setTimeout(() => {
+                    console.log('🔄 Refreshing sales view...');
+                    try { 
+                        if (typeof renderAllSales === 'function') renderAllSales('', '', 'all');
+                        if (typeof renderDashboard === 'function') renderDashboard();
+                    } catch(e){ console.warn('Refresh after backfill failed', e); }
+                }, 1000);
+                
+            } catch(e) {
+                console.error('❌ Backfill failed:', e);
+                if (!autoRun) alert('❌ فشل التحديث: ' + e.message);
+            }
+        };
+        
         function scheduleEnsureCoreData(){
-            setTimeout(ensureCoreData, 1500);
+            // ⚠️ CRITICAL: تعمل مرة واحدة فقط (removed retries)
+            setTimeout(ensureCoreData, 500); // مرة واحدة بعد نصف ثانية من الدخول
             // تشغيل هجرة مبيعات من مستند المستخدم (إن وُجدت) بعد تسجيل الدخول بقليل
             setTimeout(function(){ try { migrateSalesFromUserDocIfFound(); } catch(e){} }, 3000);
             // حمّل بيانات الكاش من السحابة عند البدء
             setTimeout(function(){ try { if (typeof window.loadCashFromCloud === 'function') window.loadCashFromCloud(); } catch(e){ console.warn('loadCashFromCloud on startup failed', e); } }, 2500);
-            setTimeout(ensureCoreData, 5000);
-            setTimeout(ensureCoreData, 12000);
         }
 
         // ===== استيراد من shared/public_app_state.appState إلى المجموعات القياسية (مع تنظيف الافتراضيات) =====
@@ -3397,7 +3970,8 @@
         async function computeClosingBalances(period){
             if (!db) throw new Error('Firestore غير جاهز');
             const { endISO } = periodToRange(period);
-            const snap = await db.collection('sales').where('date','<=', endISO).get();
+            // 🎯 استخدام period field لتقليل المستندات المقروءة من unlimited إلى ~20-50 فقط
+            const snap = await db.collection('sales').where('period','<=', period).get();
             const byCustomer = new Map();
             snap.forEach(doc => {
                 const s = doc.data() || {};
@@ -3423,8 +3997,8 @@
 
         async function lockMonthSales(period){
             const { startISO, endISO } = periodToRange(period);
-            // قفل فواتير هذا الشهر فقط (ليس كل ما قبل نهاية الشهر)
-            const snap = await db.collection('sales').where('date','>=', startISO).where('date','<=', endISO).get();
+            // 🎯 استخدام period field بدلاً من date range لتقليل المستندات المقروءة
+            const snap = await db.collection('sales').where('period','==', period).get();
             let batch = db.batch(); let pending = 0; const BATCH_LIMIT = 450;
             for (const doc of snap.docs){
                 batch.set(doc.ref, { locked: true, lockPeriod: period, lockedAt: serverTs(), lockedBy: (auth&&auth.currentUser)?auth.currentUser.uid:null }, { merge:true });
@@ -3586,6 +4160,16 @@
                 window.state = window.state || {};
                 state.activePeriod = period;
                 try { localStorage.setItem('active_period', String(period)); } catch(e){}
+                
+                // ⚡ إعادة إنشاء استعلام المبيعات بالفترة الجديدة
+                if (typeof window.setupSalesQuery === 'function') {
+                    try {
+                        window.setupSalesQuery();
+                        console.log(`🔄 Recreated sales query for period: ${period}`);
+                    } catch(e) {
+                        console.warn('Failed to recreate sales query:', e);
+                    }
+                }
                 
                 // اضبط فلتر تاريخ المبيعات لليوم الأول من الشهر المطلوب
                 const salesDateInput = document.getElementById('search-sales-date');
@@ -3827,10 +4411,18 @@
                 }, 100);
                 setTimeout(() => {
                     const tm = document.querySelector('.splash-trademark');
-                    const btn = document.getElementById('splash-enter-btn');
                     if (tm) tm.style.opacity = '1';
-                    if (btn) btn.style.opacity = '1';
                 }, 5000);
+                // إظهار زر Enter بعد اكتمال الأنيميشن (4 ثواني)
+                setTimeout(() => {
+                    const btn = document.getElementById('splash-enter-btn');
+                    if (btn) {
+                        btn.style.opacity = '1';
+                        btn.style.transform = 'translateY(0)';
+                        btn.style.pointerEvents = 'auto';
+                        console.log('✅ زر ENTER ظهر بنجاح');
+                    }
+                }, 4000);
             }
 
             function hideSplash(){
@@ -3842,39 +4434,60 @@
                     splash.remove(); // تماماً احذفه من الصفحة
                 }
                 
-                // Hide login page
+                // Show login page (full screen modal)
                 const login = document.getElementById('login-page');
                 if (login) {
-                    login.classList.add('hidden');
-                    login.style.setProperty('display','none','important');
+                    login.classList.remove('hidden');
+                    login.style.setProperty('display','flex','important');
                 }
                 
-                // Show app container
+                // Keep app container hidden until successful login
                 const appContainer = document.getElementById('app-container');
                 if (appContainer) {
-                    appContainer.classList.remove('hidden');
-                    appContainer.style.display = 'block';
+                    appContainer.classList.add('hidden');
+                    appContainer.style.display = 'none';
                 }
-                
-                // Render all data immediately to show tables
-                try {
-                    if (typeof renderAll === 'function') {
-                        renderAll();
-                        console.log('✅ renderAll() executed after hiding splash');
-                    }
-                } catch(e) {
-                    console.warn('renderAll failed:', e);
-                }
-                
-                // Update icons
-                try { if (typeof updateIcons === 'function') updateIcons(); } catch(_){}
             }
 
             window.addEventListener('load', () => {
+                // اظهر الشاشة الافتتاحية دائماً - تجبر المستخدم على الضغط على ENTER أولاً
                 try { animateSplash(); } catch(_) {}
+                
+                // ربط الزر عند التحميل
                 const btn = document.getElementById('splash-enter-btn');
-                if (btn) btn.addEventListener('click', function(ev){ ev.preventDefault(); hideSplash(); });
-                // Fallback: expose a global to trigger splash close from elsewhere if needed
+                // Button is already visible via CSS, just attach click handler
+                if (btn) {
+                    btn.addEventListener('click', function(ev){ 
+                        ev.preventDefault(); 
+                        console.log('✅ ENTER button clicked - checking user session...');
+                        window.__splashSkipped = true; // منع الدخول التلقائي من onAuthStateChanged
+                        
+                        // Hide splash
+                        const splash = document.getElementById('splash-screen');
+                        if (splash) splash.remove();
+                        
+                        // انتظر Firebase قليلاً للتحقق من الـ session
+                        setTimeout(() => {
+                            // تحقق من وجود user مسجل دخول
+                            if (window.currentUser || (window.auth && window.auth.currentUser)) {
+                                const user = window.currentUser || window.auth.currentUser;
+                                console.log('✅ User already logged in:', user.email || user.uid);
+                                console.log('🚀 Opening app directly...');
+                                // دخول مباشر بدون صفحة تسجيل الدخول
+                                try { UIController.showApp(); } catch(e){ console.error('showApp error:', e); }
+                            } else {
+                                console.log('ℹ️ No user session - showing login page');
+                                // عرض صفحة تسجيل الدخول
+                                const login = document.getElementById('login-page');
+                                if (login) {
+                                    login.classList.remove('hidden');
+                                    login.style.setProperty('display','flex','important');
+                                }
+                            }
+                        }, 300);
+                    });
+                    console.log('✅ ENTER button event attached');
+                }
                 try { window.hideSplash = hideSplash; } catch(_){ }
             });
         })();
@@ -4017,18 +4630,25 @@
 
         // التأكد من عرض الصفحة الرئيسية فقط - تم تحسين الكود
         function showDashboardPage() {
-            // إخفاء جميع الصفحات أولاً
+            // If no authenticated user, force login overlay and abort showing dashboard
+            try {
+                const user = AuthSystem.getCurrentUser();
+                if (!user || !user.id) {
+                    elevateLoginOverlay();
+                    return;
+                }
+            } catch(_){ elevateLoginOverlay(); return; }
+
+            // إخفاء جميع الصفحات أولاً (اعتمد على الـ CSS .page/.active فقط)
             var pages = document.getElementsByClassName('page');
             for (var i = 0; i < pages.length; i++) {
                 pages[i].classList.remove('active');
-                pages[i].style.display = 'none';
             }
             
             // إظهار صفحة لوحة المعلومات
             var dashboard = document.getElementById('page-dashboard');
             if (dashboard) {
                 dashboard.classList.add('active');
-                dashboard.style.display = 'block';
             }
             
             // تحديث الأيقونات في شريط التنقل
@@ -4103,15 +4723,30 @@
 
             // عرض التطبيق الرئيسي
             showApp() {
+                console.log('🚀 UIController.showApp() called');
                 const loginEl = document.getElementById('login-page');
                 const registerEl = document.getElementById('register-page');
                 const appEl = document.getElementById('app-container');
                 const splashEl = document.getElementById('splash-screen');
                 
-                if (loginEl) loginEl.classList.add('hidden');
+                // Hide all welcome/login screens completely
+                if (loginEl) {
+                    loginEl.classList.add('hidden');
+                    loginEl.style.setProperty('display','none','important');
+                    console.log('✅ Login page hidden');
+                }
                 if (registerEl) registerEl.classList.add('hidden');
-                if (splashEl) splashEl.style.display = 'none';
-                if (appEl) appEl.classList.remove('hidden');
+                if (splashEl) {
+                    splashEl.style.display = 'none';
+                    splashEl.remove();
+                    console.log('✅ Splash screen removed');
+                }
+                // Show main app
+                if (appEl) {
+                    appEl.classList.remove('hidden');
+                    appEl.style.display = 'block';
+                    console.log('✅ App container shown');
+                }
                 
                 this.updateCurrentUserDisplay();
             },
@@ -4175,15 +4810,20 @@
                     const rememberEl = document.getElementById('login-remember');
                     const remember = rememberEl ? rememberEl.checked : false;
                     
+                    // Mark that user is manually logging in
+                    if (typeof window.__markUserLoggedIn === 'function') {
+                        window.__markUserLoggedIn();
+                    }
+                    
                     // Use new service-based login (hybrid mode)
                     const result = await (typeof window.loginUsingServices === 'function'
                         ? window.loginUsingServices(email, password, { showAlertOnError: false })
                         : AuthSystem.login(email, password));
                     
                     if (result.ok || result.success) {
-                        if (remember) {
-                            localStorage.setItem('app_remember_email', email);
-                        }
+                        // Firebase سيحفظ الـ session تلقائياً
+                        // لا حاجة لحفظ كلمة المرور في localStorage
+                        console.log('✅ تم تسجيل الدخول بنجاح - Firebase سيتذكر الجلسة تلقائياً');
                         loginForm.reset();
                         // onAuthStateChanged سيكمل المعالجة
                     } else {
@@ -4223,6 +4863,11 @@
             if (logoutBtn) {
                 logoutBtn.addEventListener('click', async () => {
                     if (confirm('هل تريد تسجيل الخروج؟')) {
+                        console.log('🚪 تسجيل الخروج...');
+                        // 🔌 UNSUBSCRIBE all listeners before logout
+                        try { window.unsubscribeAll(); } catch(e){ console.warn('Failed to unsubscribe:', e); }
+                        // Reset core data flag to reload on next login
+                        window.__coreDataEnsured = false;
                         // Use new service-based logout (hybrid mode)
                         await (typeof window.logoutUsingServices === 'function'
                             ? window.logoutUsingServices({ showAlertOnError: false })
@@ -4243,23 +4888,10 @@
                 if (modalEmail) modalEmail.value = rememberEmail;
             }
 
-            // Global Enter handler: show login overlay only (no backend calls) until manual login
-            document.addEventListener('keydown', (e) => {
-                if (!e || e.key !== 'Enter') return;
-                const user = (typeof AuthSystem?.getCurrentUser === 'function') ? AuthSystem.getCurrentUser() : null;
-                if (user) return; // allow normal behavior once logged in
-
-                const loginEl = document.getElementById('login-page');
-                const loginVisible = loginEl && loginEl.style.display !== 'none' && !loginEl.classList.contains('hidden');
-                if (!loginVisible) {
-                    e.preventDefault();
-                    UIController.showLoginPage();
-                    elevateLoginOverlay();
-                    const focusEl = document.getElementById('login-email') || document.getElementById('login-email-modal');
-                    try { focusEl && focusEl.focus(); focusEl && focusEl.select && focusEl.select(); } catch(_){}
-                }
-            });
-            UIController.showLoginPage();
+            // Global Enter handler: completely disabled
+            // Do NOT show login page on Enter key press
+            // Let the app auto-open for logged-in users without any interruption
+            // UIController.showLoginPage(); // REMOVED: causes unwanted login modal display
         });
 
         // دالة لتهيئة التطبيق للمستخدم الحالي
@@ -6044,36 +6676,13 @@
                             });
                         }
 
-                        // Setup tab switching for Debts page
+                        // Tab switching for Debts page removed - only Debts tab remains
                         const debtsTabBtn = document.getElementById('debts-tab-btn');
-                        const receiptDebtsTabBtn = document.getElementById('receipt-debts-tab-btn');
                         const debtsTabContent = document.getElementById('debts-tab-content');
-                        const receiptDebtsTabContent = document.getElementById('receipt-debts-tab-content');
-                        
-                        if (debtsTabBtn && receiptDebtsTabBtn && debtsTabContent && receiptDebtsTabContent) {
-                            debtsTabBtn.addEventListener('click', () => {
-                                debtsTabBtn.style.backgroundColor = '#3b82f6';
-                                debtsTabBtn.style.color = 'white';
-                                receiptDebtsTabBtn.style.backgroundColor = '#d1d5db';
-                                receiptDebtsTabBtn.style.color = '#374151';
-                                debtsTabContent.style.display = '';
-                                debtsTabContent.classList.add('active');
-                                receiptDebtsTabContent.style.display = 'none';
-                                receiptDebtsTabContent.classList.remove('active');
-                            });
-                            
-                            receiptDebtsTabBtn.addEventListener('click', () => {
-                                receiptDebtsTabBtn.style.backgroundColor = '#3b82f6';
-                                receiptDebtsTabBtn.style.color = 'white';
-                                debtsTabBtn.style.backgroundColor = '#d1d5db';
-                                debtsTabBtn.style.color = '#374151';
-                                receiptDebtsTabContent.style.display = '';
-                                receiptDebtsTabContent.classList.add('active');
-                                debtsTabContent.style.display = 'none';
-                                debtsTabContent.classList.remove('active');
-                                window.initReceiptPage();
-                                window.renderCollectionReceipt();
-                            });
+                        if (debtsTabBtn && debtsTabContent) {
+                            // Ensure debts tab is always shown
+                            debtsTabContent.style.display = '';
+                            debtsTabContent.classList.add('active');
                         }
 
                         // Local tab switching inside dispatch page
@@ -6101,25 +6710,51 @@
                                 dispatchNotesTabContent.style.display = 'none';
                                 // Initialize receipt page with local IDs
                                 try {
-                                    const today = new Date().toISOString().split('T')[0];
-                                    const fromInput = document.getElementById('receipt-from-date-local');
-                                    const toInput = document.getElementById('receipt-to-date-local');
-                                    if (fromInput && !fromInput.value) fromInput.value = today;
-                                    if (toInput && !toInput.value) toInput.value = today;
-                                    const repDropdown = document.getElementById('receipt-rep-dropdown-local');
-                                    if (repDropdown) {
-                                        const reps = Array.from(new Set((state.sales || []).map(s => s.repName).filter(Boolean)));
-                                        repDropdown.innerHTML = '<option value="">-- جميع المناديب --</option>';
-                                        reps.forEach(rep => {
-                                            const option = document.createElement('option');
-                                            option.value = rep;
-                                            option.textContent = rep;
-                                            repDropdown.appendChild(option);
+                                    console.log('📋 Opening Collection Receipt Tab - Refreshing data...');
+                                    
+                                    // إعادة تحميل المبيعات من السحابة لضمان أحدث البيانات
+                                    if (typeof loadSalesFromCloud === 'function') {
+                                        loadSalesFromCloud().then(() => {
+                                            console.log('✅ Sales reloaded from cloud, total:', state.sales?.length);
+                                            initializeReceiptTab();
+                                        }).catch(e => {
+                                            console.warn('⚠️ Failed to reload sales, using cached data:', e);
+                                            initializeReceiptTab();
                                         });
+                                    } else {
+                                        initializeReceiptTab();
                                     }
-                                    // Render receipt with local IDs
-                                    if (typeof renderCollectionReceiptLocal === 'function') renderCollectionReceiptLocal();
-                                } catch(e) { console.warn('receipt init failed', e); }
+                                    
+                                    function initializeReceiptTab() {
+                                        const today = new Date().toISOString().split('T')[0];
+                                        const fromInput = document.getElementById('receipt-from-date-local');
+                                        const toInput = document.getElementById('receipt-to-date-local');
+                                        
+                                        // إذا كان التاريخ فارغ، استخدم اليوم
+                                        if (fromInput && !fromInput.value) fromInput.value = today;
+                                        if (toInput && !toInput.value) toInput.value = today;
+                                        
+                                        const repDropdown = document.getElementById('receipt-rep-dropdown-local');
+                                        if (repDropdown) {
+                                            const allSales = state.sales || [];
+                                            console.log('📊 Total sales in state:', allSales.length);
+                                            
+                                            const reps = Array.from(new Set(allSales.map(s => s.repName).filter(Boolean)));
+                                            console.log('👥 Available reps:', reps);
+                                            
+                                            repDropdown.innerHTML = '<option value="">-- اختر مندوب --</option>';
+                                            reps.forEach(rep => {
+                                                const option = document.createElement('option');
+                                                option.value = rep;
+                                                option.textContent = rep;
+                                                repDropdown.appendChild(option);
+                                            });
+                                        }
+                                        
+                                        // لا تعرض البيانات تلقائياً - فقط عند الضغط على "تطبيق الفلاتر"
+                                        console.log('⏳ Ready - please select rep and click filter button');
+                                    }
+                                } catch(e) { console.error('❌ receipt init failed', e); }
                             });
                         }
                         
@@ -6131,141 +6766,533 @@
                             });
                         }
                         
-                        // Print button for local receipt
+                        // Print button for local receipt - TURBO MODE: html2canvas + ESC/POS Image
                         const printBtnLocal = document.getElementById('receipt-print-btn-local');
                         if (printBtnLocal) {
-                            printBtnLocal.addEventListener('click', () => {
-                                const repName = document.getElementById('receipt-rep-dropdown-local')?.value || 'بدون تحديد';
-                                const credits = document.getElementById('rep-credit-transactions-local')?.value || '0';
-                                const expenses = document.getElementById('rep-expenses-local')?.value || '0';
-                                const notes = document.getElementById('rep-notes-local')?.value || '';
-                                const totalEl = document.getElementById('receipt-total-local');
-                                const total = totalEl?.textContent || '0';
-                                
-                                const contentToPrint = `
-                                    <html dir="rtl">
-                                    <head>
-                                        <style>
-                                            body { font-family: Arial, sans-serif; text-align: right; margin: 20px; }
-                                            h2 { text-align: center; font-size: 18px; margin-bottom: 20px; }
-                                            .receipt-header { border-bottom: 2px solid #000; padding-bottom: 10px; margin-bottom: 10px; }
-                                            .receipt-item { margin: 10px 0; padding: 5px 0; border-bottom: 1px solid #ccc; }
-                                            .receipt-item label { font-weight: bold; width: 150px; display: inline-block; }
-                                            .receipt-total { border-top: 2px solid #000; padding-top: 10px; margin-top: 10px; font-weight: bold; font-size: 16px; }
-                                        </style>
-                                    </head>
-                                    <body>
-                                        <h2>كشف التحصيل</h2>
-                                        <div class="receipt-header">
-                                            <div class="receipt-item"><label>المندوب:</label> <span>${repName}</span></div>
-                                            <div class="receipt-item"><label>التاريخ:</label> <span>${new Date().toLocaleDateString('ar-EG')}</span></div>
+                            printBtnLocal.addEventListener('click', async () => {
+                                try {
+                                    const selectedRepName = document.getElementById('receipt-rep-dropdown-local')?.value || '';
+                                    
+                                    if (!selectedRepName || selectedRepName === '' || selectedRepName === '-- اختر مندوب --') {
+                                        alert('⚠️ يرجى اختيار مندوب أولاً');
+                                        return;
+                                    }
+                                    
+                                    const credits = parseFloat(document.getElementById('rep-credit-transactions-local')?.value || 0);
+                                    const creditsReason = document.getElementById('rep-credits-reason-local')?.value || '';
+                                    const expenses = parseFloat(document.getElementById('rep-expenses-local')?.value || 0);
+                                    const expensesReason = document.getElementById('rep-expenses-reason-local')?.value || '';
+                                    const notes = document.getElementById('rep-notes-local')?.value || '';
+                                    const totalEl = document.getElementById('receipt-total-local');
+                                    const total = parseFloat((totalEl?.textContent || '0').replace(/[^\d.-]/g, ''));
+                                    const fromDate = document.getElementById('receipt-from-date-local')?.value;
+                                    const toDate = document.getElementById('receipt-to-date-local')?.value;
+                                    
+                                    // بناء جدول التحصيلات من الجدول الحالي
+                                    const tbody = document.getElementById('receipt-table-body-local');
+                                    let receiptsTableRows = '';
+                                    const rowsData = [];
+                                    if (tbody && tbody.children.length > 0) {
+                                        Array.from(tbody.children).forEach(tr => {
+                                            if (tr.children.length >= 5 && !tr.textContent.includes('لا توجد')) {
+                                                receiptsTableRows += `<tr><td style="border-bottom:1px dashed #999;padding:6px 2px;font-size:14px;text-align:right">${tr.children[0].textContent}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;font-size:14px;text-align:center">${tr.children[1].textContent}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;font-size:14px;text-align:right">${tr.children[2].textContent.substring(0,20)}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;font-size:13px;text-align:center">${tr.children[3].textContent}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;font-size:16px;font-weight:700;text-align:center">${tr.children[4].textContent}</td></tr>`;
+                                                rowsData.push({
+                                                    date: tr.children[0].textContent,
+                                                    invoice: tr.children[1].textContent,
+                                                    customer: tr.children[2].textContent,
+                                                    type: tr.children[3].textContent,
+                                                    amount: tr.children[4].textContent
+                                                });
+                                            }
+                                        });
+                                    }
+                                    
+                                    const netAmount = total + credits - expenses;
+
+                                    // ===== TURBO PRINT: html2canvas + Bluetooth Image =====
+                                    printBtnLocal.disabled = true;
+                                    printBtnLocal.textContent = 'جاري التحويل...';
+
+                                    // إنشاء عنصر مخفي للطباعة
+                                    const printBox = document.createElement('div');
+                                    printBox.id = 'receipt-turbo-print-box';
+                                    printBox.style.cssText = 'position:absolute;left:-9999px;top:0;width:575px;min-width:575px;background:#fff;padding:20px;color:#000;font-family:Cairo,Arial;';
+                                    printBox.innerHTML = `
+                                        <div style="text-align:center;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:15px">
+                                            <h1 style="font-size:28px;font-weight:900;margin:0;font-family:Montserrat,sans-serif">DELENTE</h1>
+                                            <p style="font-size:12px;font-weight:800;letter-spacing:2px;margin:5px 0">IT'S JUST MILK.</p>
+                                            <p style="font-size:14px;font-weight:700">منتجات ألبان ومزارع طبيعية</p>
                                         </div>
-                                        <div class="receipt-item"><label>النسريات:</label> <span>${credits}</span></div>
-                                        <div class="receipt-item"><label>المصروفات:</label> <span>${expenses}</span></div>
-                                        <div class="receipt-item"><label>الملاحظات:</label> <span>${notes}</span></div>
-                                        <div class="receipt-total">إجمالي التحصيلات: ${total}</div>
-                                    </body>
-                                    </html>`;
-                                const printWindow = window.open('', '', 'height=600,width=800');
-                                printWindow.document.write(contentToPrint);
-                                printWindow.document.close();
-                                printWindow.print();
+                                        <div style="border-top:3px solid #000;border-bottom:3px solid #000;padding:10px 0;margin:15px 0;font-weight:800;font-size:16px">
+                                            <div style="display:flex;justify-content:space-between;margin-bottom:5px">
+                                                <span>المندوب: ${selectedRepName}</span>
+                                                <span>${new Date().toLocaleDateString('ar-EG')}</span>
+                                            </div>
+                                            <div style="font-size:14px;color:#666">
+                                                <span>من: ${fromDate||'—'}</span> &nbsp;|&nbsp; <span>إلى: ${toDate||'—'}</span>
+                                            </div>
+                                        </div>
+                                        <table style="width:100%;border-collapse:collapse;margin-top:10px">
+                                            <thead style="border-bottom:3px solid #000">
+                                                <tr>
+                                                    <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:right">التاريخ</th>
+                                                    <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">الفاتورة</th>
+                                                    <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:right">العميل</th>
+                                                    <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">النوع</th>
+                                                    <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">المبلغ</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                ${receiptsTableRows || '<tr><td colspan="5" style="padding:10px;text-align:center;color:#999">لا توجد تحصيلات</td></tr>'}
+                                            </tbody>
+                                        </table>
+                                        <div style="margin-top:20px;border-top:3px solid #000;padding-top:10px">
+                                            <div style="font-size:18px;font-weight:700;margin-bottom:8px;display:flex;justify-content:space-between">
+                                                <span>إجمالي التحصيلات:</span>
+                                                <span>${total.toFixed(2)} ج.م</span>
+                                            </div>
+                                            ${credits > 0 ? `<div style="font-size:16px;font-weight:600;margin-bottom:5px;display:flex;justify-content:space-between;color:#059669"><span>➕ النثريات (${creditsReason})</span><span>${credits.toFixed(2)}</span></div>` : ''}
+                                            ${expenses > 0 ? `<div style="font-size:16px;font-weight:600;margin-bottom:5px;display:flex;justify-content:space-between;color:#dc2626"><span>➖ المصروفات (${expensesReason})</span><span>${expenses.toFixed(2)}</span></div>` : ''}
+                                            <div style="background:#000;color:#fff;padding:12px;border-radius:8px;margin-top:10px;font-size:22px;font-weight:900;display:flex;justify-content:space-between">
+                                                <span>الصافي النهائي:</span>
+                                                <span>${netAmount.toFixed(2)} ج.م</span>
+                                            </div>
+                                        </div>
+                                        ${notes ? `<div style="margin-top:15px;padding:8px;border:1px dashed #999;background:#fffacd;font-size:13px"><strong>ملاحظات:</strong> ${notes}</div>` : ''}
+                                        <div style="text-align:center;margin-top:20px;font-size:14px;font-weight:800;padding-top:15px;border-top:2px solid #999">
+                                            <p>خدمة العملاء: 01000000000</p>
+                                            <p style="font-size:11px;margin-top:8px">DELENTE - FRESH & NATURAL</p>
+                                        </div>
+                                    `;
+                                    document.body.appendChild(printBox);
+
+                                    setTimeout(async () => {
+                                        try {
+                                            if (typeof html2canvas !== 'function') throw new Error('html2canvas غير محمل');
+                                            
+                                            const originalCanvas = await html2canvas(printBox, { scale: 2, useCORS: true });
+                                            
+                                            // Resize to 576px width (thermal printer standard)
+                                            const resizedCanvas = document.createElement('canvas');
+                                            const targetWidth = 576;
+                                            const scaleFactor = targetWidth / originalCanvas.width;
+                                            const targetHeight = originalCanvas.height * scaleFactor;
+                                            resizedCanvas.width = targetWidth;
+                                            resizedCanvas.height = targetHeight;
+                                            const ctx = resizedCanvas.getContext('2d');
+                                            ctx.drawImage(originalCanvas, 0, 0, targetWidth, targetHeight);
+
+                                            printBtnLocal.textContent = 'جاري الإرسال...';
+
+                                            // Convert to ESC/POS image data
+                                            function getImageData(c) {
+                                                const w = c.width, h = c.height;
+                                                const imgData = c.getContext('2d').getImageData(0, 0, w, h);
+                                                let cmds = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00];
+                                                const xb = Math.ceil(w / 8);
+                                                cmds.push(xb % 256, Math.floor(xb / 256), h % 256, Math.floor(h / 256));
+                                                for (let y = 0; y < h; y++) {
+                                                    for (let x = 0; x < xb; x++) {
+                                                        let byte = 0;
+                                                        for (let bit = 0; bit < 8; bit++) {
+                                                            const px = x * 8 + bit;
+                                                            if (px < w) {
+                                                                const i = (y * w + px) * 4;
+                                                                if ((imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3 < 200) {
+                                                                    byte |= (1 << (7 - bit));
+                                                                }
+                                                            }
+                                                        }
+                                                        cmds.push(byte);
+                                                    }
+                                                }
+                                                cmds.push(0x1D, 0x56, 0x42, 0x00);
+                                                return new Uint8Array(cmds);
+                                            }
+
+                                            const imageData = getImageData(resizedCanvas);
+
+                                            // Try Bluetooth first
+                                            if ('bluetooth' in navigator) {
+                                                try {
+                                                    const device = await navigator.bluetooth.requestDevice({
+                                                        acceptAllDevices: true,
+                                                        optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb']
+                                                    });
+                                                    const server = await device.gatt.connect();
+                                                    const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+                                                    const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+                                                    
+                                                    const CHUNK = 100;
+                                                    for (let i = 0; i < imageData.length; i += CHUNK) {
+                                                        await characteristic.writeValue(imageData.slice(i, i + CHUNK));
+                                                        await new Promise(r => setTimeout(r, 30));
+                                                    }
+                                                    alert('✅ تم الطباعة عبر البلوتوث بنجاح');
+                                                    document.body.removeChild(printBox);
+                                                    printBtnLocal.disabled = false;
+                                                    printBtnLocal.textContent = 'طباعة كشف التحصيل';
+                                                    return;
+                                                } catch(btErr) {
+                                                    console.warn('Bluetooth failed, trying fallback:', btErr);
+                                                }
+                                            }
+
+                                            // Fallback: open print window
+                                            const imgData = resizedCanvas.toDataURL();
+                                            try { document.body.removeChild(printBox); } catch(_){}
+                                            const w = window.open('', '', 'width=420,height=680');
+                                            if (!w) {
+                                                alert('⚠️ فشل فتح نافذة الطباعة. الرجاء السماح بالنوافذ المنبثقة.');
+                                                return;
+                                            }
+                                            w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm auto;margin:0}body{margin:0;padding:8px;font-family:Arial}img{width:100%;display:block}</style></head><body><img src="${imgData}"><script>window.onload=()=>{setTimeout(()=>{window.print();},500)};</script></body></html>`);
+                                            w.document.close();
+                                            alert('✅ تم فتح نافذة الطباعة');
+
+                                        } catch(e) {
+                                            console.error('Print error:', e);
+                                            alert('❌ خطأ في الطباعة: ' + e.message);
+                                        } finally {
+                                            try { document.body.removeChild(printBox); } catch(_){}
+                                            printBtnLocal.disabled = false;
+                                            printBtnLocal.textContent = 'طباعة كشف التحصيل';
+                                        }
+                                    }, 200);
+                                    
+                                    // إنشء عنصر HTML للطباعة
+                                    const printContent = document.createElement('div');
+                                    printContent.id = 'receipt-print-wrapper';
+                                    printContent.style.cssText = 'position:absolute; left:-9999px; top:-9999px; width:100%; font-family:Cairo,Arial,sans-serif; direction:rtl; text-align:right; background:#fff;';
+                                    
+                                    printContent.innerHTML = `
+                                        <div style="padding:10px; max-width:400px;">
+                                            <div style="text-align:center; margin-bottom:10px; border-bottom:3px solid #000; padding-bottom:8px;">
+                                                <h2 style="margin:0; font-size:16px; font-weight:bold;">كشف التحصيل اليومي</h2>
+                                            </div>
+                                            
+                                            <table style="width:100%; margin-bottom:10px; font-size:11px; border-collapse:collapse;">
+                                                <tr><td style="font-weight:bold; width:40%;">المندوب:</td><td>${selectedRepName}</td></tr>
+                                                <tr><td style="font-weight:bold;">من تاريخ:</td><td>${fromDate || 'غير محدد'}</td></tr>
+                                                <tr><td style="font-weight:bold;">إلى تاريخ:</td><td>${toDate || 'غير محدد'}</td></tr>
+                                                <tr><td style="font-weight:bold;">التاريخ والوقت:</td><td>${new Date().toLocaleString('ar-EG', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}</td></tr>
+                                            </table>
+                                            
+                                            <h3 style="font-size:12px; margin:8px 0 5px 0; border-bottom:1px solid #999; padding-bottom:3px;">تفاصيل التحصيلات:</h3>
+                                            <table style="width:100%; border-collapse:collapse; margin-bottom:10px; font-size:10px;">
+                                                <thead>
+                                                    <tr style="background:#f0f0f0; font-weight:bold;">
+                                                        <th style="border:1px solid #ddd; padding:3px;">التاريخ</th>
+                                                        <th style="border:1px solid #ddd; padding:3px;">الفاتورة</th>
+                                                        <th style="border:1px solid #ddd; padding:3px;">العميل</th>
+                                                        <th style="border:1px solid #ddd; padding:3px;">النوع</th>
+                                                        <th style="border:1px solid #ddd; padding:3px;">المبلغ</th>
+                                                    </tr>
+                                                </thead>
+                                                <tbody>
+                                                    ${receiptsTableRows || '<tr><td colspan="5" style="padding:5px; text-align:center;">لا توجد تحصيلات</td></tr>'}
+                                                </tbody>
+                                            </table>
+                                            
+                                            <div style="border:2px solid #000; padding:8px; margin:10px 0; background:#f9f9f9;">
+                                                <h3 style="font-size:12px; margin:0 0 5px 0; font-weight:bold;">الملخص المالي:</h3>
+                                                <table style="width:100%; font-size:11px;">
+                                                    <tr><td style="font-weight:bold;">إجمالي التحصيلات:</td><td style="text-align:left; color:#059669; font-weight:bold;">${total.toFixed(2)}</td></tr>
+                                                    ${credits > 0 ? `<tr><td>➕ النثريات: ${creditsReason}</td><td style="text-align:left; font-weight:bold;">${credits.toFixed(2)}</td></tr>` : ''}
+                                                    ${expenses > 0 ? `<tr><td>➖ المصروفات: ${expensesReason}</td><td style="text-align:left; font-weight:bold;">${expenses.toFixed(2)}</td></tr>` : ''}
+                                                    <tr style="border-top:2px solid #000; padding-top:3px; font-weight:bold; font-size:12px;">
+                                                        <td>💰 الصافي المستحق:</td>
+                                                        <td style="text-align:left;">${netAmount.toFixed(2)} ج.م</td>
+                                                    </tr>
+                                                </table>
+                                            </div>
+                                            
+                                            ${notes ? `<div style="margin:8px 0; padding:5px; border:1px dashed #999; background:#fffacd; font-size:10px;"><strong>ملاحظات:</strong> ${notes}</div>` : ''}
+                                            
+                                            <div style="margin-top:15px; padding-top:10px; border-top:1px solid #999; display:flex; justify-content:space-between; font-size:9px;">
+                                                <div style="text-align:center; width:45%;">
+                                                    <div style="border-top:1px solid #000; margin-top:15px; padding-top:2px;">توقيع المندوب</div>
+                                                </div>
+                                                <div style="text-align:center; width:45%;">
+                                                    <div style="border-top:1px solid #000; margin-top:15px; padding-top:2px;">توقيع الحسابات</div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    `;
+                                    
+                                    document.body.appendChild(printContent);
+                                    
+                                                                        // فتح نافذة طباعة جديدة مباشرة (نفس الطريقة من صفحة المبيعات)
+                                                                        const w = window.open('', '', 'width=400,height=600');
+                                                                        if (!w) throw new Error('يرجى السماح بالنوافذ المنبثقة');
+                                    
+                                                                        const receiptHtml = `<!DOCTYPE html>
+<html dir="rtl">
+<head>
+    <meta charset="utf-8">
+    <style>
+        @page { size: 80mm auto; margin: 0; }
+        body { margin: 0; padding: 8px; font-family: Arial, Tahoma; background: #fff; }
+        table { width: 100%; border-collapse: collapse; }
+        td, th { padding: 4px; border: 1px solid #000; text-align: right; }
+        h1 { text-align: center; font-size: 18px; font-weight: 900; margin: 0; }
+        h2 { text-align: center; font-size: 13px; font-weight: 900; background: #000; color: #fff; padding: 4px; margin: 6px 0; }
+        .total { text-align: center; font-size: 14px; font-weight: 900; background: #000; color: #fff; padding: 6px; margin: 8px 0; }
+        .info { text-align: right; font-size: 11px; font-weight: 700; color: #000; margin: 4px 0; }
+        .summary-table { background: #f9f9f9; margin: 8px 0; }
+        .summary-table td { border: 1px solid #999; padding: 5px; }
+        .net-amount { background: #000; color: #fff; font-weight: 900; }
+    </style>
+</head>
+<body>
+    <h1>Delente ERP</h1>
+    <h2>كشف التحصيل اليومي</h2>
+  
+    <div class="info">👤 المندوب: <strong>${selectedRepName}</strong></div>
+    <div class="info">📅 من: <strong>${fromDate || 'غير محدد'}</strong></div>
+    <div class="info">📅 إلى: <strong>${toDate || 'غير محدد'}</strong></div>
+    <div class="info">⏰ ${new Date().toLocaleString('ar-EG', {year:'numeric', month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'})}</div>
+  
+    <h3 style="font-size: 12px; margin: 8px 0 5px 0; border-bottom: 1px solid #999;">تفاصيل التحصيلات:</h3>
+    <table style="font-size: 10px;">
+        <thead>
+            <tr style="background: #f0f0f0; font-weight: bold;">
+                <th>التاريخ</th>
+                <th>الفاتورة</th>
+                <th>العميل</th>
+                <th>النوع</th>
+                <th>المبلغ</th>
+            </tr>
+        </thead>
+        <tbody>
+            ${receiptsTableRows || '<tr><td colspan="5" style="padding: 5px; text-align: center;">لا توجد تحصيلات</td></tr>'}
+        </tbody>
+    </table>
+  
+    <div class="total">💰 إجمالي التحصيلات: ${total.toFixed(2)} ج.م</div>
+  
+    <table class="summary-table" style="font-size: 11px;">
+        ${credits > 0 ? `<tr><td>➕ النثريات (${creditsReason})</td><td style="text-align: center; font-weight: bold;">${credits.toFixed(2)}</td></tr>` : ''}
+        ${expenses > 0 ? `<tr><td>➖ المصروفات (${expensesReason})</td><td style="text-align: center; font-weight: bold;">${expenses.toFixed(2)}</td></tr>` : ''}
+        <tr class="net-amount"><td>🎯 الصافي النهائي</td><td style="text-align: center;">${netAmount.toFixed(2)} ج.م</td></tr>
+    </table>
+  
+    ${notes ? `<div style="margin: 8px 0; padding: 5px; border: 1px dashed #999; background: #fffacd; font-size: 10px;"><strong>ملاحظات:</strong> ${notes}</div>` : ''}
+  
+    <div style="margin-top: 15px; padding-top: 10px; border-top: 2px solid #000; font-size: 9px;">
+        <div style="display: flex; justify-content: space-around;">
+            <div style="text-align: center; width: 45%;">
+                <div style="border-top: 1px solid #000; margin-top: 15px; padding-top: 2px;">توقيع المندوب</div>
+            </div>
+            <div style="text-align: center; width: 45%;">
+                <div style="border-top: 1px solid #000; margin-top: 15px; padding-top: 2px;">توقيع الحسابات</div>
+            </div>
+        </div>
+    </div>
+  
+    <script>
+        window.print();
+        setTimeout(() => window.close(), 1000);
+    </script>
+</body>
+</html>`;
+                                    
+                                                                        w.document.write(receiptHtml);
+                                                                        w.document.close();
+                                    
+                                } catch(e) {
+                                    console.error('❌ Print error:', e);
+                                    alert('❌ خطأ في الطباعة: ' + e.message);
+                                }
                             });
                         }
                         
-                        // Save button for local receipt
+                        // Save button for local receipt - يحفظ كشف التحصيل الكامل
                         const saveBtnLocal = document.getElementById('receipt-save-btn-local');
                         if (saveBtnLocal) {
-                            saveBtnLocal.addEventListener('click', () => {
+                            saveBtnLocal.addEventListener('click', async () => {
                                 try {
                                     const repName = document.getElementById('receipt-rep-dropdown-local')?.value;
-                                    const credits = document.getElementById('rep-credit-transactions-local')?.value;
-                                    const expenses = document.getElementById('rep-expenses-local')?.value;
+                                    const credits = parseFloat(document.getElementById('rep-credit-transactions-local')?.value || 0);
+                                    const creditsReason = document.getElementById('rep-credits-reason-local')?.value || '';
+                                    const expenses = parseFloat(document.getElementById('rep-expenses-local')?.value || 0);
+                                    const expensesReason = document.getElementById('rep-expenses-reason-local')?.value || '';
                                     const notes = document.getElementById('rep-notes-local')?.value;
+                                    const fromDate = document.getElementById('receipt-from-date-local')?.value;
+                                    const toDate = document.getElementById('receipt-to-date-local')?.value;
                                     
                                     if (!repName) {
                                         alert('الرجاء اختيار مندوب أولاً');
                                         return;
                                     }
                                     
+                                    // قراءة الإجمالي من الجدول الحالي (الصحيح)
+                                    const totalEl = document.getElementById('receipt-total-local');
+                                    const totalAmount = parseFloat((totalEl?.textContent || '0').replace(/[^\d.-]/g, ''));
+                                    
+                                    console.log('💾 Save data:', { repName, totalAmount, credits, creditsReason, expenses, expensesReason });
+                                    
                                     const receiptData = {
                                         repName,
-                                        credits: parseFloat(credits) || 0,
-                                        expenses: parseFloat(expenses) || 0,
+                                        credits,
+                                        creditsReason,
+                                        expenses,
+                                        expensesReason,
                                         notes,
                                         timestamp: new Date().toISOString(),
-                                        date: new Date().toISOString().split('T')[0]
+                                        date: toDate || fromDate || new Date().toISOString().split('T')[0],
+                                        fromDate: fromDate || toDate || new Date().toISOString().split('T')[0],
+                                        toDate: toDate || fromDate || new Date().toISOString().split('T')[0],
+                                        totalCollected: totalAmount,
+                                        netAmount: totalAmount + credits - expenses,
+                                        receiptCount: 0
                                     };
                                     
+                                    // حفظ محلي
                                     localStorage.setItem(`rep_receipt_${repName}_${receiptData.date}`, JSON.stringify(receiptData));
                                     
-                                    if (window.db && typeof db !== 'undefined') {
-                                        db.collection('settings').doc('repReceipts').collection(receiptData.date).doc(repName).set(receiptData, { merge: true })
-                                            .then(() => { alert('تم حفظ البيانات بنجاح'); })
-                                            .catch(e => console.warn('Failed to save to cloud', e));
+                                    // حفظ في السحابة
+                                    if (window.db) {
+                                        try {
+                                            const docId = `receipt_${repName}_${receiptData.date}_${Date.now()}`;
+                                            await window.db.collection('transactions').doc(docId).set({
+                                                ...receiptData,
+                                                type: 'collection_receipt',
+                                                createdAt: new Date().toISOString()
+                                            });
+                                            alert(`✅ تم حفظ كشف التحصيل بنجاح\n\n👤 المندوب: ${repName}\n📅 التاريخ: ${receiptData.date}\n💰 إجمالي التحصيل: ${totalAmount.toFixed(2)} ج.م\n➕ النثريات: ${credits.toFixed(2)} ج.م\n➖ المصروفات: ${expenses.toFixed(2)} ج.م\n✨ الصافي: ${receiptData.netAmount.toFixed(2)} ج.م`);
+                                            console.log('✅ Collection receipt saved:', docId, receiptData);
+                                        } catch(cloudError) {
+                                            console.warn('⚠️ Cloud save failed, data saved locally:', cloudError);
+                                            alert('⚠️ تم الحفظ محلياً فقط\nالبيانات محفوظة على جهازك');
+                                        }
+                                    } else {
+                                        alert('⚠️ تم الحفظ محلياً فقط (قاعدة البيانات غير متاحة)');
                                     }
                                 } catch(e) {
                                     console.error('Error saving receipt data', e);
-                                    alert('خطأ في حفظ البيانات');
+                                    alert('❌ خطأ في حفظ البيانات: ' + e.message);
                                 }
                             });
                         }
                         
-                        // Render function for local receipt
+                        // Render function for local receipt - محسّنة مع رسائل تشخيصية
                         window.renderCollectionReceiptLocal = function() {
                             try {
+                                console.log('🔍 renderCollectionReceiptLocal called');
                                 const tbody = document.getElementById('receipt-table-body-local');
-                                if (!tbody) return;
+                                if (!tbody) {
+                                    console.error('❌ Table body element not found');
+                                    return;
+                                }
                                 tbody.innerHTML = '';
                                 
                                 const fromDate = document.getElementById('receipt-from-date-local')?.value;
                                 const toDate = document.getElementById('receipt-to-date-local')?.value;
                                 const selectedRep = document.getElementById('receipt-rep-dropdown-local')?.value;
                                 
+                                console.log('📅 Date range:', { fromDate, toDate, selectedRep: selectedRep || 'الكل' });
+                                console.log('📦 Total sales in state:', state.sales?.length || 0);
+                                
                                 let receipts = [];
                                 let totalAmount = 0;
                                 let totalCount = 0;
+                                let filteredSalesCount = 0;
                                 
                                 if (Array.isArray(state.sales)) {
                                     state.sales.forEach(sale => {
                                         const saleDate = (sale.date || sale.createdAt || '').split('T')[0];
+                                        
+                                        // تطبيق الفلاتر
                                         if (fromDate && saleDate < fromDate) return;
                                         if (toDate && saleDate > toDate) return;
                                         if (selectedRep && sale.repName !== selectedRep) return;
                                         
+                                        filteredSalesCount++;
+                                        
+                                        // طباعة أول فاتورة للتشخيص
+                                        if (filteredSalesCount === 1) {
+                                            console.log('🔍 Sample sale structure:', sale);
+                                        }
+                                        
                                         const customer = (typeof findCustomer === 'function' ? findCustomer(sale.customerId) : null) || {};
                                         const customerName = customer.name || sale.customerName || 'غير معروف';
                                         
+                                        // التحقق من جميع أنواع الدفعات الممكنة
+                                        let cashCollected = 0;
+                                        
+                                        // البنية القديمة: firstPayment & secondPayment
                                         if (sale.firstPayment && sale.firstPayment > 0) {
+                                            cashCollected += sale.firstPayment;
                                             receipts.push({
                                                 date: saleDate,
                                                 invoiceNumber: sale.invoiceNumber || '',
                                                 customer: customerName,
                                                 type: 'دفعة أولى',
                                                 amount: sale.firstPayment,
+                                                total: sale.total || sale.firstPayment,
                                                 status: 'مسددة'
                                             });
-                                            totalAmount += sale.firstPayment;
                                         }
                                         if (sale.secondPayment && sale.secondPayment > 0) {
+                                            cashCollected += sale.secondPayment;
                                             receipts.push({
                                                 date: saleDate,
                                                 invoiceNumber: sale.invoiceNumber || '',
                                                 customer: customerName,
                                                 type: 'دفعة ثانية',
                                                 amount: sale.secondPayment,
+                                                total: sale.total || sale.secondPayment,
                                                 status: 'مسددة'
                                             });
-                                            totalAmount += sale.secondPayment;
                                         }
+                                        
+                                        // البنية الجديدة: paidAmount (المبلغ المدفوع فعلياً)
+                                        if (!cashCollected && sale.paidAmount && sale.paidAmount > 0) {
+                                            cashCollected = sale.paidAmount;
+                                            const total = sale.total || 0;
+                                            const remaining = total - sale.paidAmount;
+                                            
+                                            let paymentLabel = 'كاش كامل';
+                                            let status = 'مسددة';
+                                            
+                                            if (sale.paidAmount >= total && total > 0) {
+                                                paymentLabel = 'كاش كامل';
+                                                status = 'مسددة';
+                                            } else if (sale.paidAmount > 0 && total > 0) {
+                                                paymentLabel = `دفع جزء (${sale.paidAmount.toFixed(2)} من ${total.toFixed(2)})`;
+                                                status = 'دفع جزء';
+                                            }
+                                            
+                                            receipts.push({
+                                                date: saleDate,
+                                                invoiceNumber: sale.invoiceNumber || '',
+                                                customer: customerName,
+                                                type: paymentLabel,
+                                                amount: sale.paidAmount,
+                                                total: total,
+                                                remaining: remaining > 0 ? remaining : 0,
+                                                status: status
+                                            });
+                                        }
+                                        
+                                        totalAmount += cashCollected;
                                     });
                                 }
+                                
+                                console.log('✅ Filtered sales:', filteredSalesCount, 'Receipts found:', receipts.length);
                                 
                                 receipts.sort((a, b) => new Date(a.date) - new Date(b.date));
                                 
                                 if (receipts.length === 0) {
                                     const tr = document.createElement('tr');
-                                    tr.innerHTML = '<td colspan="6" class="p-4 text-center text-gray-500">لا توجد تحصيلات</td>';
+                                    let message = 'لا توجد تحصيلات';
+                                    if (filteredSalesCount === 0) {
+                                        message = `لا توجد فواتير ${selectedRep ? `للمندوب "${selectedRep}"` : ''} في الفترة من ${fromDate || '؟'} إلى ${toDate || '؟'}`;
+                                    } else {
+                                        message = `يوجد ${filteredSalesCount} فاتورة لكن لا توجد تحصيلات نقدية (كلها آجل)`;
+                                    }
+                                    tr.innerHTML = `<td colspan="6" class="p-4 text-center text-gray-500">${message}</td>`;
                                     tbody.appendChild(tr);
                                 } else {
                                     receipts.forEach((receipt, idx) => {
@@ -6295,7 +7322,270 @@
                         }
                     });
                 })();
-            
+
+                    // ===== Customer Settlements (آجل أسبوعي/شهري) =====
+                let settlementData = [];
+                
+                window.openSettlementModal = function(){
+                    document.getElementById('settlement-modal').classList.remove('hidden');
+                    const today = new Date().toISOString().split('T')[0];
+                    const weekAgo = new Date(Date.now() - 7*24*60*60*1000).toISOString().split('T')[0];
+                    document.getElementById('settlement-from-date').value = weekAgo;
+                    document.getElementById('settlement-to-date').value = today;
+                };
+                
+                window.closeSettlementModal = function(){
+                    document.getElementById('settlement-modal').classList.add('hidden');
+                };
+                
+                window.generateSettlement = function(){
+                    try {
+                        const fromDate = document.getElementById('settlement-from-date')?.value;
+                        const toDate = document.getElementById('settlement-to-date')?.value;
+                        const invoiceNumbers = document.getElementById('settlement-invoice-numbers')?.value.split(',').map(x => x.trim()).filter(Boolean);
+                        
+                        const sales = Array.isArray(window.state?.sales) ? window.state.sales : [];
+                        const map = new Map();
+                        
+                        sales.forEach(sale => {
+                            const d = (sale.date || sale.createdAt || '').split('T')[0];
+                            const inv = sale.invoiceNumber || '';
+                            
+                            // Filter by date OR invoice number
+                            let matches = false;
+                            if (invoiceNumbers.length > 0) {
+                                matches = invoiceNumbers.includes(String(inv));
+                            } else {
+                                matches = (!fromDate || d >= fromDate) && (!toDate || d <= toDate);
+                            }
+                            
+                            if (!matches) return;
+                            
+                            const custId = sale.customerId || 'unknown';
+                            const cust = (typeof findCustomer === 'function') ? findCustomer(custId) : null;
+                            const name = cust?.name || sale.customerName || custId;
+                            const total = Number(sale.total||0);
+                            const paid = Number(sale.paidAmount||0) + Number(sale.firstPayment||0) + Number(sale.secondPayment||0);
+                            const remaining = Math.max(0, total - paid);
+                            
+                            const entry = map.get(custId) || { customerId: custId, customerName: name, invoices: [], total: 0, paid: 0, remaining: 0 };
+                            entry.invoices.push({ id: sale.id, invoiceNumber: inv, date: d, total, paid, remaining, status: sale.status || 'pending' });
+                            entry.total += total;
+                            entry.paid += paid;
+                            entry.remaining += remaining;
+                            map.set(custId, entry);
+                        });
+                        
+                        settlementData = Array.from(map.values());
+                        settlementData.sort((a,b) => b.remaining - a.remaining);
+                        
+                        // Display results
+                        const resultsDiv = document.getElementById('settlement-results');
+                        if (settlementData.length === 0) {
+                            resultsDiv.innerHTML = '<p class="text-center text-gray-500 p-4">لا توجد فواتير آجلة في هذه المدة</p>';
+                            return;
+                        }
+                        
+                        let html = '<div class="overflow-x-auto"><table class="w-full border-collapse"><thead class="bg-purple-700 text-white"><tr><th class="border p-2">العميل</th><th class="border p-2">عدد الفواتير</th><th class="border p-2">الإجمالي</th><th class="border p-2">المدفوع</th><th class="border p-2 font-bold">المتبقي</th></tr></thead><tbody>';
+                        
+                        settlementData.forEach((d, i) => {
+                            html += `<tr class="${i%2===0?'bg-white':'bg-gray-50'}"><td class="border p-2 text-right">${d.customerName}</td><td class="border p-2 text-center">${d.invoices.length}</td><td class="border p-2 text-center">${d.total.toFixed(2)}</td><td class="border p-2 text-center">${d.paid.toFixed(2)}</td><td class="border p-2 text-center font-bold text-red-600">${d.remaining.toFixed(2)}</td></tr>`;
+                            
+                            // Show invoice details
+                            html += `<tr class="${i%2===0?'bg-gray-50':'bg-white'}"><td colspan="5" class="border p-2"><details class="text-sm"><summary class="cursor-pointer text-blue-600 hover:underline">عرض تفاصيل الفواتير (${d.invoices.length})</summary><table class="w-full mt-2 text-xs"><thead><tr class="bg-gray-200"><th class="p-1">رقم الفاتورة</th><th class="p-1">التاريخ</th><th class="p-1">الإجمالي</th><th class="p-1">المدفوع</th><th class="p-1">المتبقي</th><th class="p-1">الحالة</th></tr></thead><tbody>`;
+                            
+                            d.invoices.forEach(inv => {
+                                html += `<tr><td class="border p-1">${inv.invoiceNumber}</td><td class="border p-1">${inv.date}</td><td class="border p-1">${inv.total.toFixed(2)}</td><td class="border p-1">${inv.paid.toFixed(2)}</td><td class="border p-1 font-bold">${inv.remaining.toFixed(2)}</td><td class="border p-1"><span class="px-2 py-1 rounded text-xs ${inv.status==='settled'?'bg-green-100 text-green-800':'bg-yellow-100 text-yellow-800'}">${inv.status}</span></td></tr>`;
+                            });
+                            
+                            html += '</tbody></table></details></td></tr>';
+                        });
+                        
+                        const totalAll = settlementData.reduce((s,x)=> s + x.total, 0);
+                        const paidAll = settlementData.reduce((s,x)=> s + x.paid, 0);
+                        const remAll = settlementData.reduce((s,x)=> s + x.remaining, 0);
+                        
+                        html += `</tbody><tfoot class="bg-purple-700 text-white font-bold"><tr><td class="border p-2">المجموع</td><td class="border p-2 text-center">${settlementData.reduce((s,x)=>s+x.invoices.length,0)}</td><td class="border p-2 text-center">${totalAll.toFixed(2)}</td><td class="border p-2 text-center">${paidAll.toFixed(2)}</td><td class="border p-2 text-center">${remAll.toFixed(2)}</td></tr></tfoot></table></div>`;
+                        
+                        resultsDiv.innerHTML = html;
+                    } catch(e){ console.error('generateSettlement error', e); alert('خطأ: ' + e.message); }
+                };
+                
+                window.printSettlement = function(){
+                    if (!settlementData || settlementData.length === 0) {
+                        alert('قم بعرض التسوية أولاً');
+                        return;
+                    }
+                    try {
+                        const fromDate = document.getElementById('settlement-from-date')?.value || '';
+                        const toDate = document.getElementById('settlement-to-date')?.value || '';
+                        const totalAll = settlementData.reduce((s,x)=> s + x.total, 0);
+                        const paidAll = settlementData.reduce((s,x)=> s + x.paid, 0);
+                        const remAll = settlementData.reduce((s,x)=> s + x.remaining, 0);
+
+                        const rows = settlementData.map(d => `<tr><td style="border-bottom:1px dashed #999;padding:6px 2px;text-align:right">${d.customerName}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;text-align:center">${d.invoices.length}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;text-align:center">${d.total.toFixed(2)}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;text-align:center">${d.paid.toFixed(2)}</td><td style="border-bottom:1px dashed #999;padding:6px 2px;text-align:center;font-weight:700">${d.remaining.toFixed(2)}</td></tr>`).join('');
+
+                        const printBox = document.createElement('div');
+                        printBox.style.cssText = 'position:absolute;left:-9999px;width:575px;background:#fff;padding:20px;font-family:Cairo,Arial';
+                        printBox.innerHTML = `
+                            <div style="text-align:center;border-bottom:3px solid #000;padding-bottom:10px;margin-bottom:15px">
+                                <h1 style="font-size:28px;font-weight:900;margin:0;font-family:Montserrat">DELENTE</h1>
+                                <p style="font-size:12px;font-weight:800;letter-spacing:2px;margin:5px 0">IT'S JUST MILK.</p>
+                                <p style="font-size:14px;font-weight:700">تسوية آجلة للعملاء</p>
+                            </div>
+                            <div style="font-size:14px;margin-bottom:15px;font-weight:600">الفترة: ${fromDate||'—'} إلى ${toDate||'—'}</div>
+                            <table style="width:100%;border-collapse:collapse">
+                                <thead style="border-bottom:3px solid #000">
+                                    <tr>
+                                        <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:right">العميل</th>
+                                        <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">ع.الفواتير</th>
+                                        <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">الإجمالي</th>
+                                        <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">المدفوع</th>
+                                        <th style="padding:6px 2px;font-size:15px;font-weight:900;text-align:center">المتبقي</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                            <div style="background:#000;color:#fff;padding:12px;border-radius:8px;margin-top:15px;font-size:20px;font-weight:900;text-align:center">
+                                إجمالي المتبقي: ${remAll.toFixed(2)} ج.م
+                            </div>
+                            <div style="font-size:12px;margin-top:10px;text-align:right">إجمالي: ${totalAll.toFixed(2)} | مدفوع: ${paidAll.toFixed(2)} | متبقي: ${remAll.toFixed(2)}</div>
+                            <div style="text-align:center;margin-top:20px;font-size:14px;font-weight:800;padding-top:15px;border-top:2px solid #999">
+                                <p>خدمة العملاء: 01000000000</p>
+                                <p style="font-size:11px;margin-top:8px">DELENTE - FRESH & NATURAL</p>
+                            </div>
+                        `;
+                        document.body.appendChild(printBox);
+
+                        setTimeout(async () => {
+                            try {
+                                if (typeof html2canvas !== 'function') throw new Error('html2canvas غير محمل');
+                                const originalCanvas = await html2canvas(printBox, { scale: 2, useCORS: true });
+                                const resizedCanvas = document.createElement('canvas');
+                                const targetWidth = 576;
+                                const scaleFactor = targetWidth / originalCanvas.width;
+                                resizedCanvas.width = targetWidth;
+                                resizedCanvas.height = originalCanvas.height * scaleFactor;
+                                resizedCanvas.getContext('2d').drawImage(originalCanvas, 0, 0, targetWidth, resizedCanvas.height);
+
+                                // Try Bluetooth
+                                if ('bluetooth' in navigator) {
+                                    try {
+                                        function getImageData(c) {
+                                            const w = c.width, h = c.height;
+                                            const imgData = c.getContext('2d').getImageData(0, 0, w, h);
+                                            let cmds = [0x1B, 0x40, 0x1B, 0x61, 0x01, 0x1D, 0x76, 0x30, 0x00];
+                                            const xb = Math.ceil(w / 8);
+                                            cmds.push(xb % 256, Math.floor(xb / 256), h % 256, Math.floor(h / 256));
+                                            for (let y = 0; y < h; y++) {
+                                                for (let x = 0; x < xb; x++) {
+                                                    let byte = 0;
+                                                    for (let bit = 0; bit < 8; bit++) {
+                                                        const px = x * 8 + bit;
+                                                        if (px < w) {
+                                                            const i = (y * w + px) * 4;
+                                                            if ((imgData.data[i] + imgData.data[i+1] + imgData.data[i+2]) / 3 < 200) byte |= (1 << (7 - bit));
+                                                        }
+                                                    }
+                                                    cmds.push(byte);
+                                                }
+                                            }
+                                            cmds.push(0x1D, 0x56, 0x42, 0x00);
+                                            return new Uint8Array(cmds);
+                                        }
+                                        const imageData = getImageData(resizedCanvas);
+                                        const device = await navigator.bluetooth.requestDevice({ acceptAllDevices: true, optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb'] });
+                                        const server = await device.gatt.connect();
+                                        const service = await server.getPrimaryService('000018f0-0000-1000-8000-00805f9b34fb');
+                                        const characteristic = await service.getCharacteristic('00002af1-0000-1000-8000-00805f9b34fb');
+                                        const CHUNK = 100;
+                                        for (let i = 0; i < imageData.length; i += CHUNK) {
+                                            await characteristic.writeValue(imageData.slice(i, i + CHUNK));
+                                            await new Promise(r => setTimeout(r, 30));
+                                        }
+                                        alert('✅ تم الطباعة عبر البلوتوث');
+                                        document.body.removeChild(printBox);
+                                        return;
+                                    } catch(btErr) { console.warn('BT failed', btErr); }
+                                }
+                                
+                                // Fallback: HTML window
+                                const imgData = resizedCanvas.toDataURL();
+                                try { document.body.removeChild(printBox); } catch(_){}
+                                const w = window.open('', '', 'width=420,height=680');
+                                if (w) {
+                                    w.document.write(`<!DOCTYPE html><html dir="rtl"><head><meta charset="utf-8"><style>@page{size:80mm auto;margin:0}body{margin:0;padding:8px}img{width:100%;display:block}</style></head><body><img src="${imgData}"><script>window.onload=()=>{setTimeout(()=>{window.print();},500)};</script></body></html>`);
+                                    w.document.close();
+                                    alert('✅ تم فتح نافذة الطباعة');
+                                } else {
+                                    alert('⚠️ فشل فتح نافذة الطباعة. الرجاء السماح بالنوافذ المنبثقة.');
+                                }
+                            } catch(e) {
+                                alert('خطأ: ' + e.message);
+                            } finally {
+                                try { document.body.removeChild(printBox); } catch(_){}
+                            }
+                        }, 100);
+                    } catch(e){ alert('خطأ في الطباعة: '+(e&&e.message)); }
+                };
+                
+                window.markSettled = async function(){
+                    if (!settlementData || settlementData.length === 0) {
+                        alert('قم بعرض التسوية أولاً');
+                        return;
+                    }
+                    if (!confirm(`هل أنت متأكد من تسديد جميع الفواتير (${settlementData.reduce((s,x)=>s+x.invoices.length,0)} فاتورة) وإلغاء المديونية؟`)) return;
+                    
+                    try {
+                        const invoiceIds = [];
+                        settlementData.forEach(cust => {
+                            cust.invoices.forEach(inv => invoiceIds.push(inv.id));
+                        });
+                        
+                        if (!window.db) {
+                            alert('قاعدة البيانات غير متاحة');
+                            return;
+                        }
+                        
+                        const batch = window.db.batch();
+                        let updated = 0;
+                        
+                        for (const id of invoiceIds) {
+                            const ref = window.db.collection('sales').doc(id);
+                            // Find the sale to get its total
+                            const sale = (window.state?.sales || []).find(s => s.id === id);
+                            const total = sale ? Number(sale.total || 0) : 0;
+                            batch.update(ref, { 
+                                status: 'settled',
+                                paidAmount: total,
+                                settledAt: new Date().toISOString(),
+                                settledBy: window.currentUser?.email || 'system'
+                            });
+                            updated++;
+                        }
+                        
+                        await batch.commit();
+                        alert(`✅ تم تسديد ${updated} فاتورة بنجاح`);
+                        
+                        // Reload sales
+                        if (typeof loadAllData === 'function') await loadAllData();
+                        
+                        // Refresh settlement
+                        window.generateSettlement();
+                        
+                    } catch(e) {
+                        console.error('markSettled error', e);
+                        alert('خطأ في التسديد: ' + e.message);
+                    }
+                };
+                
+                // Wire settlement button
+                document.addEventListener('DOMContentLoaded', () => {
+                    const settlementBtn = document.getElementById('settlement-btn-local');
+                    if (settlementBtn) {
+                        settlementBtn.addEventListener('click', window.openSettlementModal);
+                    }
+                });
 
 
                     // PRICE EDIT FUNCTIONS
@@ -6928,9 +8218,10 @@
             // Allow reviewers and managers to view all pages (they remain read-only by DB/UI guards)
             reviewer: 'ALL',
             manager: 'ALL',
-            // تم توحيد السماح للمندوب مع الأيقونات الظاهرة: الرئيسية، إدخال سريع، المبيعات، الاستعلام، الأذونات
+            // المندوب: الرئيسية، إدخال سريع، المبيعات، الاستعلام، الأذونات
             rep: new Set(['dashboard','spreadsheet-entry','sales','inquiry','dispatch']),
-            user: 'ALL'
+            // المستخدم: السماح بإظهار الأذونات أيضًا لمعالجة حالات اكتشاف الدور كـ user
+            user: new Set(['dashboard','sales','inquiry','dispatch'])
         };
         let lastRequestedPage = null; // لتتبع الصفحة التي حاول المستخدم فتحها فعلياً
         function canAccessPage(pageName){
@@ -7223,6 +8514,8 @@
         const rangeReportRepSelect = document.getElementById('range-report-rep');
         const monthlyReportMonthInput = document.getElementById('monthly-report-month');
         const monthlyReportRepSelect = document.getElementById('monthly-report-rep');
+        const stocktakeStartDateInput = document.getElementById('stocktake-start-date');
+        const stocktakeEndDateInput = document.getElementById('stocktake-end-date');
         const reportOutputArea = document.getElementById('report-output-area');
 
         // Chart instances
@@ -7264,7 +8557,16 @@
         var findCustomer = window.findCustomer || function(id) {
             try {
                 const sid = id != null ? String(id) : '';
-                return (state.customers||[]).find(c => String(c.id) === sid || String(c._id) === sid) || null;
+                // البحث في state.customers أولاً
+                let customer = (state.customers||[]).find(c => String(c.id) === sid || String(c._id) === sid);
+                // إذا لم يُعثر عليه، جرب من الكاش
+                if (!customer) {
+                    try {
+                        const cached = JSON.parse(localStorage.getItem('cache_customers')||'[]');
+                        customer = cached.find(c => String(c.id) === sid || String(c._id) === sid);
+                    } catch(_) {}
+                }
+                return customer || null;
             } catch(_) { return null; }
         };
         window.findCustomer = findCustomer;
@@ -8543,11 +9845,13 @@
                 const cleanState = {
                     activePeriod: src.activePeriod || null,
                     settings: src.settings || {},
-                    // Persist chains as a small array; ensure no undefined is sent to Firestore
-                    chains: Array.isArray(src.chains) ? src.chains : [],
                     uiPrefs: src.uiPrefs || {},
                     lastSyncTimestamp: src.lastSyncTimestamp || null
                 };
+                // Only persist chains when present to avoid overwriting cloud data with empty array
+                if (Array.isArray(src.chains)) {
+                    cleanState.chains = src.chains;
+                }
 
                 const userData = {
                     appState: cleanState,
@@ -8657,17 +9961,19 @@
         }
         
         function getTaxStatusBadge(sale) {
-            const customer = findCustomer(sale.customerId); 
-            // FIX: Use `requiresTaxFiling` which is correctly set in loadState
-            const requiresFiling = customer?.requiresTaxFiling;
+            // Lookup customer in local state; avoid relying on undefined helpers
+            let customer = null;
+            if (state.customers && Array.isArray(state.customers)) {
+                customer = state.customers.find(c => c.id === sale.customerId);
+            }
 
-            if (!requiresFiling) { return ''; } // No badge if not required
-            
+            const requiresFiling = customer?.requiresTaxFiling;
+            if (!requiresFiling) { return ''; }
+
             const taxStatus = sale.taxFilingStatus;
             const isFiled = taxStatus && taxStatus.trim().toLowerCase() === 'تم';
 
             if (isFiled) {
-                // Blue "Filed" button (to differentiate from 'Paid' green badge)
                 return `
                     <button 
                         class="tax-status-toggle-btn text-xs font-medium px-2.5 py-0.5 rounded-full bg-blue-100 text-blue-800 flex items-center gap-1"
@@ -8677,7 +9983,6 @@
                     </button>
                 `;
             } else {
-                // Red "Not Filed" button
                 const statusText = taxStatus && taxStatus.trim() !== '' ? taxStatus : 'لم يتم الرفع';
                 return `
                     <button 
@@ -9118,25 +10423,7 @@
             }
         });
 
-        // Add quick listeners for debts page action buttons (show reps / show customers)
-        document.addEventListener('DOMContentLoaded', () => {
-            const showRepsBtn = document.getElementById('debts-show-reps-btn');
-            const showCustomersBtn = document.getElementById('debts-show-customers-btn');
-            if (showRepsBtn) {
-                showRepsBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    // Navigate to rep-debts page which lists all reps and their balances
-                    if (typeof navigateTo === 'function') navigateTo('rep-debts');
-                });
-            }
-            if (showCustomersBtn) {
-                showCustomersBtn.addEventListener('click', (e) => {
-                    e.preventDefault();
-                    // Navigate to customers page
-                    if (typeof navigateTo === 'function') navigateTo('customers');
-                });
-            }
-        });
+        // Navigation setup complete
 
         // Refresh button handler: force a re-render of debts table
         document.addEventListener('DOMContentLoaded', () => {
@@ -9153,7 +10440,16 @@
             }
         });
 
+        // ===== PERFORMANCE OPTIMIZATION: Smart navigation =====
+        let currentNavigationId = 0;
+        
         function navigateTo(pageId) {
+            // 🔌 UNSUBSCRIBE from all previous listeners to prevent reads leaks
+            try { window.unsubscribeAll(); } catch(e){ console.warn('Failed to unsubscribe listeners:', e); }
+            
+            // أعطِ كل طلب تنقل رقم فريد
+            const navigationId = ++currentNavigationId;
+            
             // تحديث الفترة النشطة للصفحات التي تتطلب الشهر الحالي
             if (pageId === 'sales' || pageId === 'reports' || pageId === 'debts') {
                 try { ensureDefaultActivePeriod(); } catch(e){}
@@ -9168,23 +10464,33 @@
                     pageId = 'dashboard';
                 }
             } catch(e){}
+            
             // Avoid redundant heavy re-renders when navigating to the same page repeatedly
             try {
-                if (window.__currentPage === pageId) { updateIcons(); return; }
+                if (window.__currentPage === pageId) { 
+                    console.log(`⏭️ Already on page: ${pageId} - skipping`);
+                    updateIcons();
+                    return; // EXIT EARLY - no re-render
+                }
                 window.__currentPage = pageId;
-            } catch(_){}
-            // Clear inline display and classes for all pages, rely purely on CSS
-            document.querySelectorAll('.page').forEach(p => { p.classList.remove('active'); p.style.display=''; }); 
-            const pageEl = document.getElementById(`page-${pageId}`); 
+            } catch(_){ }
+            
+            console.log(`🔄 Navigating to: ${pageId} [ID: ${navigationId}]`);
+            
+            // تحسين الأداء: استخدام class بدلاً من البحث عن جميع الصفحات
+            // Clear active class from all pages at once
+            const allPages = document.querySelectorAll('.page.active');
+            allPages.forEach(p => p.classList.remove('active'));
+            
+            const pageEl = document.getElementById(`page-${pageId}`);
             
             // Handle reports page activation differently
             if (pageId === 'reports') {
-                pageEl.classList.add('active');
-                reportsSubnav.classList.add('active');
+                if (pageEl) pageEl.classList.add('active');
+                if (reportsSubnav) reportsSubnav.classList.add('active');
                 initializeReportsPage();
             } else {
-                 // Deactivate reports subnav for all other pages
-                reportsSubnav.classList.remove('active'); 
+                if (reportsSubnav) reportsSubnav.classList.remove('active'); 
             }
             
             if (pageEl) { pageEl.classList.add('active'); } else { console.error(`Page element not found for ID: page-${pageId}`); } 
@@ -9264,11 +10570,24 @@
             } else if (pageId === 'cash') {
                 try { renderCash(); } catch(e){ console.warn('renderCash failed', e); }
             } else if (pageId === 'taxes') {
-                try { renderTaxesPage(); } catch(e){ console.warn('renderTaxesPage failed', e); }
+                try {
+                    // استخدام initTaxesPage أو window.initTaxesPage
+                    if (typeof window.initTaxesPage === 'function') {
+                        window.initTaxesPage();
+                        console.log('✅ Taxes page initialized');
+                    } else if (typeof renderTaxesPage === 'function') {
+                        renderTaxesPage();
+                    } else {
+                        console.warn('renderTaxesPage not loaded - showing sales instead');
+                        renderAllSales(); // Fallback to sales view
+                    }
+                } catch(e){ console.warn('renderTaxesPage failed', e); }
             } else if (pageId === 'costs') {
                 try { renderCostsPage(); } catch(e){ console.warn('renderCostsPage failed', e); }
             }
             updateIcons();
+            // ✅ Navigation completed - new requests can proceed
+            console.log(`✅ Navigation completed [ID: ${navigationId}]`);
         }
 
         // إخفاء أزرار الصفحات غير المسموح بها حسب الدور
@@ -9277,13 +10596,35 @@
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 const buttons = Array.from(document.querySelectorAll('.bottom-nav .bottom-nav-item'));
                 const allow = ROLE_PAGE_ALLOW[role];
+                console.log('🔒 applyRoleNavRestrictions: role=' + role + ', allowed pages=', allow === 'ALL' ? 'ALL' : Array.from(allow || []));
                 if (!allow || allow === 'ALL') { buttons.forEach(btn => btn.style.display = ''); return; }
                 buttons.forEach(btn => {
                     const p = btn.getAttribute('data-page');
-                    if (allow.has(p)) btn.style.display = '';
-                    else btn.style.display = 'none';
+                    const shouldShow = allow.has(p);
+                    btn.style.display = shouldShow ? '' : 'none';
+                    if (!shouldShow) console.log('  ❌ Hiding button:', p);
                 });
-            } catch(_){ }
+            } catch(e){ console.error('applyRoleNavRestrictions error:', e); }
+        }
+        
+        // تعريف دالة renderTaxesPage لعرض صفحة الضرائب
+        function renderTaxesPage() {
+            try {
+                console.log('📊 renderTaxesPage called');
+                // استدعاء initTaxesPage من taxes.js
+                if (typeof window.initTaxesPage === 'function') {
+                    window.initTaxesPage();
+                    console.log('✅ initTaxesPage executed');
+                } else {
+                    console.warn('⚠️ initTaxesPage not available yet');
+                    // محاولة إعادة الاستدعاء بعد 500ms
+                    setTimeout(() => {
+                        if (typeof window.initTaxesPage === 'function') {
+                            window.initTaxesPage();
+                        }
+                    }, 500);
+                }
+            } catch(e) { console.error('renderTaxesPage error:', e); }
         }
         // Export applyRoleNavRestrictions to window for firebase-init.js consumers
         try { if (!window.applyRoleNavRestrictions) window.applyRoleNavRestrictions = applyRoleNavRestrictions; } catch(_){}
@@ -10476,7 +11817,11 @@
             const progressBar = document.getElementById('target-progress-bar'); if (progressBar) progressBar.style.width = `${progress}%`;
             if (document.getElementById('target-progress-text')) document.getElementById('target-progress-text').textContent = `${Math.round(progress)}%`;
             const recentSalesList = document.getElementById('recent-sales-list'); if (recentSalesList) recentSalesList.innerHTML = '';
-            let recentSales = [...currentMonthSales].reverse();
+            let recentSales = [...currentMonthSales].sort((a,b) => {
+                const ta = new Date(a.date || 0).getTime();
+                const tb = new Date(b.date || 0).getTime();
+                return tb - ta; // تنازلي: الأحدث أولاً
+            });
             if (selectedRepName) { recentSales = recentSales.filter(s => s.repName === selectedRepName); }
             recentSales = recentSales.slice(0, 5);
             if (!recentSalesList) return;
@@ -10826,7 +12171,6 @@
 
                  // Fallbacks: if filtering yields nothing, show broader data
                  if (activePeriod && filteredSales.length === 0) {
-                     console.warn('Monthly filter returned no sales; showing all sales until data loads');
                      filteredSales = [...state.sales];
                  }
                  if (filteredSales.length === 0) {
@@ -10880,12 +12224,16 @@
             }
             // --- END NEW ---
 
-             // ترتيب تصاعدي: الأقدم أولاً والأحدث في الأسفل
+             // ترتيب تصاعدي: الأقدم أولاً والأحدث في الأسفل (حسب date ثم createdAt)
              try {
                  filteredSales.sort((a,b)=>{
                      const ta = new Date(a.date||0).getTime();
                      const tb = new Date(b.date||0).getTime();
-                     return ta - tb;
+                     if (ta !== tb) return ta - tb; // تصاعدي حسب التاريخ
+                     // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
+                     const ca = new Date(a.createdAt||0).getTime();
+                     const cb = new Date(b.createdAt||0).getTime();
+                     return ca - cb; // الأقدم إنشاءاً في الأعلى
                  });
              } catch(_){ /* keep original order as fallback */ }
 
@@ -10901,8 +12249,17 @@
              }
              
              const reviewState = loadReviewState();
+             // تتبع العملاء المفقودين لتحذير مرة واحدة فقط
+             const missingCustomerIds = new Set();
+             const perfStart = performance.now();
+             
              filteredSales.forEach((sale, index) => { 
-                const customer = findCustomer(sale.customerId); 
+                const customer = (typeof findCustomer === 'function') ? findCustomer(sale.customerId) : null; 
+                const customerName = customer?.name || sale.customerName || 'عميل غير معروف';
+                if (!customer && sale.customerId && !missingCustomerIds.has(sale.customerId)) {
+                    missingCustomerIds.add(sale.customerId);
+                }
+                // Don't skip - show the sale with fallback customer name
                 
                 // NEW: Return Detection and Styling
                 const isReturn = sale.total < 0;
@@ -10914,7 +12271,7 @@
                 const totalAmountClass = (String(sale.reviewStatus||'').toLowerCase() === 'pending') ? 'text-red-700' : (isReturn ? 'text-red-700' : 'text-blue-700');
                 
                 const itemsList = (Array.isArray(sale.items) ? sale.items : []).map((item, itemIndex) => { 
-                    const product = findProduct(item.productId); 
+                    const product = (typeof findProduct === 'function') ? findProduct(item.productId) : null; 
                     const itemName = product ? product.name : 'منتج محذوف'; 
                     const itemDiscountFactor = (1 - (item.discountPercent || 0) / 100);
                     const itemBase = (item.quantity || 0) * (item.price || 0) * itemDiscountFactor;
@@ -10927,10 +12284,13 @@
 
                     // Determine if this item was adjusted (entered price differs from expected)
                     try {
-                        const prodForCheck = findProduct(item.productId) || {};
+                        const prodForCheck = (typeof findProduct === 'function') ? findProduct(item.productId) : null;
+                        if (!prodForCheck) {
+                            return `<tr class="text-xs border-b border-gray-100 last:border-b-0"><td colspan="5" class="text-center px-3 py-2 text-red-500">⚠️ منتج غير متوفر</td></tr>`;
+                        }
                         let expectedP = (prodForCheck.price != null) ? Number(prodForCheck.price) : 0;
-                        try { const cust = findCustomer(sale.customerId); if (cust && cust.priceListId) { const pl = findPriceList(cust.priceListId); if (pl && pl.productPrices && pl.productPrices[item.productId] !== undefined) expectedP = Number(pl.productPrices[item.productId]); } } catch(_){ }
-                        try { const promo = getActivePromotionPrice(item.productId, sale.customerId); if (promo !== null && promo !== undefined) expectedP = Number(promo); } catch(_){ }
+                        try { const cust = (typeof findCustomer === 'function') ? findCustomer(sale.customerId) : null; if (cust && cust.priceListId) { const pl = (typeof findPriceList === 'function') ? findPriceList(cust.priceListId) : null; if (pl && pl.productPrices && pl.productPrices[item.productId] !== undefined) expectedP = Number(pl.productPrices[item.productId]); } } catch(_){ }
+                        try { const promo = (typeof getActivePromotionPrice === 'function') ? getActivePromotionPrice(item.productId, sale.customerId) : null; if (promo !== null && promo !== undefined) expectedP = Number(promo); } catch(_){ }
                         const priceDiff = Math.abs((Number(item.price) || 0) - (Number(expectedP) || 0));
                         const showAdjusted = (item && item.adjusted === true) || (String(sale.reviewReason||'').toLowerCase() === 'adjusted');
                         const priceCellClass = showAdjusted ? 'text-red-600 font-bold' : '';
@@ -10952,8 +12312,8 @@
                 // Use the calculated background color
                 el.className = `${saleBgColor} p-4 rounded-xl border shadow-md mb-6 transition duration-300 hover:shadow-lg`; 
                 
-                el.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-4">\r\n                    <div class="col-span-3">\r\n                        <p class="font-bold text-lg text-gray-800">\r\n                            ${customer ? customer.name : 'عميل محذوف'} \r\n                            <span class="text-xs font-semibold px-2 py-1 rounded-full ${badgeColor} mr-2">${badgeText}</span>\r\n                            ${sale.isAdminEntry ? `<span class="text-xs font-semibold px-2 py-1 rounded-full bg-purple-600 text-white mr-2" title="تم التسجيل بمعرفة: ${sale.recordedByName || 'إدارة'}"><i data-lucide="shield-check" class="w-3 h-3 inline ml-1"></i> إدارة</span>` : ''}\r\n                            ${customerRequiresFiling ? `<i data-lucide="file-text" class="w-4 h-4 inline text-orange-500 mr-2" title="يتطلب رفع ضريبي"></i>` : ''}\r\n                        </p>\r\n                        <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
-                            <span><i data-lucide="calendar" class="w-3 h-3 inline ml-1"></i> فاتورة بتاريخ: <span dir="ltr" style="unicode-bidi: bidi-override; display: inline;">${formatArabicDate(sale.date)}</span></span>
+                el.innerHTML = `<div class="grid grid-cols-1 md:grid-cols-4 gap-4">\r\n                    <div class="col-span-3">\r\n                        <p class="font-bold text-lg text-gray-800">\r\n                            ${customerName} \r\n                            <span class="text-xs font-semibold px-2 py-1 rounded-full ${badgeColor} mr-2">${badgeText}</span>\r\n                            ${sale.isAdminEntry ? `<span class="text-xs font-semibold px-2 py-1 rounded-full bg-purple-600 text-white mr-2" title="تم التسجيل بمعرفة: ${sale.recordedByName || 'إدارة'}"><i data-lucide="shield-check" class="w-3 h-3 inline ml-1"></i> إدارة</span>` : ''}\r\n                            ${customerRequiresFiling ? `<i data-lucide="file-text" class="w-4 h-4 inline text-orange-500 mr-2" title="يتطلب رفع ضريبي"></i>` : ''}\r\n                        </p>\r\n                        <div class="flex flex-wrap gap-x-4 gap-y-1 text-sm text-gray-500 mt-1">
+                            <span><i data-lucide="calendar" class="w-3 h-3 inline ml-1"></i> فاتورة بتاريخ: ${formatArabicDate(sale.date)}</span>
                             <span class="invoice-review-span" data-id="${sale.id}" title="اضغط للتلوين">
                                 <i data-lucide="hash" class="w-3 h-3 inline ml-1"></i> رقم الفاتورة: 
                                 <span class="invoice-cell text-red-600 font-bold ${reviewState[sale.id] || ''}">
@@ -11153,7 +12513,20 @@
                     } catch(_){ }
                 } catch(_){ }
                 salesList.appendChild(el); 
-            }); 
+            });
+            
+            // تحذير واحد شامل للعملاء المفقودين (فقط في حال وجود عدد كبير)
+            if (missingCustomerIds.size > 20) {
+                const missingIds = Array.from(missingCustomerIds).slice(0, 5).join(', ');
+                const moreCount = missingCustomerIds.size > 5 ? ` و${missingCustomerIds.size - 5} آخرين` : '';
+                console.info(`ℹ️ renderAllSales: ${missingCustomerIds.size} عملاء من الفواتير القديمة (تم استخدام الأسماء المحفوظة): ${missingIds}${moreCount}`);
+            }
+            
+            // قياس الأداء
+            const perfEnd = performance.now();
+            const renderTime = (perfEnd - perfStart).toFixed(2);
+            console.log(`⏱️ renderAllSales: ${filteredSales.length} فواتير في ${renderTime}ms`);
+            
             updateIcons();
         }
 
@@ -13047,15 +14420,22 @@
             const row = document.createElement('tr');
             row.className = 'dispatch-item-row';
             
-            const productOptions = state.products.map(p => 
+            // Filter: only finished goods (مالتى, البان, finished_goods)
+            const finishedGoods = (state.products || []).filter(p => {
+                const cat = p.category || '';
+                return ['finished_goods', 'مالتى', 'البان'].includes(cat);
+            });
+            const productOptions = finishedGoods.map(p => 
                 `<option value="${p.id}" ${item.productId === p.id ? 'selected' : ''}>${p.name}</option>`
             ).join('');
 
-            // Removed goodReturn, damagedReturn, freebie inputs, added actualReturn input
+            // حقول: الكمية المستلمة، المرتجع السليم، المرتجع التالف، المجاني
             row.innerHTML = `
                 <td class="px-2 py-1"><select class="dispatch-item-product w-full p-1 border rounded-md text-sm" required><option value="">اختر منتج...</option>${productOptions}</select></td>
                 <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="quantity" value="${item.quantity || ''}" placeholder="0" min="0"></td>
-                <td><input class="w-full p-1 border rounded-md text-center text-sm actual-return-input" type="number" data-field="actualReturn" value="${item.actualReturn || ''}" placeholder="0" min="0"></td>
+                <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="goodReturn" value="${item.goodReturn || ''}" placeholder="0" min="0"></td>
+                <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="damagedReturn" value="${item.damagedReturn || ''}" placeholder="0" min="0"></td>
+                <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="freebie" value="${item.freebie || ''}" placeholder="0" min="0"></td>
                 <td class="px-2 py-1 text-center"><button type="button" class="delete-dispatch-item-btn text-red-500 hover:text-red-700 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
             `;
             
@@ -13082,10 +14462,12 @@
             for (const row of itemRows) {
                 const productId = row.querySelector('.dispatch-item-product').value;
                 const quantity = parseInt(row.querySelector('[data-field="quantity"]').value) || 0;
-                const actualReturn = parseInt(row.querySelector('[data-field="actualReturn"]').value) || 0; // NEW
+                const goodReturn = parseInt(row.querySelector('[data-field="goodReturn"]').value) || 0;
+                const damagedReturn = parseInt(row.querySelector('[data-field="damagedReturn"]').value) || 0;
+                const freebie = parseInt(row.querySelector('[data-field="freebie"]').value) || 0;
 
-                if (productId && (quantity > 0 || actualReturn > 0)) { // Modified condition
-                    items.push({ productId, quantity, actualReturn }); // Modified item object
+                if (productId && (quantity > 0 || goodReturn > 0 || damagedReturn > 0 || freebie > 0)) {
+                    items.push({ productId, quantity, goodReturn, damagedReturn, freebie });
                 }
             }
 
@@ -13108,10 +14490,12 @@
 
             try {
                 await addDispatchNote(noteData);
-                await customDialog({ message: 'تم حفظ إذن الخروج في السحابة بنجاح.', title: 'نجاح' });
+                await customDialog({ message: 'تم حفظ إذن الاستلام بنجاح وتم خصم الكميات من المخزن.', title: 'نجاح' });
             } catch(e){
                 console.warn('Failed to add dispatch note', e);
-                await customDialog({ message:'تعذر حفظ الإذن. تحقق من الاتصال أو الصلاحيات.', title:'خطأ' });
+                const errorMsg = e.message || 'تعذر حفظ الإذن. تحقق من الاتصال أو الصلاحيات.';
+                await customDialog({ message: errorMsg, title:'خطأ' });
+                return; // لا تعيد تهيئة النموذج في حالة الخطأ
             }
 
             initializeNewDispatchGrid();
@@ -13447,14 +14831,19 @@
             });
 
             let itemsHtml = note.items.map(item => {
-                const productOptions = state.products.map(p =>
+                const finishedGoods = state.products.filter(p => ['finished_goods', 'مالتى', 'البان'].includes(p.category));
+                const productOptions = finishedGoods.map(p =>
                     `<option value="${p.id}" ${item.productId === p.id ? 'selected' : ''}>${p.name}</option>`
                 ).join('');
 
                 const takenOut = item.quantity || 0;
                 const sold = soldQuantities[item.productId] || 0;
                 const expectedReturn = takenOut - sold;
-                const actualReturn = item.goodReturn + item.damagedReturn + item.freebie; // Assuming these are the actual returns
+                // إصلاح: التأكد من أن جميع القيم أرقام وليست undefined
+                const goodReturn = Number(item.goodReturn) || 0;
+                const damagedReturn = Number(item.damagedReturn) || 0;
+                const freebie = Number(item.freebie) || 0;
+                const actualReturn = goodReturn + damagedReturn + freebie;
                 const difference = actualReturn - expectedReturn;
 
                 let differenceClass = '';
@@ -13836,16 +15225,30 @@
         async function updateDispatchNote(noteId, tableContainer) {
             const note = state.dispatchNotes.find(n => n.id === noteId);
             if (!note) return;
+            
+            // التحقق من وجود tableContainer
+            if (!tableContainer) {
+                console.error('updateDispatchNote: tableContainer is null');
+                await customDialog({ message: 'خطأ في تحديث الإذن. يرجى إغلاق وإعادة فتح الإذن.', title: 'خطأ' });
+                return;
+            }
 
             const items = [];
             const itemRows = tableContainer.querySelectorAll('.dispatch-item-row');
             for (const row of itemRows) {
-                const productId = row.querySelector('.dispatch-item-product').value;
-                const quantity = parseInt(row.querySelector('[data-field="quantity"]').value) || 0;
-                const actualReturn = parseInt(row.querySelector('[data-field="actualReturn"]').value) || 0; // NEW
+                const productSelect = row.querySelector('.dispatch-item-product');
+                const quantityInput = row.querySelector('[data-field="takenOut"], [data-field="quantity"]');
+                const actualReturnInput = row.querySelector('[data-field="actualReturn"]');
+                
+                if (!productSelect) continue;
+                
+                const productId = productSelect.value;
+                const quantity = quantityInput ? (parseInt(quantityInput.value) || 0) : 0;
+                const actualReturn = actualReturnInput ? (parseInt(actualReturnInput.value) || 0) : 0;
 
-                if (productId && (quantity > 0 || actualReturn > 0)) { // Modified condition
-                    items.push({ productId, quantity, actualReturn }); // Modified item object
+                if (productId && (quantity > 0 || actualReturn > 0)) {
+                    // نحفظ المرتجع الفعلي كمرتجع سليم لضمان إضافته للمخزن
+                    items.push({ productId, quantity, goodReturn: actualReturn, damagedReturn: 0, freebie: 0 });
                 }
             }
 
@@ -13854,11 +15257,83 @@
                 return;
             }
 
-            note.items = items;
-            note.updatedAt = new Date().toISOString();
+            // Apply delta of returns to stock + log transactions without re-applying outbound
+            try {
+                const batch = db.batch();
+                const docRef = db.collection('dispatchNotes').doc(noteId);
+                const serverUpdate = { items, updatedAt: serverTs() };
+                batch.set(docRef, serverUpdate, { merge: true });
 
-            renderAll();
-            await customDialog({ message: 'تم حفظ تعديلات الإذن بنجاح.', title: 'نجاح' });
+                for (const newItem of items) {
+                    const pid = newItem.productId;
+                    if (!pid) continue;
+                    const prevItem = Array.isArray(note.items) ? note.items.find(i => i.productId === pid) || {} : {};
+                    const prevGood = Number(prevItem.goodReturn || prevItem.actualReturn || 0);
+                    const newGood = Number(newItem.goodReturn || 0);
+                    const deltaGood = newGood - prevGood;
+
+                    // Damaged not used currently; keep hook for future
+                    const prevDamaged = Number(prevItem.damagedReturn || 0);
+                    const newDamaged = Number(newItem.damagedReturn || 0);
+                    const deltaDamaged = newDamaged - prevDamaged;
+
+                    // Update stock only by deltaGood (returns). Do not re-apply outbound.
+                    if (deltaGood !== 0) {
+                        const prodRef = db.collection('products').doc(pid);
+                        const prodSnap = await prodRef.get();
+                        if (!prodSnap.exists) throw new Error('المنتج غير موجود بالمخزن');
+                        const prod = prodSnap.data();
+                        const currentStock = Number(prod.currentStock || 0);
+                        const newStock = currentStock + deltaGood;
+                        if (newStock < 0) throw new Error(`رصيد المنتج "${prod.name || pid}" غير كافٍ بعد التعديل.`);
+
+                        batch.update(prodRef, { currentStock: newStock });
+
+                        const transType = deltaGood > 0 ? 'inbound' : 'outbound';
+                        const transRef = db.collection('transactions').doc();
+                        batch.set(transRef, {
+                            date: new Date(),
+                            type: transType,
+                            productId: pid,
+                            prodName: prod.name || 'غير معروف',
+                            qty: Math.abs(deltaGood),
+                            party: deltaGood > 0 ? `تحديث مرتجع - ${note.repName}` : `تعديل مرتجع (خصم) - ${note.repName}`,
+                            stockAfter: newStock,
+                            dispatchNoteId: note.id,
+                            dispatchNoteNumber: note.noteNumber,
+                            isDiscrepancy: deltaGood < 0
+                        });
+                    }
+
+                    if (deltaDamaged > 0) {
+                        const prodRef = db.collection('products').doc(pid);
+                        const prodSnap = await prodRef.get();
+                        const prod = prodSnap.data() || {};
+                        const transRef = db.collection('transactions').doc();
+                        batch.set(transRef, {
+                            date: new Date(),
+                            type: 'damaged',
+                            productId: pid,
+                            prodName: prod.name || 'غير معروف',
+                            qty: deltaDamaged,
+                            party: `تحديث مرتجع تالف - ${note.repName}`,
+                            stockAfter: prod.currentStock || 0,
+                            dispatchNoteId: note.id,
+                            dispatchNoteNumber: note.noteNumber
+                        });
+                    }
+                }
+
+                await batch.commit();
+                // Update local state
+                note.items = items;
+                note.updatedAt = new Date().toISOString();
+                renderAll();
+                await customDialog({ message: 'تم حفظ المرتجع وتحديث المخزن.', title: 'نجاح' });
+            } catch (err) {
+                console.error('updateDispatchNote failed', err);
+                await customDialog({ message: 'فشل حفظ الإذن/المخزن: ' + (err.message || err), title: 'خطأ' });
+            }
         }
 
         // Helpers for Daily Collection Sheet (UI + persistence)
@@ -14677,9 +16152,28 @@
             if (targetsMonthInput) targetsMonthInput.value = currentMonth;
             const customerTargetsMonthInput = document.getElementById('customer-targets-month');
             if (customerTargetsMonthInput) customerTargetsMonthInput.value = currentMonth;
+            if (stocktakeStartDateInput && stocktakeEndDateInput) {
+                const now = new Date();
+                const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                stocktakeStartDateInput.value = firstOfMonth.toISOString().split('T')[0];
+                stocktakeEndDateInput.value = today;
+            }
             
             // Set initial content area based on active subnav item
             const activeReportSection = reportsSubnav.querySelector('.reports-subnav-item.active')?.dataset.reportSection || 'daily';
+
+            // Fallback: load customerTargets from local cache so values persist even if cloud is empty temporarily
+            try {
+                const rawState = localStorage.getItem('mandoobiAppState');
+                if (rawState) {
+                    const parsed = JSON.parse(rawState);
+                    if (parsed && parsed.customerTargets && typeof parsed.customerTargets === 'object') {
+                        state.customerTargets = parsed.customerTargets;
+                        console.log('📦 Loaded customerTargets from local cache');
+                    }
+                }
+            } catch(e) { console.warn('Failed to load customerTargets from local cache', e); }
+
             showReportContent(activeReportSection);
         }
 
@@ -14699,6 +16193,9 @@
             }
             if (section === 'customer-targets') {
                 try { generateCustomerTargetsReport(); return; } catch(e){}
+            }
+            if (section === 'stocktake') {
+                try { generateStocktakeReport({ auto: true }); return; } catch(e){}
             }
             reportOutputArea.innerHTML = '<p class="text-center text-gray-500 mt-8">اضغط على زر "عرض التقرير" لإنشاء التقرير.</p>';
         }
@@ -15320,8 +16817,29 @@
                 targetObj[cid] = targetObj[cid] || { multi:0, dairy:0 };
                 targetObj[cid][cat] = val;
             });
-            saveState();
-            customDialog({title:'حفظ', message:'تم حفظ قيم التارجت.'});
+            saveState(); // Local save
+            
+            // 🌐 حفظ إلى السحابة (Firestore) - تخزين targets في مجموعة customerTargets
+            if (window.db && auth && auth.currentUser) {
+                (async () => {
+                    try {
+                        const uid = auth.currentUser.uid;
+                        const docData = {
+                            month: monthKey,
+                            targets: targetObj,
+                            updatedAt: new Date().toISOString(),
+                            updatedBy: uid
+                        };
+                        // حفظ في مجموعة customerTargets بـ doc id = month (e.g., 2026-01)
+                        await db.collection('customerTargets').doc(monthKey).set(docData, { merge: true });
+                        console.log('✅ Customer targets saved to Firestore:', monthKey);
+                    } catch(e) {
+                        console.warn('⚠️ Failed to save customer targets to Firestore:', e);
+                    }
+                })();
+            }
+            
+            customDialog({title:'حفظ', message:'تم حفظ قيم التارجت (محلياً والسحابة).'});
             generateCustomerTargetsReport();
         }
         function generateCustomerTargetsReport(){
@@ -15714,6 +17232,115 @@
             reportOutputArea.innerHTML = finalHtml;
         }
 
+        // جلب فروقات الجرد (عجز/زيادة) من سجل الحركات
+        async function generateStocktakeReport(options = {}) {
+            const out = reportOutputArea;
+            const startVal = stocktakeStartDateInput?.value;
+            const endVal = stocktakeEndDateInput?.value;
+
+            if (!out) return;
+            if (!window.db) {
+                out.innerHTML = '<p class="text-center text-red-500 p-4">قاعدة البيانات غير جاهزة حالياً.</p>';
+                return;
+            }
+            if (!startVal || !endVal) {
+                if (!options.auto) {
+                    await customDialog({ title: 'بيانات ناقصة', message: 'حدد تاريخ البداية والنهاية لعرض ملخص الجرد.' });
+                }
+                return;
+            }
+
+            const startDate = new Date(startVal + 'T00:00:00');
+            const endDate = new Date(endVal + 'T23:59:59');
+            out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل فروقات الجرد...</p>';
+
+            try {
+                const snap = await db.collection('transactions')
+                    .where('date', '>=', startDate)
+                    .where('date', '<=', endDate)
+                    .orderBy('date', 'desc')
+                    .limit(400)
+                    .get();
+
+                const records = [];
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const dateObj = d.date?.toDate?.() || new Date(d.date);
+                    if (isNaN(dateObj.getTime())) return;
+                    const type = d.type || '';
+                    const include = d.isDiscrepancy === true || type === 'shortage' || type === 'surplus';
+                    if (!include) return;
+                    if (dateObj < startDate || dateObj > endDate) return;
+                    records.push({
+                        id: doc.id,
+                        dateObj,
+                        type,
+                        qty: Number(d.qty || 0),
+                        prodName: d.prodName || d.productId || '-',
+                        party: d.party || '-'
+                    });
+                });
+
+                if (records.length === 0) {
+                    out.innerHTML = '<p class="text-center text-gray-500 p-4">لا توجد فروقات جرد مسجلة في هذه الفترة.</p>';
+                    return;
+                }
+
+                let totalShortage = 0; let totalSurplus = 0;
+                const rows = records.map(rec => {
+                    if (rec.type === 'shortage') totalShortage += rec.qty;
+                    if (rec.type === 'surplus') totalSurplus += rec.qty;
+                    const typeLabel = rec.type === 'shortage' ? 'عجز' : (rec.type === 'surplus' ? 'زيادة' : rec.type || '-');
+                    const typeClass = rec.type === 'shortage' ? 'text-red-700 font-bold' : (rec.type === 'surplus' ? 'text-green-700 font-bold' : 'text-gray-700');
+                    return `<tr class="border-b">`
+                        + `<td class="px-3 py-2 text-right text-sm">${rec.prodName}</td>`
+                        + `<td class="px-3 py-2 text-center text-sm ${typeClass}">${typeLabel}</td>`
+                        + `<td class="px-3 py-2 text-center font-mono text-xs">${rec.qty || 0}</td>`
+                        + `<td class="px-3 py-2 text-center text-xs text-gray-600">${rec.dateObj.toLocaleString('ar-EG')}</td>`
+                        + `<td class="px-3 py-2 text-right text-xs text-gray-700">${escapeHtml(rec.party)}</td>`
+                    + `</tr>`;
+                }).join('');
+
+                const header = `من ${startVal} إلى ${endVal}`;
+
+                out.innerHTML = `
+                    <div id="stocktake-report-output" class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="text-xl font-bold mb-4">ملخص الجرد (${header})</h3>
+                        <div class="grid grid-cols-3 gap-3 mb-4 text-center">
+                            <div class="p-2 bg-red-50 rounded"><p class="text-xs text-red-700">إجمالي العجز</p><p class="text-lg font-bold text-red-800">${totalShortage || 0}</p></div>
+                            <div class="p-2 bg-green-50 rounded"><p class="text-xs text-green-700">إجمالي الزيادة</p><p class="text-lg font-bold text-green-800">${totalSurplus || 0}</p></div>
+                            <div class="p-2 bg-blue-50 rounded"><p class="text-xs text-blue-700">عدد الحركات</p><p class="text-lg font-bold text-blue-800">${records.length}</p></div>
+                        </div>
+                        <div class="overflow-x-auto border rounded">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-gray-50">
+                                    <tr>
+                                        <th class="px-3 py-2 text-right">الصنف</th>
+                                        <th class="px-3 py-2 text-center">النوع</th>
+                                        <th class="px-3 py-2 text-center">الكمية</th>
+                                        <th class="px-3 py-2 text-center">التاريخ</th>
+                                        <th class="px-3 py-2 text-right">الملاحظة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="mt-4 flex gap-2 no-print">
+                        <button onclick="printSection('stocktake-report-output')" class="w-1/2 bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
+                        <button onclick="generateReportImage('stocktake-report-output')" class="w-1/2 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
+                    </div>
+                `;
+                updateIcons();
+            } catch (err) {
+                console.error('generateStocktakeReport error:', err);
+                out.innerHTML = '<p class="text-center text-red-500 p-4">حدث خطأ أثناء تحميل ملخص الجرد.</p>';
+                if (!options.auto) {
+                    await customDialog({ title: 'خطأ', message: 'تعذر تحميل ملخص الجرد. حاول مرة أخرى.' });
+                }
+            }
+        }
+
         // مشاركة تقرير التسوية النهائية عبر واتساب
         async function shareReconciliationWhatsApp(elementId){
             const el = document.getElementById(elementId);
@@ -15963,9 +17590,53 @@
             }
 
             try {
-                await updateProduct(code, { name, price, category, vat_rate: vat_rate, active: true });
+                await updateProduct(code, { 
+                    name, 
+                    price, 
+                    avgCost: price, // مزامنة مع Stock Control
+                    category, 
+                    vat_rate: vat_rate, 
+                    active: true 
+                });
+                
+                // Sync notification for Stock Control V2
+                console.log(`💰 📡 Price Update Synced: ${code} - ${name} = ${price} (Updated at ${new Date().toLocaleTimeString('ar')})`);
+                
+                // Update state.products locally
+                if (window.state?.products) {
+                    const existingProd = window.state.products.find(p => p.id === code);
+                    if (existingProd) {
+                        existingProd.price = price;
+                        existingProd.avgCost = price;
+                        console.log(`✅ state.products updated: ${name}`);
+                    }
+                }
+                
+                // Update appV2 locally if it exists (for faster UI update)
+                if (window.appV2 && window.appV2.products) {
+                    const existingProd = window.appV2.products.find(p => p.id === code);
+                    if (existingProd) {
+                        existingProd.price = price;
+                        existingProd.avgCost = price;
+                        window.appV2.renderProducts();
+                        console.log(`✅ V2 UI Updated immediately: ${name}`);
+                    }
+                }
+                
+                // Update localStorage cache
+                try {
+                    const cached = JSON.parse(localStorage.getItem('cache_products') || '[]');
+                    const cacheProd = cached.find(p => p.id === code);
+                    if (cacheProd) {
+                        cacheProd.price = price;
+                        cacheProd.avgCost = price;
+                        localStorage.setItem('cache_products', JSON.stringify(cached));
+                        console.log(`💾 cache_products updated: ${name}`);
+                    }
+                } catch(_) { }
+                
                 closeModal(productModal);
-                await customDialog({ title: 'نجاح', message: 'تم حفظ المنتج في السحابة.' });
+                await customDialog({ title: 'نجاح', message: 'تم حفظ المنتج في السحابة.\n✅ تم المزامنة مع الاستوك.' });
             } catch (err) {
                 console.warn('saveProduct cloud failed', err);
                 await customDialog({ title: 'خطأ', message: 'تعذر حفظ المنتج في السحابة. تحقق من الاتصال والصلاحيات.' });
@@ -16513,11 +18184,24 @@
 
         function setupNavigationHandlers() {
             const mainNavBar = document.getElementById('main-nav-bar');
+            console.log('setupNavigationHandlers called, mainNavBar:', mainNavBar ? 'found ✅' : 'NOT FOUND ❌');
             if (mainNavBar) {
                 mainNavBar.addEventListener('click', (e) => {
                     const button = e.target.closest('.bottom-nav-item');
                     if (button && button.dataset.page) {
                         const pageId = button.dataset.page;
+                        console.log('🔘 Bottom nav clicked:', pageId);
+                        
+                        // ⚠️ CRITICAL SECURITY CHECK: منع الـ User العادي من الوصول للصفحات الإدارية
+                        const adminPages = ['reps', 'settings', 'price-lists', 'inquiry', 'total-bills'];
+                        const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+                        
+                        if (adminPages.includes(pageId) && role === 'user') {
+                            console.warn('🔒 Access Denied: User cannot access page:', pageId);
+                            alert('⚠️ عذراً، ليس لديك صلاحية للوصول لهذه الصفحة. يرجى التواصل مع المسؤول.');
+                            return;
+                        }
+                        
                         navigateTo(pageId);
                     }
                 });
@@ -17281,16 +18965,50 @@
         
                 if (copyBtn) copyBtn.classList.remove('hidden');
 
-                // Also store a timestamped backup in localStorage_backups
+                // Store a lightweight backup reference (metadata only, not full data)
                 try {
                     const backupsRaw = localStorage.getItem('mandoobiAppState_backups');
                     const backups = backupsRaw ? JSON.parse(backupsRaw) : [];
-                    backups.unshift({ ts: new Date().toISOString(), data: state });
-                    // Keep only recent 12 backups
-                    while (backups.length > 12) backups.pop();
+                    
+                    // Create minimal metadata instead of storing full state
+                    const backupMetadata = {
+                        ts: new Date().toISOString(),
+                        size: payload.length,
+                        customersCount: (state.customers || []).length,
+                        salesCount: (state.sales || []).length,
+                        repsCount: (state.reps || []).length,
+                        hasData: !!payload
+                    };
+                    
+                    backups.unshift(backupMetadata);
+                    // Keep only recent 5 metadata backups instead of 12 full backups
+                    while (backups.length > 5) backups.pop();
+                    
+                    // Clean old backup data before saving new metadata
+                    try {
+                        localStorage.removeItem('_oldBackupData');
+                    } catch(e) {}
+                    
                     localStorage.setItem('mandoobiAppState_backups', JSON.stringify(backups));
                 } catch (e) {
-                    console.warn('Failed to save local backup list', e);
+                    if (e.name === 'QuotaExceededError') {
+                        console.warn('Storage quota exceeded, clearing old backups...');
+                        try {
+                            localStorage.removeItem('mandoobiAppState_backups');
+                            localStorage.setItem('mandoobiAppState_backups', JSON.stringify([{
+                                ts: new Date().toISOString(),
+                                size: payload.length,
+                                customersCount: (state.customers || []).length,
+                                salesCount: (state.sales || []).length,
+                                repsCount: (state.reps || []).length,
+                                hasData: !!payload
+                            }]));
+                        } catch(innerE) {
+                            console.warn('Failed to save even minimal backup', innerE);
+                        }
+                    } else {
+                        console.warn('Failed to save backup metadata', e);
+                    }
                 }
 
                 customDialog({ title: 'نسخة احتياطية', message: 'تم إنشاء النسخة الاحتياطية محلياً ويمكنك نسخ الكود أو تحميله يدوياً.' });
@@ -17547,9 +19265,16 @@
                 
                 // Apply month filter immediately on change
                 salesMonthSelector.addEventListener('change', () => {
-                    if(!state) state = {};
-                    state.activePeriod = salesMonthSelector.value ? salesMonthSelector.value : null;
-                    salesSearchHandler();
+                    const selectedPeriod = salesMonthSelector.value;
+                    console.log(`📅 Month selector changed to: ${selectedPeriod}`);
+                    if (selectedPeriod && typeof setActivePeriod === 'function') {
+                        setActivePeriod(selectedPeriod);
+                    } else {
+                        // Fallback if setActivePeriod not available
+                        if(!state) state = {};
+                        state.activePeriod = selectedPeriod || null;
+                        salesSearchHandler();
+                    }
                 });
             }
             
@@ -18387,7 +20112,8 @@
                     const tableBody = addRowBtn.closest('.dispatch-note-details').querySelector('tbody');
                     const newRow = document.createElement('tr');
                     newRow.className = 'dispatch-item-row';
-                    const productOptions = state.products.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
+                    const finishedGoods = state.products.filter(p => ['finished_goods', 'مالتى', 'البان'].includes(p.category));
+                    const productOptions = finishedGoods.map(p => `<option value="${p.id}">${p.name}</option>`).join('');
                     newRow.innerHTML = `
                         <td class="px-2 py-1"><select class="dispatch-item-product w-full p-1 border rounded-md text-sm" required><option value="">اختر منتج...</option>${productOptions}</select></td>
                         <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="quantity" placeholder="0" min="0"></td>
@@ -18422,6 +20148,7 @@
             document.getElementById('generate-recon-report-btn').addEventListener('click', generateReconciliationReport);
             try { document.getElementById('generate-range-report-btn').addEventListener('click', generateRangeReport); } catch(e){}
             try { document.getElementById('generate-monthly-report-btn').addEventListener('click', generateMonthlyReport); } catch(e){}
+            try { document.getElementById('generate-stocktake-report-btn').addEventListener('click', () => generateStocktakeReport({ auto:false })); } catch(e){}
             try { document.getElementById('generate-targets-report-btn').addEventListener('click', generateTargetsReport); } catch(e){}
             try { document.getElementById('generate-customer-targets-report-btn').addEventListener('click', generateCustomerTargetsReport); } catch(e){}
             // Targets: regenerate on month or rep filter change
@@ -18711,6 +20438,17 @@
                 try { await importEmbeddedBackupIfNeeded(); } catch(e){ console.warn('importEmbeddedBackupIfNeeded (auth handler) failed', e); }
                 try { scheduleEnsureCoreData(); } catch(e){ console.warn('scheduleEnsureCoreData (auth handler) failed', e); }
                 try { startCostListsListenerAfterLogin(); } catch(e){ console.warn('startCostListsListenerAfterLogin failed', e); }
+                
+                // ⚡ Auto-backfill period field on sales (one-time, admin only)
+                try {
+                    const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+                    if (role === 'admin' && !localStorage.getItem('sales_period_backfilled')) {
+                        setTimeout(() => {
+                            console.log('🔧 Auto-backfilling sales.period for admin...');
+                            window.backfillSalesPeriods && window.backfillSalesPeriods(500, true);
+                        }, 3000); // بعد 3 ثواني من الدخول
+                    }
+                } catch(e){ console.warn('Auto-backfill check failed', e); }
 
             } else {
                 // User is signed out (or auth returned null). Do NOT delete localStorage automatically.
@@ -18871,12 +20609,35 @@
             loginButton.textContent = 'جارٍ تسجيل الدخول...';
 
             try {
+                // Mark that user is manually logging in
+                if (typeof window.__markUserLoggedIn === 'function') {
+                    window.__markUserLoggedIn();
+                }
+                
                 // Use new service-based login (hybrid mode)
                 const result = await (typeof window.loginUsingServices === 'function'
                     ? window.loginUsingServices(email, password, { showAlertOnError: false })
                     : auth.signInWithEmailAndPassword(email, password).then(() => ({ ok: true })));
                 if (!result.ok) throw new Error(result.error || 'فشل تسجيل الدخول');
-                // onAuthStateChanged will handle the rest
+
+                // Hide splash + login immediately after success
+                const splash = document.getElementById('splash-screen');
+                const loginPage = document.getElementById('login-page');
+                const loginModalEl = document.getElementById('login-modal');
+                const appEl = document.getElementById('app-container');
+                if (splash) splash.style.display = 'none';
+                if (loginPage) { loginPage.classList.add('hidden'); loginPage.style.display = 'none'; }
+                if (loginModalEl) { loginModalEl.style.display = 'none'; loginModalEl.classList.add('modal-hidden'); }
+                if (appEl) { appEl.classList.remove('hidden'); appEl.style.display = 'block'; }
+
+                // Ensure formatter available
+                if (typeof window.formatCurrency !== 'function') {
+                    window.formatCurrency = num => {
+                        try { return new Intl.NumberFormat('ar-EG', { style: 'currency', currency: 'EGP' }).format(num || 0); }
+                        catch(e){ return String(num||0); }
+                    };
+                }
+
                 closeModal(loginModal);
             } catch (error) {
                 alert('فشل تسجيل الدخول: ' + error.message);
@@ -21696,7 +23457,7 @@
                                 const success = window.createProductionRun(recipeId, startDate, null, `من صفحة التكاليف - ${recipe.name}`);
                                 if (success) {
                                     alert(`✅ تم حفظ الوصفة وإنشاء تشغيلة: ${recipe.name}`);
-                                    setTimeout(() => window.navigateTo('production'), 300);
+                                    window.navigateTo('production');
                                 } else {
                                     alert('حدث خطأ في إنشاء التشغيلة');
                                 }
@@ -22551,6 +24312,17 @@ window.uploadSaleToEta = async function(saleId) {
         alert("⚠️ تنبيه: هذه الميزة تتطلب تشغيل 'برنامج التوقيع' على الكمبيوتر لقراءة الفلاشة.");
     }
 };
+
+// Select numeric inputs on focus (عام لكل التطبيق)
+document.addEventListener('focusin', (e) => {
+    const t = e.target;
+    if (!t || t.tagName !== 'INPUT') return;
+    const isNumericType = (t.type === 'number');
+    const isNumericMode = (t.inputMode && t.inputMode.toLowerCase().includes('numeric'));
+    if (isNumericType || isNumericMode) {
+        try { t.select(); } catch(_){ }
+    }
+});
 
 // === Safe global exports for firebase-init.js and other modules ===
 // Do not redeclare identifiers; only attach if present and not already on window.

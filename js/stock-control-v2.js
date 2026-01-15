@@ -1,4 +1,21 @@
 // Stock Control V2 - Firebase Compat API Version
+// ✅ Create global appV2 object immediately to prevent "not defined" errors
+if (!window.appV2) {
+    window.appV2 = {
+        nav: () => console.log('⏳ appV2 still loading...'),
+        filterProd: () => console.log('⏳ appV2 still loading...'),
+        filterStock: () => console.log('⏳ appV2 still loading...'),
+        toggleModal: () => console.log('⏳ appV2 still loading...'),
+        filterByDate: () => console.log('⏳ appV2 still loading...'),
+        setStocktakeDate: () => console.log('⏳ appV2 still loading...'),
+        setLogsDate: () => console.log('⏳ appV2 still loading...'),
+        submitStock: () => console.log('⏳ appV2 still loading...'),
+        loadLogs: () => console.log('⏳ appV2 still loading...'),
+        importFromOldSystem: () => console.log('⏳ appV2 still loading...'),
+        saveBulkCategories: () => console.log('⏳ appV2 still loading...'),
+    };
+}
+
 // ✅ AUTH GUARD: Prevent execution before login
 if (!window.AuthSystem?.getCurrentUser?.()) {
     console.log('⚠️ Stock Control V2: Waiting for user login...');
@@ -19,15 +36,23 @@ const appV2 = {
 
     async init() {
         try {
-            // Expect Firebase to be ready before calling
-            if (!window.db) return;
+            // إذا الداتابيز لسه ما اتحملت، اعرض من الكاش/state مؤقتاً ثم أعد المحاولة
+            if (!window.db) {
+                this.hydrateFromLocalOrState();
+                setTimeout(() => this.init(), 1000);
+                return;
+            }
 
             this.db = window.db;
             this.auth = window.auth;
 
             console.log('✅ V2 using parent app Firebase instance');
+            this.hydrateFromLocalOrState();
             this.startListeners();
             this.loadLogs();
+
+            // اضبط التبويب الافتراضي على الأصناف
+            try { this.nav('products'); } catch(_){ }
 
             const badge = document.getElementById('connectionStatus-v2');
             if (badge) {
@@ -39,14 +64,66 @@ const appV2 = {
         }
     },
 
+    hydrateFromLocalOrState() {
+        try {
+            if (window.state?.products?.length) {
+                this.products = window.state.products.map(p => ({ id: p.id, ...p }));
+                console.warn('⚠️ V2 fallback hydrate: using state.products ->', this.products.length);
+            } else {
+                const cached = JSON.parse(localStorage.getItem('cache_products') || '[]');
+                if (cached.length) {
+                    this.products = cached.map(p => ({ id: p.id, ...p }));
+                    console.warn('⚠️ V2 fallback hydrate: using cache_products ->', this.products.length);
+                }
+            }
+            if (this.products.length) {
+                this.products.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+                this.renderProducts();
+                this.updateDropdowns();
+            }
+        } catch (e) { console.warn('hydrateFromLocalOrState failed', e); }
+    },
+
     startListeners() {
         try {
+            if (!this.db) return;
             // Use Compat API
-            this.db.collection('products').onSnapshot((snapshot) => {
-                this.products = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const unsubProductsV2 = this.db.collection('products').onSnapshot((snapshot) => {
+                const newProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                
+                // Track if prices changed (for real-time sync feedback)
+                let priceUpdated = false;
+                if (this.products?.length > 0 && newProducts.length > 0) {
+                    newProducts.forEach(newProd => {
+                        const oldProd = this.products.find(p => p.id === newProd.id);
+                        if (oldProd && (oldProd.price !== newProd.price || oldProd.avgCost !== newProd.avgCost)) {
+                            console.log(`💰 Price sync: ${newProd.name} - New Price: ${newProd.price}, Old: ${oldProd.price}`);
+                            priceUpdated = true;
+                        }
+                    });
+                }
+                
+                this.products = newProducts;
+
+                // Fallback: إذا لم يأت من السحابة أي منتج، استخدم state.products أو الكاش المحلي
+                if (!this.products.length) {
+                    try {
+                        if (window.state?.products?.length) {
+                            this.products = window.state.products.map(p => ({ id: p.id, ...p }));
+                            console.warn('⚠️ V2 fallback: using state.products (cloud empty) ->', this.products.length);
+                        } else {
+                            const cached = JSON.parse(localStorage.getItem('cache_products') || '[]');
+                            if (cached.length) {
+                                this.products = cached.map(p => ({ id: p.id, ...p }));
+                                console.warn('⚠️ V2 fallback: using cache_products ->', this.products.length);
+                            }
+                        }
+                    } catch (e) { console.warn('fallback load failed', e); }
+                }
+
                 this.products.sort((a, b) => (a.name || "").localeCompare(b.name || ""));
                 
-                console.log('✅ V2 Products loaded:', this.products.length);
+                console.log('✅ V2 Products loaded:', this.products.length, priceUpdated ? '(📝 with price updates)' : '');
                 const categories = [...new Set(this.products.map(p => p.category))];
                 console.log('📦 Categories found:', categories);
                 
@@ -84,7 +161,24 @@ const appV2 = {
                 }
             }, err => {
                 console.error('V2 startListeners error:', err);
+                // fallback to cache/state on error
+                try {
+                    if (window.state?.products?.length) {
+                        this.products = window.state.products.map(p => ({ id: p.id, ...p }));
+                    } else {
+                        const cached = JSON.parse(localStorage.getItem('cache_products') || '[]');
+                        this.products = cached.map(p => ({ id: p.id, ...p }));
+                    }
+                    this.renderProducts();
+                    this.updateDropdowns();
+                } catch(_){ }
             });
+            
+            try { 
+                if (window.storeSubscription) {
+                    window.storeSubscription('stock_v2_products', unsubProductsV2);
+                }
+            } catch(_){ }
         } catch (err) {
             console.error('V2 startListeners exception:', err);
         }
@@ -103,7 +197,7 @@ const appV2 = {
         
         try {
             await this.db.collection('products').add({
-                name, category: cat, unit, currentStock: 0, avgCost: 0, createdAt: new Date()
+                name, category: cat, unit, currentStock: 0, price: 0, avgCost: 0, createdAt: new Date()
             });
             alert("تمت الإضافة");
             this.toggleModal('productModal-v2');
@@ -114,10 +208,47 @@ const appV2 = {
         }
     },
 
+    // تحديث سعر المنتج - يُستخدم عند تعديل السعر في صفحة Stock Control
+    async updateProductPrice(productId, newPrice) {
+        try {
+            const priceNum = parseFloat(newPrice) || 0;
+            
+            // Update local appV2 products immediately for instant UI feedback
+            const localProd = this.products.find(p => p.id === productId);
+            if (localProd) {
+                localProd.price = priceNum;
+                localProd.avgCost = priceNum;
+                console.log(`💰 Local V2 update: ${localProd.name} = ${priceNum}`);
+            }
+            
+            // Update window.state.products if available
+            if (window.state?.products) {
+                const stateProd = window.state.products.find(p => p.id === productId);
+                if (stateProd) {
+                    stateProd.price = priceNum;
+                    stateProd.avgCost = priceNum;
+                    console.log(`📡 state.products synced: ${productId}`);
+                }
+            }
+            
+            // تحديث كل من price و avgCost للمزامنة مع صفحة Settings
+            await this.db.collection('products').doc(productId).set({
+                price: priceNum,
+                avgCost: priceNum,
+                updatedAt: new Date()
+            }, { merge: true });
+            
+            console.log(`✅ Firestore updated: ${productId} → ${priceNum} (Time: ${new Date().toLocaleTimeString('ar')})`);
+            this.renderProducts(); // إعادة تصيير الجدول
+        } catch (err) {
+            console.error('updateProductPrice error:', err);
+            alert("خطأ في تحديث السعر: " + err.message);
+        }
+    },
+
     filterProd(cat) {
         this.currentProdFilter = cat;
-        console.log(`🔍 Filter clicked: ${cat}, Products count before: ${this.products.length}`);
-        
+
         // Only toggle active state - keep all classes intact
         const buttons = document.querySelectorAll('.filter-chip-v2');
         buttons.forEach(btn => {
@@ -170,10 +301,22 @@ const appV2 = {
             const row = document.createElement('tr');
             row.className = "hover:bg-blue-50 border-b last:border-0";
             const catName = p.category ? this.getCatName(p.category) : '<span class="text-red-400">غير مصنف</span>';
+            // استخدم price أولاً (من Settings)، ثم avgCost كبديل
+            const displayPrice = (p.price !== undefined && p.price !== null) ? p.price : (p.avgCost || 0);
             row.innerHTML = `
                 <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
                 <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(p.currentStock)} ${p.unit || ''}</td>
-                <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
+                <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50" style="position: relative;">
+                    <span class="price-display-v2">${this.formatNum(displayPrice)}</span>
+                    <button 
+                        class="edit-price-btn-v2 ml-1 text-gray-400 hover:text-blue-600 text-xs" 
+                        data-product-id="${p.id}" 
+                        data-current-price="${displayPrice}"
+                        title="تعديل السعر"
+                        style="cursor: pointer; border: none; background: transparent; padding: 2px 4px;">
+                        ✏️
+                    </button>
+                </td>
             `;
             tbody.appendChild(row);
         });
@@ -181,72 +324,124 @@ const appV2 = {
 
     async saveTrans(e) {
         e.preventDefault();
-        const btn = document.getElementById('transBtn-v2');
-        if (btn) {
-            btn.disabled = true;
-            btn.innerText = "جاري الحفظ...";
-        }
+        
+        console.log('💾 saveTrans called');
         
         const type = document.querySelector('input[name="mtype-v2"]:checked')?.value;
         const pid = document.getElementById('prodSelect-v2')?.value;
         const qty = parseFloat(document.getElementById('qty-v2')?.value || 0);
         const price = parseFloat(document.getElementById('price-v2')?.value || 0);
 
-        if (!type || !pid || !qty) {
-            alert("الرجاء ملء جميع الحقول");
-            if (btn) {
-                btn.disabled = false;
-                btn.innerText = "حفظ الحركة";
-            }
+        console.log(`📋 Transaction details: type=${type}, pid=${pid}, qty=${qty}, price=${price}`);
+
+        if (!type || !pid || !qty || qty <= 0) {
+            alert("الرجاء ملء جميع الحقول بشكل صحيح");
             return;
         }
 
+        const btn = document.getElementById('transBtn-v2');
+        if (btn) {
+            btn.disabled = true;
+            btn.innerText = "جاري الحفظ...";
+        }
+
         try {
-            // استخدام batch بدلاً من transaction لتجنب الـ retry التلقائي الذي يسبب 429
-            const batch = this.db.batch();
+            if (!this.db) throw new Error('Firebase not initialized');
+            
             const ref = this.db.collection('products').doc(pid);
             
-            // قراءة المنتج أولاً (خارج batch)
-            const s = await ref.get();
-            if (!s.exists) throw "Product not found";
-            const p = s.data();
-            let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
+            // قراءة المنتج أولاً
+            const snap = await ref.get();
+            if (!snap.exists) {
+                throw new Error(`Product ${pid} not found`);
+            }
+            
+            const product = snap.data();
+            const productName = product.name || pid;
+            let newStock = product.currentStock || 0;
+            let newAvgCost = product.avgCost || 0;
+            let party = "";
+
+            console.log(`📦 Current: stock=${newStock}, avgCost=${newAvgCost}`);
 
             if (type === 'inbound') {
-                const ov = ns * nc, nv = qty * price;
-                ns += qty;
-                if (ns > 0) nc = (ov + nv) / ns;
-                party = document.getElementById('supplierSelect-v2')?.value || "";
-            } else {
-                if (ns < qty) throw "الرصيد لا يكفي";
-                ns -= qty;
-                party = document.getElementById('destSelect-v2')?.value || "";
+                // حساب التكلفة المتوسطة الجديدة
+                const oldValue = newStock * newAvgCost;
+                const newValue = qty * price;
+                newStock += qty;
+                if (newStock > 0) {
+                    newAvgCost = (oldValue + newValue) / newStock;
+                }
+                party = document.getElementById('supplierSelect-v2')?.value || "غير محدد";
+                console.log(`📥 Inbound: +${qty}, newStock=${newStock}, newAvgCost=${newAvgCost}`);
+            } else if (type === 'outbound') {
+                if (newStock < qty) {
+                    throw new Error(`الرصيد الحالي (${newStock}) لا يكفي للصرف (${qty})`);
+                }
+                newStock -= qty;
+                party = document.getElementById('destSelect-v2')?.value || "غير محدد";
+                console.log(`📤 Outbound: -${qty}, newStock=${newStock}`);
             }
-            
-            // تحديث المنتج
-            batch.update(ref, { currentStock: ns, avgCost: nc });
-            
-            // إضافة المعاملة
-            const transRef = this.db.collection('transactions').doc();
-            batch.set(transRef, {
-                date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
+
+            // تحديث المنتج في Firestore
+            await ref.update({
+                currentStock: newStock,
+                avgCost: newAvgCost,
+                price: newAvgCost, // مزامنة السعر
+                updatedAt: new Date()
             });
             
-            // تنفيذ batch
-            await batch.commit();
+            console.log(`✅ Product updated in Firestore: ${productName}`);
+
+            // إضافة المعاملة
+            await this.db.collection('transactions').add({
+                date: new Date(),
+                type,
+                productId: pid,
+                prodName: productName,
+                qty,
+                price: type === 'inbound' ? price : newAvgCost,
+                party,
+                stockAfter: newStock,
+                createdAt: new Date()
+            });
             
-            alert("تم الحفظ");
+            console.log(`✅ Transaction added to Firestore`);
+
+            // تحديث المنتج محلياً في appV2.products
+            const localProd = this.products.find(p => p.id === pid);
+            if (localProd) {
+                localProd.currentStock = newStock;
+                localProd.avgCost = newAvgCost;
+                localProd.price = newAvgCost;
+                console.log(`✅ Local product updated: ${productName}`);
+            }
+
+            // تحديث window.state.products أيضاً
+            if (window.state?.products) {
+                const stateProd = window.state.products.find(p => p.id === pid);
+                if (stateProd) {
+                    stateProd.currentStock = newStock;
+                    stateProd.avgCost = newAvgCost;
+                    stateProd.price = newAvgCost;
+                    console.log(`✅ state.products updated: ${productName}`);
+                }
+            }
+
+            // إعادة رسم الجدول فوراً
+            this.renderProducts();
+            console.log(`🎨 Products re-rendered`);
+
+            alert(`✅ تم حفظ الحركة بنجاح!\n${productName}\nالرصيد الجديد: ${newStock}`);
+            
+            // إعادة تعيين النموذج
             e.target.reset();
             this.toggleTrans();
-        } catch (err) { 
-            console.error('saveTrans error:', err);
-            if (err.code === 'resource-exhausted') {
-                alert("تم تجاوز حد الطلبات. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.");
-            } else {
-                alert("خطأ: " + err.message || err); 
-            }
-        } 
-        finally {
+            
+        } catch (err) {
+            console.error('❌ saveTrans error:', err);
+            alert(`خطأ في الحفظ:\n${err.message || err}`);
+        } finally {
             if (btn) {
                 btn.disabled = false;
                 btn.innerText = "حفظ الحركة";
@@ -276,7 +471,7 @@ const appV2 = {
         this.renderStock();
     },
 
-    renderStock() {
+    async renderStock() {
         const tbody = document.getElementById('stockBody-v2');
         if (!tbody) return;
         tbody.innerHTML = '';
@@ -293,18 +488,45 @@ const appV2 = {
             tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة<br><small class="text-red-400">يرجى تصنيف المنتجات أولاً</small></td></tr>';
             return;
         }
+
+        // محاولة تحميل آخر جرد معتمد من Firestore
+        const dateKey = this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current';
+        let submittedData = {};
         
-        // load any saved draft values for stocktake
-        const draftKey = `stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`;
+        console.log(`🔍 تحميل جرد لـ ${dateKey}`);
+        
+        // أولاً تحميل من localStorage (مسودات)
+        const draftKey = `stocktake-draft:${dateKey}`;
         const drafts = (() => { try { return JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch(e){return {}} })();
+        
+        console.log(`📄 مسودة localStorage (${Object.keys(drafts).length} منتج):`, drafts);
+
+        // ثانياً محاولة تحميل من Firestore إذا لم توجد مسودة
+        if (Object.keys(drafts).length === 0) {
+            try {
+                const doc = await this.db.collection('stocktakeSubmissions').doc(dateKey).get();
+                if (doc.exists && doc.data().data) {
+                    submittedData = doc.data().data;
+                    console.log(`✅ تم تحميل آخر جرد معتمد لـ ${dateKey} (${Object.keys(submittedData).length} منتج):`, submittedData);
+                } else {
+                    console.log(`⚠️ لا يوجد جرد معتمد سابق لـ ${dateKey}`);
+                }
+            } catch (err) {
+                console.log(`❌ خطأ في تحميل الجرد المعتمد لـ ${dateKey}:`, err);
+            }
+        } else {
+            console.log(`💾 استخدام المسودة المحلية بدلاً من Firestore`);
+        }
 
         filtered.forEach(p => {
             const row = document.createElement('tr');
             row.className = "border-b hover:bg-gray-50";
+            // استخدام المسودة أولاً، وإذا لم توجد، استخدم آخر جرد معتمد
+            const savedValue = drafts[p.id] !== undefined ? drafts[p.id] : (submittedData[p.id] || '');
             row.innerHTML = `
                 <td class="p-2 text-[11px] font-bold text-gray-700">${p.name}</td>
                 <td class="p-2 text-center text-[10px] text-gray-400 font-mono">${this.formatNum(p.currentStock)}</td>
-                <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}" value="${drafts[p.id] || ''}"></td>
+                <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}" value="${savedValue}"></td>
                 <td class="p-2 text-center text-[10px] font-bold text-gray-300 diff-cell">-</td>
             `;
             const inp = row.querySelector('.st-inp-v2');
@@ -353,8 +575,31 @@ const appV2 = {
                 // Always update, even if no difference
                 const ref = this.db.collection('products').doc(pid);
                 batch.update(ref, { currentStock: actual });
+
+                // سجل الفرق بنوع واضح: نقص أو زيادة أو تسوية صفرية
+                let transType = 'adjustment';
+                let party = 'جرد دوري';
+                let qtyVal = diff;
+                if (diff < 0) {
+                    transType = 'shortage';
+                    qtyVal = Math.abs(diff);
+                    party = `عجز جرد - ${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'اليوم'}`;
+                } else if (diff > 0) {
+                    transType = 'surplus';
+                    qtyVal = diff;
+                    party = `زيادة جرد - ${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'اليوم'}`;
+                }
+
+                const prod = this.products.find(p => p.id === pid);
                 batch.set(this.db.collection('transactions').doc(), {
-                    date: new Date(), type: 'adjustment', productId: pid, prodName: 'تسوية جرد', qty: diff, party: 'جرد دوري', stockAfter: actual
+                    date: new Date(),
+                    type: transType,
+                    productId: pid,
+                    prodName: (prod && prod.name) ? prod.name : 'غير معروف',
+                    qty: qtyVal,
+                    party,
+                    stockAfter: actual,
+                    isDiscrepancy: diff !== 0
                 });
             }
         });
@@ -387,12 +632,39 @@ const appV2 = {
                 }
                 
                 try {
+                    // حفظ آخر جرد معتمد في localStorage (لأن Firestore قد لا يكون له صلاحيات)
+                    const dateKey = this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current';
+                    const submittedData = {};
+                    inputs.forEach(inp => {
+                        if (inp.value !== "") {
+                            submittedData[inp.dataset.pid] = parseFloat(inp.value);
+                        }
+                    });
+                    
+                    // احفظ في localStorage كجرد معتمد (بدلاً من Firestore)
+                    const submittedKey = `stocktake-submitted:${dateKey}`;
+                    try {
+                        localStorage.setItem(submittedKey, JSON.stringify({
+                            dateSubmitted: new Date().toISOString(),
+                            data: submittedData,
+                            category: this.stockCategory
+                        }));
+                        console.log(`✅ تم حفظ الجرد المعتمد في localStorage: ${submittedKey}`);
+                    } catch (lsErr) {
+                        console.warn('فشل حفظ الجرد في localStorage:', lsErr);
+                    }
+                    
                     await batch.commit();
                     alert(`✅ تم الترحيل والاعتماد بنجاح!\n\n✓ تم تحديث ${submitted} صنف\n✓ تم تسجيل العملية في السجل الدائم\n✓ لا يمكن التراجع عن هذه العملية`);
                     inputs.forEach(i => i.value = '');
-                    // clear draft for this stocktake
-                    try { localStorage.removeItem(`stocktake-draft:${this.selectedDate ? this.selectedDate.toISOString().slice(0,10) : 'current'}`); } catch(e){}
+                    // حذف المسودة بعد الاعتماد
+                    try { localStorage.removeItem(`stocktake-draft:${dateKey}`); } catch(e){}
                     this.renderStock();
+                    try {
+                        if (typeof window.generateStocktakeReport === 'function') {
+                            window.generateStocktakeReport({ auto: true });
+                        }
+                    } catch (e) { console.warn('stocktake report refresh failed', e); }
                 } catch (e) { 
                     console.error('submitStock error:', e);
                     alert('❌ خطأ في الترحيل: ' + e.message); 
@@ -425,8 +697,35 @@ const appV2 = {
                         const d = doc.data();
                         const dateObj = d.date?.toDate?.() || new Date(d.date);
                         const date = dateObj.toLocaleDateString('ar-EG');
-                        const type = d.type === 'inbound' ? 'وارد' : (d.type === 'outbound' ? 'صادر' : (d.type === 'adjustment' ? 'تسوية' : 'إلغاء'));
-                        const color = d.type === 'inbound' ? 'text-green-600' : (d.type === 'outbound' ? 'text-red-600' : 'text-gray-600');
+                        
+                        let type = 'غير معروف';
+                        let color = 'text-gray-600';
+                        
+                        if (d.type === 'inbound') {
+                            type = 'وارد';
+                            color = 'text-green-600';
+                        } else if (d.type === 'outbound') {
+                            type = 'صادر';
+                            color = 'text-red-600';
+                        } else if (d.type === 'adjustment') {
+                            type = 'تسوية';
+                            color = 'text-gray-600';
+                        } else if (d.type === 'damaged') {
+                            type = 'تالف';
+                            color = 'text-orange-600';
+                        } else if (d.type === 'shortage') {
+                            type = '⚠️ نقص';
+                            color = 'text-red-700 font-bold';
+                        } else if (d.type === 'surplus') {
+                            type = '✅ زيادة';
+                            color = 'text-green-700 font-bold';
+                        } else if (d.type === 'cancellation') {
+                            type = 'إلغاء';
+                            color = 'text-gray-600';
+                        }
+                        
+                        const hasDiscrepancy = d.isDiscrepancy === true;
+                        const rowBgClass = hasDiscrepancy ? 'bg-yellow-50' : '';
                         
                         // Build actions
                         const canCancel = d.type !== 'cancellation' && d.type !== 'adjustment' && 
@@ -451,7 +750,7 @@ const appV2 = {
                         const actions = actionBtns.length > 0 ? actionBtns.join('') : '-';
                         
                         const row = document.createElement('tr');
-                        row.className = "hover:bg-gray-50 border-b";
+                        row.className = `hover:bg-gray-50 border-b ${rowBgClass}`;
                         row.innerHTML = `
                             <td class="p-3 text-gray-500 dir-ltr font-mono text-[10px]">${date}</td>
                             <td class="p-3 text-[10px] font-bold ${color}">${type}</td>
@@ -465,6 +764,34 @@ const appV2 = {
                 }, err => console.error('V2 loadLogs error:', err));
         } catch (err) {
             console.error('V2 loadLogs exception:', err);
+        }
+    },
+
+    setLogsDate(dateString) {
+        // Filter logs by selected date
+        this.selectedLogsDate = dateString || null;
+        this.loadLogs();
+    },
+
+    setStocktakeDate(dateString) {
+        // Change stocktake review date - admins only for past dates
+        try {
+            // استخدم getUserRole من النظام الرئيسي بدلاً من window.isAdmin/currentUserRole
+            const userRole = (typeof window.getUserRole === 'function') ? window.getUserRole() : 'user';
+            const isAdmin = userRole === 'admin';
+            const today = new Date().toISOString().split('T')[0];
+            
+            console.log('📅 setStocktakeDate check:', { dateString, today, userRole, isAdmin });
+            
+            if (!isAdmin && dateString && dateString < today) {
+                alert('⚠️ عذراً، يمكن للمسؤولين فقط مراجعة بيانات الجرد السابقة والتعديل عليها.');
+                document.getElementById('stocktake-date-v2').value = today;
+                return;
+            }
+            this.selectedDate = dateString ? new Date(dateString) : new Date();
+            this.renderStock();
+        } catch (e) {
+            console.warn('setStocktakeDate error:', e);
         }
     },
 
@@ -591,6 +918,7 @@ const appV2 = {
                         category: section,
                         unit: data.unit || (section === 'packaging' ? 'قطعة' : 'كجم'),
                         currentStock: data.stock || 0,
+                        price: data.price || 0, // مزامنة مع Settings
                         avgCost: data.price || 0,
                         createdAt: new Date()
                     });
@@ -786,88 +1114,10 @@ appV2.renderProducts = function() {
         row.innerHTML = `
             <td class="p-3 font-bold text-gray-700">${p.name} <span class="block text-[10px] text-gray-400 font-normal">${catName}</span></td>
             <td class="p-3 text-center dir-ltr font-mono text-gray-600 font-bold">${this.formatNum(stock)} ${p.unit || ''}</td>
-            <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost)}</td>
+            <td class="p-3 text-center text-blue-600 font-mono text-xs bg-yellow-50/50">${this.formatNum(p.avgCost || p.price || 0)}</td>
         `;
         tbody.appendChild(row);
     });
-};
-
-// إضافة تأكيد في saveTrans
-appV2.saveTrans = async function(e) {
-    e.preventDefault();
-    
-    const type = document.querySelector('input[name="mtype-v2"]:checked')?.value;
-    const pid = document.getElementById('prodSelect-v2')?.value;
-    const qty = parseFloat(document.getElementById('qty-v2')?.value);
-    const price = parseFloat(document.getElementById('price-v2')?.value || 0);
-    
-    if (!pid || !qty || qty <= 0) {
-        alert("يرجى ملء جميع البيانات");
-        return;
-    }
-    
-    // تأكيد الحفظ
-    if (!confirm("هل أنت متأكد من حفظ هذه الحركة؟")) {
-        return;
-    }
-    
-    const btn = e.target.querySelector('button[type="submit"]');
-    if (btn) {
-        btn.disabled = true;
-        btn.innerText = "جاري الحفظ...";
-    }
-    
-    try {
-        // استخدام batch بدلاً من transaction لتجنب الـ retry التلقائي الذي يسبب 429
-        const batch = this.db.batch();
-        const ref = this.db.collection('products').doc(pid);
-        
-        // قراءة المنتج أولاً (خارج batch)
-        const s = await ref.get();
-        if (!s.exists) throw "Product not found";
-        const p = s.data();
-        let ns = p.currentStock || 0, nc = p.avgCost || 0, party = "";
-
-        if (type === 'inbound') {
-            const ov = ns * nc, nv = qty * price;
-            ns += qty;
-            if (ns > 0) nc = (ov + nv) / ns;
-            party = document.getElementById('supplierSelect-v2')?.value || "";
-        } else {
-            if (ns < qty) throw "الرصيد لا يكفي";
-            ns -= qty;
-            party = document.getElementById('destSelect-v2')?.value || "";
-        }
-        
-        // تحديث المنتج
-        batch.update(ref, { currentStock: ns, avgCost: nc });
-        
-        // إضافة المعاملة
-        const transRef = this.db.collection('transactions').doc();
-        batch.set(transRef, {
-            date: new Date(), type, productId: pid, prodName: p.name, qty, party, stockAfter: ns
-        });
-        
-        // تنفيذ batch
-        await batch.commit();
-        
-        alert("تم الحفظ بنجاح ✅");
-        e.target.reset();
-        this.toggleTrans();
-    } catch (err) { 
-        console.error('saveTrans error:', err);
-        if (err.code === 'resource-exhausted') {
-            alert("تم تجاوز حد الطلبات. يرجى الانتظار قليلاً ثم المحاولة مرة أخرى.");
-        } else {
-            alert("خطأ: " + err.message || err); 
-        }
-    } 
-    finally {
-        if (btn) {
-            btn.disabled = false;
-            btn.innerText = "حفظ الحركة";
-        }
-    }
 };
 
 // إضافة دالة لإلغاء ترحيل
@@ -1062,6 +1312,158 @@ appV2.submitStocktake = async function() {
         alert("❌ خطأ في الترحيل: " + err.message);
     }
 };
+
+// Event delegation لتعديل الأسعار inline في Stock Control
+document.addEventListener('click', async (e) => {
+    const editPriceBtn = e.target.closest('.edit-price-btn-v2');
+    if (editPriceBtn) {
+        e.preventDefault();
+        const productId = editPriceBtn.dataset.productId;
+        const currentPrice = parseFloat(editPriceBtn.dataset.currentPrice) || 0;
+        
+        const newPrice = prompt(`تعديل السعر:\n(السعر الحالي: ${currentPrice})`, currentPrice);
+        if (newPrice !== null && newPrice.trim() !== '') {
+            const priceNum = parseFloat(newPrice);
+            if (isNaN(priceNum) || priceNum < 0) {
+                alert('يرجى إدخال سعر صحيح');
+                return;
+            }
+            
+            if (window.appV2 && typeof window.appV2.updateProductPrice === 'function') {
+                await window.appV2.updateProductPrice(productId, priceNum);
+                alert('✅ تم تحديث السعر بنجاح');
+            } else {
+                alert('❌ خطأ: appV2 غير متاح');
+            }
+        }
+    }
+    
+    // معالجة أزرار التصفية (قائمة المنتجات أو الجرد)
+    const filterBtn = e.target.closest('[data-filter]');
+    if (filterBtn && filterBtn.dataset.filter) {
+        e.preventDefault();
+        const fn = filterBtn.classList.contains('st-filter-v2') ? 'filterStock' : 'filterProd';
+        if (window.appV2 && typeof window.appV2[fn] === 'function') {
+            window.appV2[fn](filterBtn.dataset.filter);
+        }
+    }
+    
+    // معالجة زر فتح مودال إضافة منتج
+    const addProductBtn = e.target.closest('[data-action="add-product"]');
+    if (addProductBtn) {
+        e.preventDefault();
+        if (window.appV2 && typeof window.appV2.toggleModal === 'function') {
+            window.appV2.toggleModal('productModal-v2');
+        }
+    }
+
+    // إغلاق مودال إضافة منتج
+    const toggleProductBtn = e.target.closest('[data-action="toggle-product"]');
+    if (toggleProductBtn) {
+        e.preventDefault();
+        if (window.appV2 && typeof window.appV2.toggleModal === 'function') {
+            window.appV2.toggleModal('productModal-v2');
+        }
+    }
+    
+    // معالجة أزرار التنقل الداخلية
+    const navBtn = e.target.closest('[data-nav]');
+    if (navBtn && navBtn.dataset.nav) {
+        e.preventDefault();
+        if (window.appV2 && typeof window.appV2.nav === 'function') {
+            window.appV2.nav(navBtn.dataset.nav);
+        }
+    }
+
+    // تاريخ الجرد: اليوم
+    if (e.target.closest('[data-action="stocktake-today"]')) {
+        e.preventDefault();
+        const el = document.getElementById('stocktake-date-v2');
+        if (el) {
+            const s = new Date().toISOString().slice(0,10);
+            el.value = s;
+            if (window.appV2?.setStocktakeDate) window.appV2.setStocktakeDate(s);
+        }
+    }
+
+    // اعتماد الجرد
+    if (e.target.closest('[data-action="submit-stock"]')) {
+        e.preventDefault();
+        if (window.appV2?.submitStock) window.appV2.submitStock();
+    }
+
+    // تقارير اليوم / تحديث
+    if (e.target.closest('[data-action="logs-today"]')) {
+        e.preventDefault();
+        const el = document.getElementById('logs-date-filter-v2');
+        if (el) {
+            const s = new Date().toISOString().slice(0,10);
+            el.value = s;
+            if (window.appV2?.setLogsDate) window.appV2.setLogsDate(s);
+        }
+    }
+    if (e.target.closest('[data-action="load-logs"]')) {
+        e.preventDefault();
+        if (window.appV2?.loadLogs) window.appV2.loadLogs();
+    }
+
+    // فتح/إغلاق مودال التصنيفات
+    if (e.target.closest('[data-action="toggle-category"]')) {
+        e.preventDefault();
+        if (window.appV2?.toggleModal) window.appV2.toggleModal('categoryModal-v2');
+    }
+
+    // استيراد من النظام القديم
+    const importBtn = e.target.closest('[data-import]');
+    if (importBtn && importBtn.dataset.import) {
+        e.preventDefault();
+        if (window.appV2?.importFromOldSystem) window.appV2.importFromOldSystem(importBtn.dataset.import);
+    }
+
+    // حفظ التصنيفات
+    if (e.target.closest('[data-action="save-categories"]')) {
+        e.preventDefault();
+        if (window.appV2?.saveBulkCategories) window.appV2.saveBulkCategories();
+    }
+});
+
+// معالجة التغييرات (راديو، تواريخ، Selects)
+document.addEventListener('change', (e) => {
+    if (e.target.matches('[data-action="toggle-trans"]')) {
+        if (window.appV2?.toggleTrans) window.appV2.toggleTrans();
+    }
+    if (e.target.matches('[data-action="stocktake-date"]')) {
+        if (window.appV2?.setStocktakeDate) window.appV2.setStocktakeDate(e.target.value);
+    }
+    if (e.target.matches('[data-action="logs-date"]')) {
+        if (window.appV2?.setLogsDate) window.appV2.setLogsDate(e.target.value);
+    }
+    if (e.target.matches('[data-action="update-hint"]')) {
+        if (window.appV2?.updateHint) window.appV2.updateHint();
+    }
+});
+
+// معالجة النماذج
+document.addEventListener('submit', (e) => {
+    const form = e.target;
+    if (form.matches('[data-action="save-trans"]')) {
+        e.preventDefault();
+        if (window.appV2?.saveTrans) window.appV2.saveTrans(e);
+    }
+    if (form.matches('[data-action="add-product-form"]')) {
+        e.preventDefault();
+        if (window.appV2?.addProduct) window.appV2.addProduct(e);
+    }
+});
+
+// معالجة تصفية التاريخ
+document.addEventListener('change', (e) => {
+    if (e.target && e.target.id === 'dateFilter-v2') {
+        if (window.appV2 && typeof window.appV2.filterByDate === 'function') {
+            window.appV2.filterByDate(e.target.value);
+        }
+    }
+});
 
 // Make appV2 globally available immediately
 window.appV2 = appV2;
