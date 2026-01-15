@@ -985,19 +985,25 @@
                                         if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
                                         const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id;
                                         const docPeriod = d.period || '';
-                                        if (!docPeriod || docPeriod === queryPeriod) {
-                                            console.log(`  ✅ CG invoice: ${d.invoiceNumber} repName: ${d.repName} period: ${docPeriod || 'n/a'} path: ${change.doc.ref.path}`);
+                                        const docDate = d.date ? new Date(d.date).toISOString().substring(0,7) : '';
+                                        const isMatchingPeriod = !docPeriod || docPeriod === queryPeriod || docDate === queryPeriod;
+                                        if (isMatchingPeriod) {
+                                            console.log(`  ✅ CG invoice: ${d.invoiceNumber} repName: ${d.repName} period: ${docPeriod || docDate || 'n/a'} path: ${change.doc.ref.path}`);
                                             adminById.set(change.doc.id, d);
+                                        } else {
+                                            console.log(`  ⏭️  Skip CG invoice (period mismatch): ${d.invoiceNumber} period: ${docPeriod} vs query: ${queryPeriod}`);
                                         }
                                     });
                                     console.log(`📊 Admin total invoices merged: ${adminById.size}`);
                                     mergeAdminAndRender();
                                 }, err => {
                                     console.warn('❌ Admin collectionGroup invoices error:', err.code, err.message);
-                                    onErr(err);
+                                    // collectionGroup errors are non-fatal - continue with existing data
+                                    console.log('📊 Continuing with available invoices from other listeners');
+                                    mergeAdminAndRender();
                                 });
                             window.storeSubscription('sales_admin_period_cg', unsubCgPeriod);
-                        } catch(e){ console.warn('❌ sales admin collectionGroup period query failed:', e.message); }
+                        } catch(e){ console.warn('❌ sales admin collectionGroup period query failed:', e.message); mergeAdminAndRender(); }
 
                         // استعلام احتياطي يغطي الفواتير التي لا تحتوي على period (legacy) باستخدام نطاق التاريخ
                         try {
@@ -1055,7 +1061,15 @@
                             });
                         } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
-                    }, onErr);
+                    }, err => {
+                        if (err.code === 'permission-denied') {
+                            console.warn('⚠️ Rep subcollection permission error - user may not have invoices yet:', err.message);
+                            // Still render what we have from other sources
+                            mergeAndRender();
+                        } else {
+                            onErr(err);
+                        }
+                    });
                     window.storeSubscription('sales_rep_invoices', unsub1);
                     
                     // الاستعلامات المتعددة لدعم الأسماء القديمة للحقول
@@ -1193,7 +1207,13 @@
                             window.storeSubscription('sales_repDocId_error_handler', unsub_repDocId);
                         }
                     } catch(e){ /* ignore */ }
-                    const unsub_userInvoices = db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => console.warn('user-invoices subcollection error', err));
+                    const unsub_userInvoices = db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => {
+                        if (err.code === 'permission-denied') {
+                            console.warn('⚠️ Rep user-invoices subcollection permission error (this is expected initially):', err.message);
+                        } else {
+                            console.warn('user-invoices subcollection error', err);
+                        }
+                    });
                     window.storeSubscription('user_invoices_error_handler', unsub_userInvoices);
                     function tryBroadSalesFallback(){
                         // محاولة أخيرة: قراءة محدودة بالشهر الحالي لتقليل الاستهلاك

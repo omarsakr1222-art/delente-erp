@@ -116,12 +116,25 @@ const AuthSystem = {
         }
     },
     
-    logout() {
-        try {
-            localStorage.removeItem(this.CURRENT_USER_KEY);
-        } catch (e) {
-            console.error('Error logging out:', e);
+    async logout() {
+      try {
+        localStorage.removeItem(this.CURRENT_USER_KEY);
+            
+        // Sign out from Firebase first
+        if (window.auth && typeof window.auth.signOut === 'function') {
+          await window.auth.signOut();
         }
+            
+        // Show login immediately (skip splash)
+        const login = document.getElementById('login-page');
+        const splash = document.getElementById('splash-screen');
+        const app = document.getElementById('app-container');
+        if (splash) splash.remove();
+        if (app) { app.style.display = 'none'; app.classList.add('hidden'); }
+        if (login) { login.classList.remove('hidden'); login.style.display = 'flex'; }
+      } catch (e) {
+        console.error('Error logging out:', e);
+      }
     },
     
     updateUserData(userId, newData) {

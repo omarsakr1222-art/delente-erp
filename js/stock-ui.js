@@ -42,7 +42,7 @@
       });
     },
 
-    renderStock(){
+    async renderStock(){
       const a = app();
       const tbody = document.getElementById('stockBody-v2');
       if (!tbody || !a) return;
@@ -55,16 +55,48 @@
         tbody.innerHTML = '<tr><td colspan="4" class="p-6 text-center text-gray-400 text-xs">لا توجد منتجات في هذه الفئة<br><small class="text-red-400">يرجى تصنيف المنتجات أولاً</small></td></tr>';
         return;
       }
-      const draftKey = `stocktake-draft:${a.selectedDate ? a.selectedDate.toISOString().slice(0,10) : 'current'}`;
+      
+      // محاولة تحميل آخر جرد معتمد من localStorage
+      const dateKey = a.selectedDate ? a.selectedDate.toISOString().slice(0,10) : 'current';
+      let submittedData = {};
+      
+      console.log(`🔍 تحميل جرد لـ ${dateKey}`);
+      
+      // أولاً تحميل من localStorage (مسودات)
+      const draftKey = `stocktake-draft:${dateKey}`;
       let drafts = {};
       try { drafts = JSON.parse(localStorage.getItem(draftKey) || '{}'); } catch(_){ drafts = {}; }
+      
+      console.log(`📄 مسودة localStorage (${Object.keys(drafts).length} منتج):`, drafts);
+
+      // ثانياً محاولة تحميل من localStorage الجرد المعتمد إذا لم توجد مسودة
+      if (Object.keys(drafts).length === 0) {
+        const submittedKey = `stocktake-submitted:${dateKey}`;
+        try {
+          const submittedStr = localStorage.getItem(submittedKey);
+          if (submittedStr) {
+            const submittedObj = JSON.parse(submittedStr);
+            submittedData = submittedObj.data || {};
+            console.log(`✅ تم تحميل آخر جرد معتمد لـ ${dateKey} (${Object.keys(submittedData).length} منتج):`, submittedData);
+          } else {
+            console.log(`⚠️ لا يوجد جرد معتمد سابق لـ ${dateKey}`);
+          }
+        } catch (err) {
+          console.log(`❌ خطأ في تحميل الجرد المعتمد لـ ${dateKey}:`, err);
+        }
+      } else {
+        console.log(`💾 استخدام المسودة المحلية بدلاً من الجرد المعتمد`);
+      }
+      
       filtered.forEach(p => {
         const row = document.createElement('tr');
         row.className = 'border-b hover:bg-gray-50';
+        // استخدام المسودة أولاً، وإذا لم توجد، استخدم آخر جرد معتمد
+        const savedValue = drafts[p.id] !== undefined ? drafts[p.id] : (submittedData[p.id] || '');
         row.innerHTML = `
           <td class="p-2 text-[11px] font-bold text-gray-700">${p.name}</td>
           <td class="p-2 text-center text-[10px] text-gray-400 font-mono">${(a.formatNum ? a.formatNum(p.currentStock) : p.currentStock || 0)}</td>
-          <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}" value="${drafts[p.id] || ''}"></td>
+          <td class="p-2 text-center"><input type="number" step="0.01" class="w-16 border rounded text-center p-1 text-xs outline-none focus:border-blue-500 st-inp-v2" data-pid="${p.id}" data-sys="${p.currentStock}" value="${savedValue}"></td>
           <td class="p-2 text-center text-[10px] font-bold text-gray-300 diff-cell">-</td>
         `;
         const inp = row.querySelector('.st-inp-v2');

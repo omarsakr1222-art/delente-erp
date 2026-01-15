@@ -8,7 +8,8 @@ window.onerror = function (msg, url, line, col, error) {
     try {
         const isGeneric = (!url || url === '') && (line === 0 || line === '0') && String(msg).toLowerCase().includes('script error');
         if (isGeneric) {
-            console.warn('Ignored generic script error (likely CORS):', msg);
+            // Silently ignore CORS-related generic script errors - these are expected from third-party resources
+            // Return true to suppress error reporting
             return true;
         }
         const fullMsg = `Error: ${msg}\nFile: ${url || 'unknown'}\nLine: ${line}:${col}`;

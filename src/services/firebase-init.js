@@ -315,6 +315,15 @@ function initFirebase() {
       window.auth = firebase.auth();
       window.db = firebase.firestore();
       window.storage = firebase.storage();
+
+      // Ensure sessions persist across reloads for seamless re-entry
+      try {
+        auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+          .then(() => console.log('✅ Firebase auth persistence set to LOCAL'))
+          .catch(err => console.warn('⚠️ Failed to set LOCAL auth persistence', err));
+      } catch(pErr) {
+        console.warn('Auth persistence setup threw synchronously', pErr);
+      }
       
       // Check if user is admin
       window.auth.onAuthStateChanged(user => {
@@ -346,19 +355,29 @@ function initFirebase() {
 
     try {
       auth.onAuthStateChanged(async function(u) {
-        if (u) {
-          window.currentUser = u;
+        async function proceedLoggedIn(user) {
+          window.currentUser = user;
           try {
-            await u.getIdToken(true);
+            await user.getIdToken(true);
             console.log('✅ Auth Token Refreshed - Write Access Granted');
           } catch(e) {
             console.warn('Token refresh failed:', e);
           }
 
+          // Clean up splash/login overlays once we are proceeding
+          try {
+            const splash = document.getElementById('splash-screen');
+            if (splash) splash.remove();
+            const login = document.getElementById('login-page');
+            if (login) { login.classList.add('hidden'); login.style.display = 'none'; }
+          } catch(cleanErr) {
+            console.warn('Splash/login cleanup failed', cleanErr);
+          }
+
           const unified = {
-            id: u.uid,
-            email: (u.email || '').toLowerCase(),
-            name: (u.displayName || (u.email ? u.email.split('@')[0] : 'مستخدم')),
+            id: user.uid,
+            email: (user.email || '').toLowerCase(),
+            name: (user.displayName || (user.email ? user.email.split('@')[0] : 'مستخدم')),
             firebase: true,
             data: {}
           };
@@ -366,9 +385,9 @@ function initFirebase() {
 
           try {
             window.__rolesMap = window.__rolesMap || {};
-            db.collection('roles').doc(u.uid).onSnapshot(snap => {
+            db.collection('roles').doc(user.uid).onSnapshot(snap => {
               if (snap.exists) {
-                window.__rolesMap[u.uid] = snap.data().role || 'user';
+                window.__rolesMap[user.uid] = snap.data().role || 'user';
                 document.dispatchEvent(new Event('role-ready'));
               }
             }, err => console.warn('role doc snapshot error', err));
@@ -440,7 +459,25 @@ function initFirebase() {
             try { applyRoleNavRestrictions(); } catch(e) { console.error('roleNavRestrictions retry error:', e); }
             if (tries > 10) clearInterval(tmr);
           }, 1000);
+        }
 
+        if (u) {
+          const splashActive = document.getElementById('splash-screen');
+          const waitingForEnter = splashActive && !window.__SPLASH_RELEASED;
+          if (waitingForEnter) {
+            console.log('⏸️ Splash still visible; delaying app open until ENTER is pressed');
+            if (!window.__SPLASH_LISTENER_ATTACHED) {
+              window.__SPLASH_LISTENER_ATTACHED = true;
+              const resume = () => {
+                document.removeEventListener('splash-released', resume);
+                window.__SPLASH_RELEASED = true;
+                proceedLoggedIn(u);
+              };
+              document.addEventListener('splash-released', resume);
+            }
+            return;
+          }
+          await proceedLoggedIn(u);
         } else {
           try { AuthSystem.logout(); } catch(e) {}
           try { UIController.showLoginPage(); } catch(e) {}

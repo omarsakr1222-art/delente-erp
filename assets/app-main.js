@@ -86,22 +86,104 @@ window.addEventListener('load', function() {
     // ...existing code...
     fetchCustomersFromFirebase();
 });
-// إظهار صفحة الـ Dashboard كافتراضي عند التحميل
+// ===== AUTHENTICATION CHECK & SPLASH/LOGIN FLOW =====
+window.addEventListener('load', function() {
+    // Show splash for at least 3 seconds, then check auth
+    const splashMinDuration = 3000; // 3 seconds
+    const splashStartTime = Date.now();
+    
+    function proceedAfterSplash() {
+        if (window.auth) {
+            window.auth.onAuthStateChanged(function(user) {
+                if (user) {
+                    // User is logged in - show app
+                    hideSplashAndLogin();
+                    showPage('page-dashboard');
+                } else {
+                    // User is NOT logged in - show login
+                    showLoginPage();
+                }
+            });
+        } else {
+            // Firebase auth not ready - show splash then try dashboard
+            hideSplashAndLogin();
+            showPage('page-dashboard');
+        }
+    }
+    
+    // Wait at least 3 seconds before proceeding
+    const elapsedTime = Date.now() - splashStartTime;
+    const remainingTime = Math.max(0, splashMinDuration - elapsedTime);
+    
+    if (remainingTime > 0) {
+        setTimeout(proceedAfterSplash, remainingTime);
+    } else {
+        proceedAfterSplash();
+    }
+});
+
+function hideSplashAndLogin() {
+    const splash = document.getElementById('splash-screen');
+    const login = document.getElementById('login-page');
+    if (splash) splash.style.display = 'none';
+    if (login) login.style.display = 'none';
+}
+
+function showLoginPage() {
+    const splash = document.getElementById('splash-screen');
+    const login = document.getElementById('login-page');
+    const appContainer = document.getElementById('app-container');
+    
+    if (splash) splash.style.display = 'none';
+    if (login) login.style.display = 'flex';
+    if (appContainer) appContainer.style.display = 'none';
+}
+
+function showPage(pageName) {
+    // Hide splash and login
+    hideSplashAndLogin();
+    
+    // Show app container
+    const appContainer = document.getElementById('app-container');
+    if (appContainer) {
+        appContainer.classList.remove('hidden');
+        appContainer.style.display = 'flex';
+    }
+    
+    // Show the requested page
+    var pages = document.getElementsByClassName('page');
+    for (var i = 0; i < pages.length; i++) {
+        pages[i].classList.remove('active');
+    }
+    
+    var page = document.getElementById(pageName);
+    if (page) {
+        page.classList.add('active');
+        page.style.display = 'block';
+    }
+    
+    // Update nav items
+    var navItems = document.getElementsByClassName('bottom-nav-item');
+    for (var j = 0; j < navItems.length; j++) {
+        navItems[j].classList.remove('active');
+        if (navItems[j].getAttribute('data-page') === pageName.replace('page-', '')) {
+            navItems[j].classList.add('active');
+        }
+    }
+}
+
+// Original page-load initialization (modified to NOT show dashboard immediately)
 window.addEventListener('load', function() {
     var pages = document.getElementsByClassName('page');
     for (var i = 0; i < pages.length; i++) {
         pages[i].classList.remove('active');
     }
     var dashboard = document.getElementById('page-dashboard');
-    if (dashboard) {
-        dashboard.classList.add('active');
-        dashboard.style.display = 'block';
-    }
-    var appContainer = document.getElementById('app-container');
-    if (appContainer) {
-        appContainer.classList.remove('hidden');
-        appContainer.style.display = 'flex';
-    }
+    // DON'T show dashboard - let auth check handle it
+    // if (dashboard) {
+    //     dashboard.classList.add('active');
+    //     dashboard.style.display = 'block';
+    // }
     // إذا لم توجد بيانات، أضف رسالة توضيحية
     if (!window.state || !window.state.sales || window.state.sales.length === 0) {
         var dashboardMsg = document.createElement('div');
@@ -753,7 +835,31 @@ async function printViaUSB(sale) {
 
 window.printViaUSB = printViaUSB;
 
-// جلب الهدف الشهري عند تحميل الصفحة الرئيسية
+// ===== LOGOUT HANDLER =====
 window.addEventListener('load', function() {
+    const logoutBtn = document.getElementById('logout-btn');
+    if (logoutBtn) {
+        logoutBtn.addEventListener('click', function() {
+            if (confirm('هل تريد تسجيل الخروج؟')) {
+                if (window.auth) {
+                    window.auth.signOut()
+                        .then(function() {
+                            console.log('✅ Logged out');
+                            // Clear subscriptions
+                            if (window.unsubscribeAll) window.unsubscribeAll();
+                            // Show login page
+                            document.getElementById('app-container').style.display = 'none';
+                            document.getElementById('login-page').style.display = 'flex';
+                        })
+                        .catch(function(error) {
+                            console.error('Logout error:', error);
+                            alert('خطأ في تسجيل الخروج');
+                        });
+                }
+            }
+        });
+    }
+});
+
     fetchSalesTargetFromCloud();
 });

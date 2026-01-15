@@ -816,25 +816,53 @@
     window.saveCustomerTargetsFromInputs = function() {
         const state = window.state || {};
         const customDialog = window.customDialog || (() => {});
-        const saveState = window.saveState || (() => {});
         const monthVal = document.getElementById('customer-targets-month')?.value;
         if (!monthVal) {
             customDialog({ title: 'تنبيه', message: 'اختر الشهر أولاً.' });
             return;
         }
-        const monthKey = monthVal;
-        const targetObj = window.getCustomerTargetsForMonth(monthKey);
+        
+        // 🔥 NEW: استخدام activePeriod كـ Document ID
+        const monthKey = monthVal; // e.g., '2026-01'
+        const targets = {};
+        
+        // جمع القيم من الـ inputs
         const inputs = document.querySelectorAll('#customer-targets-report-output .cust-target-input');
         inputs.forEach(inp => {
             const cid = inp.dataset.customerId;
             const cat = inp.dataset.category;
             const val = parseFloat(inp.value) || 0;
-            targetObj[cid] = targetObj[cid] || { multi: 0, dairy: 0 };
-            targetObj[cid][cat] = val;
+            if (!targets[cid]) targets[cid] = { multi: 0, dairy: 0 };
+            targets[cid][cat] = val;
         });
-        saveState();
-        customDialog({ title: 'حفظ', message: 'تم حفظ قيم التارجت.' });
-        window.generateCustomerTargetsReport();
+        
+        // 🌐 حفظ في Firestore مباشرة
+        if (!window.db) {
+            console.warn('⚠️ Firebase غير متاح، الحفظ محلياً فقط');
+            // Fallback للحفظ المحلي
+            const targetObj = window.getCustomerTargetsForMonth(monthKey);
+            Object.assign(targetObj, targets);
+            if (window.saveState) window.saveState();
+            customDialog({ title: 'حفظ', message: 'تم حفظ قيم التارجت محلياً.' });
+            window.generateCustomerTargetsReport();
+            return;
+        }
+        
+        // حفظ في Firestore مع merge لعدم الكتابة فوق الأشهر الأخرى
+        window.db.collection('customerTargets').doc(monthKey).set(
+            { targets: targets, updatedAt: new Date().toISOString() },
+            { merge: true }
+        ).then(() => {
+            console.log('✅ تم حفظ أهداف العملاء في Firestore:', monthKey);
+            // تحديث الحالة المحلية
+            state.customerTargets = state.customerTargets || {};
+            state.customerTargets[monthKey] = targets;
+            customDialog({ title: 'حفظ', message: 'تم حفظ قيم التارجت في السحابة.' });
+            window.generateCustomerTargetsReport();
+        }).catch(err => {
+            console.error('❌ خطأ في حفظ أهداف العملاء:', err);
+            customDialog({ title: 'خطأ', message: 'فشل حفظ التارجت: ' + err.message });
+        });
     };
 
     window.generateCustomerTargetsReport = function() {
@@ -853,6 +881,39 @@
             return;
         }
 
+        // 🔥 NEW: تحميل البيانات من Firestore مباشرة
+        if (window.db) {
+            out.innerHTML = '<p class="text-center text-gray-500">جاري التحميل...</p>';
+            window.db.collection('customerTargets').doc(monthVal).get()
+                .then(doc => {
+                    const targetsData = doc.exists && doc.data()?.targets ? doc.data().targets : {};
+                    // تحديث الحالة المحلية
+                    state.customerTargets = state.customerTargets || {};
+                    state.customerTargets[monthVal] = targetsData;
+                    // متابعة العرض
+                    renderCustomerTargetsReport(monthVal, catVal, targetsData);
+                })
+                .catch(err => {
+                    console.error('❌ خطأ في تحميل أهداف العملاء:', err);
+                    out.innerHTML = '<p class="text-center text-red-500">خطأ في التحميل: ' + err.message + '</p>';
+                });
+        } else {
+            // Fallback للحالة المحلية
+            const targetsData = window.getCustomerTargetsForMonth(monthVal);
+            renderCustomerTargetsReport(monthVal, catVal, targetsData);
+        }
+    };
+    
+    // 🔥 NEW: دالة منفصلة لعرض التقرير
+    function renderCustomerTargetsReport(monthVal, catVal, targetsMonthObj) {
+        const state = window.state || {};
+        const formatCurrency = window.formatCurrency || ((n) => String(n));
+        const updateIcons = window.updateIcons || (() => {});
+        const findProduct = window.findProduct || (() => null);
+        const escapeHtml = window.escapeHtml || ((s) => s);
+        const out = document.getElementById('customer-targets-report-output');
+        if (!out) return;
+
         const [yStr, mStr] = monthVal.split('-');
         const year = parseInt(yStr, 10);
         const m = parseInt(mStr, 10) - 1;
@@ -870,8 +931,6 @@
             out.innerHTML = '<p class="text-center text-gray-500">لا توجد عملاء مستهدفة.</p>';
             return;
         }
-
-        const targetsMonthObj = window.getCustomerTargetsForMonth(monthVal);
         const agg = {};
         (state.sales || []).forEach(sale => {
             const d = new Date(sale.date);
@@ -993,7 +1052,7 @@
             </div>
         </div>`;
         updateIcons();
-    };
+    }
 
     // ===== SETTLEMENT REPORT =====
     window.generateSettlementReport = function() {

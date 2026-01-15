@@ -1,9 +1,4 @@
-// ✅ AUTH GUARD: Prevent taxes module execution before login
-if (!window.AuthSystem?.getCurrentUser?.()) {
-    console.log('⚠️ Taxes Module: Waiting for user login...');
-    window.__taxesReady = false;
-    // Don't execute the module yet
-} else {
+// ✅ Taxes Module - Always load, but check auth before executing functions
 (function(){
     // Taxes module: renders tax report and e-invoice log
     async function fetchProductsMap(){
@@ -26,6 +21,22 @@ if (!window.AuthSystem?.getCurrentUser?.()) {
     }
 
     async function loadTaxReport(monthInputVal){
+        // التحقق من توفر قاعدة البيانات
+        if (!window.db) {
+            console.warn('⚠️ loadTaxReport: قاعدة البيانات غير جاهزة بعد');
+            document.getElementById('tax-total-sales').textContent = '0.00';
+            document.getElementById('tax-output-vat').textContent = '0.00';
+            document.getElementById('tax-input-vat').textContent = '0.00';
+            document.getElementById('tax-net-payable').textContent = '0.00';
+            return;
+        }
+        
+        // عرض رسالة تحميل
+        document.getElementById('tax-total-sales').textContent = 'جاري التحميل...';
+        document.getElementById('tax-output-vat').textContent = 'جاري التحميل...';
+        document.getElementById('tax-input-vat').textContent = 'جاري التحميل...';
+        document.getElementById('tax-net-payable').textContent = 'جاري التحميل...';
+        
         const range = monthRangeFromInput(monthInputVal);
         const prodMap = await fetchProductsMap();
 
@@ -142,5 +153,4 @@ if (!window.AuthSystem?.getCurrentUser?.()) {
             } catch(e){}
         }, 800);
     });
-}); // End IIFE if guard
-} // End auth guard else
+})(); // End IIFE

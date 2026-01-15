@@ -1,9 +1,16 @@
 // Realtime Firestore Listeners and GPS Sharing
 // Extracted from index.html to reduce file size
 
-// Setup all realtime Firestore listeners for syncing data
-function setupRealtimeListeners() {
-  if (!window.db) {
+// Setup all realtime Firestore listeners for syncing data (backup)
+function setupRealtimeListenersSyncBackup() {
+  // ⚠️ منع التشغيل المتكرر - استخدام نفس الـ flag كـ inline-scripts.js
+  if (window.__listenersAttached) {
+    console.log('⏭️ Listeners already attached (from realtime-sync) - skipping');
+    return;
+  }
+  window.__listenersAttached = true;
+  
+  if (!window.db || !window.state) {
     console.warn('Firestore غير جاهز بعد');
     return;
   }
@@ -63,7 +70,16 @@ function setupRealtimeListeners() {
     };
 
     if (role === 'admin' || role === 'reviewer' || role === 'manager') {
-      db.collection('sales').onSnapshot(applySnap, onErr);
+      // SERVER-SIDE FILTERING: Only load current month's sales
+      const now = new Date();
+      const currentPeriod = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+      console.log(`📅 Admin sales query: period == ${currentPeriod}`);
+      const unsub = db.collection('sales')
+        .where('period', '==', currentPeriod)
+        .orderBy('date', 'desc')
+        .limit(500)
+        .onSnapshot(applySnap, onErr);
+      if (typeof window.storeSubscription === 'function') window.storeSubscription('sales_admin_sync', unsub);
     } else if ((role === 'rep' || role === 'user') && current && current.id) {
       const uid = String(current.id);
       const email = (current.email || '').toLowerCase();
@@ -223,8 +239,20 @@ function setupRealtimeListeners() {
         mergeAndRender();
       }, onErr);
 
+      let repNameAttempts = 0;
       const setupRepNameListener = () => {
         try {
+          repNameAttempts++;
+          
+          // 🔥 CRITICAL: إذا state.reps فارغة، احفظ الدالة لإعادة المحاولة لاحقاً
+          if (!state.reps || state.reps.length === 0) {
+            if (repNameAttempts === 1) {
+              console.log('⏳ Reps not loaded yet - will retry when reps are available');
+              window.__repListenerPending = setupRepNameListener;
+              return;
+            }
+          }
+          
           const currentRepDoc = (state.reps || []).find(r => (r.email || '').toLowerCase() === email);
           const repName = currentRepDoc ? currentRepDoc.name : null;
           if (repName) {
@@ -256,12 +284,16 @@ function setupRealtimeListeners() {
               mergeAndRender();
             }, err => console.warn('sales repName query error', err));
           } else {
-            console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds');
-            setTimeout(setupRepNameListener, 2000);
+            if (repNameAttempts < 4) {
+              console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds (attempt', repNameAttempts, ')');
+              setTimeout(setupRepNameListener, 2000);
+            } else {
+              console.warn('⚠️ Rep name not found after retries for email:', email);
+            }
           }
         } catch(e) {
           console.warn('setupRealtimeListeners: repName listener failed', e);
-          setTimeout(setupRepNameListener, 2000);
+          if (repNameAttempts < 4) setTimeout(setupRepNameListener, 2000);
         }
       };
       setupRepNameListener();
@@ -748,9 +780,18 @@ function setupRealtimeListeners() {
         arr.push(d);
       });
       state.reps = arr;
+      console.log(`✅ reps loaded: ${arr.length} items`);
       try {
         localStorage.setItem('reps_local_ts', new Date().toISOString());
       } catch(e) {}
+      
+      // 🔥 CRITICAL: إعادة تفعيل setupRepNameListener بعد تحميل المناديب
+      if (typeof window.__repListenerPending === 'function') {
+        console.log('🔄 Reps loaded - retrying rep name listener setup');
+        window.__repListenerPending();
+        delete window.__repListenerPending;
+      }
+      
       try {
         if (typeof renderReps === 'function') renderReps();
       } catch(e) {}
