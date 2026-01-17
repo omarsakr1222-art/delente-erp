@@ -9790,12 +9790,12 @@
                 hideLoading();
                 closeModal(saleModal);
                 // onSnapshot سيعيد تحديث القوائم تلقائياً
-                // تحديث التقارير مباشرة
+                // تحديث التقارير بعد 2 ثانية (debounced)
                 try {
-                    if (typeof window.generateBatchProfitsReport === 'function') {
-                        window.generateBatchProfitsReport();
+                    if (typeof debouncedBatchProfitsUpdate === 'function') {
+                        debouncedBatchProfitsUpdate();
                     }
-                } catch(e){ console.warn('Batch profits report refresh failed', e); }
+                } catch(e){ console.warn('Debounced batch profits update failed', e); }
                 // Also sync cash data to cloud
                 try {
                     if (typeof window.debouncedSaveCash === 'function') {
@@ -9811,6 +9811,20 @@
         }
 
         // --- END NEW FUNCTIONS ---
+
+        // ⏳ Debounce helper for post-save updates
+        let batchProfitsReportTimeout = null;
+        function debouncedBatchProfitsUpdate() {
+            if (batchProfitsReportTimeout) clearTimeout(batchProfitsReportTimeout);
+            batchProfitsReportTimeout = setTimeout(() => {
+                try {
+                    if (typeof window.generateBatchProfitsReport === 'function') {
+                        console.log('⏳ Updating batch profits report (debounced)...');
+                        window.generateBatchProfitsReport();
+                    }
+                } catch(e) { console.warn('Debounced batch profits update failed:', e); }
+            }, 2000); // تأخير 2 ثانية
+        }
 
         function loadState() {
             // تم إلغاء التحميل المحلي الكامل. إرجاع حالة افتراضية فقط إن لم تكن موجودة.
@@ -16196,12 +16210,12 @@
                     }
                 } catch(e) { console.warn('Failed to update rep nextInvoiceNumber:', e); }
                 
-                // تحديث التقارير مباشرة
+                // تحديث التقارير بعد 2 ثانية (debounced)
                 try {
-                    if (typeof window.generateBatchProfitsReport === 'function') {
-                        window.generateBatchProfitsReport();
+                    if (typeof debouncedBatchProfitsUpdate === 'function') {
+                        debouncedBatchProfitsUpdate();
                     }
-                } catch(e){ console.warn('Batch profits report refresh failed', e); }
+                } catch(e){ console.warn('Debounced batch profits update failed', e); }
                 
                 renderAll();
                 await customDialog({ message: `تم حفظ ${savedCount} فاتورة بنجاح. ${rep ? `رقم الفاتورة القادمة للمندوب ${repName} هو ${rep.nextInvoiceNumber}.` : ''}`, title: 'حفظ ناجح', confirmClass: 'bg-green-600 hover:bg-green-700' });

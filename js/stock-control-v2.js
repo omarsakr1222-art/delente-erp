@@ -87,6 +87,10 @@ const appV2 = {
     startListeners() {
         try {
             if (!this.db) return;
+            
+            // ⏳ Debounce timer for render updates
+            let renderUpdateTimeout = null;
+            
             // Use Compat API
             const unsubProductsV2 = this.db.collection('products').onSnapshot((snapshot) => {
                 const newProducts = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -156,8 +160,13 @@ const appV2 = {
                 } else {
                     if (empty) empty.classList.add('hidden');
                     if (table) table.classList.remove('hidden');
-                    this.renderProducts();
-                    this.updateDropdowns();
+                    
+                    // ⏳ Debounce rendering to prevent blocking during save
+                    if (renderUpdateTimeout) clearTimeout(renderUpdateTimeout);
+                    renderUpdateTimeout = setTimeout(() => {
+                        this.renderProducts();
+                        this.updateDropdowns();
+                    }, 500); // Wait 500ms before re-rendering
                 }
             }, err => {
                 console.error('V2 startListeners error:', err);

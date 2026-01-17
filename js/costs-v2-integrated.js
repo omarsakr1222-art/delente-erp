@@ -370,6 +370,9 @@
     }
 
     // ===== Real Market Revenue Listener (sales collection) =====
+    // ⏳ Debounce timer for sales revenue updates
+    let salesRevenueUpdateTimeout = null;
+    
     function initSalesRevenueListener(){
         const db = getDb();
         if(!db) return;
@@ -389,13 +392,18 @@
                     }
                 });
                 salesRevenueByProductId = agg;
-                // إعادة رسم التقارير إن كانت الصفحة مفتوحة
-                try { rerenderReportsFromRevenue(); } catch(_){ }
-                // تحديث تفاصيل التشغيلة إن كانت مفتوحة حالياً
-                try {
-                    const isBatchDetailsVisible = !!document.querySelector('[data-cv2-view="batch-details"]:not(.hidden)');
-                    if(isBatchDetailsVisible && currentBatchId){ viewBatchDetails(currentBatchId); }
-                } catch(_){ }
+                
+                // ⏳ Debounce updates to prevent blocking during save
+                if (salesRevenueUpdateTimeout) clearTimeout(salesRevenueUpdateTimeout);
+                salesRevenueUpdateTimeout = setTimeout(() => {
+                    // إعادة رسم التقارير إن كانت الصفحة مفتوحة
+                    try { rerenderReportsFromRevenue(); } catch(_){ }
+                    // تحديث تفاصيل التشغيلة إن كانت مفتوحة حالياً
+                    try {
+                        const isBatchDetailsVisible = !!document.querySelector('[data-cv2-view="batch-details"]:not(.hidden)');
+                        if(isBatchDetailsVisible && currentBatchId){ viewBatchDetails(currentBatchId); }
+                    } catch(_){ }
+                }, 1000); // Wait 1 second before updating UI
             }, err => {
                 // Silent on permission errors
             });
