@@ -406,14 +406,19 @@
         const db = getDb();
         const tbody = document.getElementById('cv2-reports-tbody');
         if(!db || !tbody) return;
+        
+        // Load all batches and filter in JS (supports both 'completed' and 'closed')
         db.collection(COLL_BATCHES)
-            .where('status', '==', 'completed')
             .get()
             .then(snap => {
                 tbody.innerHTML = '';
                 let tP = 0, tR = 0, tC = 0;
                 snap.docs.forEach(doc => {
                     const b = doc.data();
+                    
+                    // ✅ Filter: only show completed/closed batches
+                    if (b.status !== 'completed' && b.status !== 'closed') return;
+                    
                     const finishedPid = findFinishedProductIdByName(b.recipeName);
                     const realRevenue = finishedPid ? (salesRevenueByProductId[finishedPid] || 0) : 0;
                     const productionCost = Number(b.totalCost || 0);
@@ -691,11 +696,12 @@
         const q = parseFloat(document.getElementById('cv2-close-final-qty').value);
 
         await db.collection(COLL_BATCHES).doc(id).update({
-            status: 'closed',
+            status: 'completed', // ✅ FIXED: changed from 'closed' to 'completed'
             totalCost: t,
             finalQty: q,
             unitCost: t / q,
-            closedAt: new Date().toISOString(),
+            completedAt: new Date().toISOString(), // ✅ FIXED: changed from 'closedAt' to 'completedAt'
+            closedAt: new Date().toISOString(), // Keep for backward compatibility
             soldQty: 0,
             totalRev: 0,
             netProfit: -t
@@ -746,8 +752,8 @@
         const db = getDb();
         if(!db) return;
 
+        // Load all batches and filter in JS to support both 'completed' and 'closed' (backward compatibility)
         db.collection(COLL_BATCHES)
-            .where('status', '==', 'completed')
             .onSnapshot(snap => {
                 const tbody = document.getElementById('cv2-reports-tbody');
                 if(!tbody) return;
@@ -757,6 +763,10 @@
 
                 snap.docs.forEach(doc => {
                     const b = doc.data();
+                    
+                    // ✅ Filter: only show completed/closed batches
+                    if (b.status !== 'completed' && b.status !== 'closed') return;
+                    
                     // الإيراد الحقيقي: تجميع من مجموعة المبيعات العامة بناءً على اسم المنتج
                     const finishedPid = findFinishedProductIdByName(b.recipeName);
                     const realRevenue = finishedPid ? (salesRevenueByProductId[finishedPid] || 0) : 0;
