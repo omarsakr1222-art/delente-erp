@@ -1880,6 +1880,60 @@
                         <div id="customer-targets-report-output" class="mt-2"></div>
                     </div>
 
+                    <!-- Stock Inventory Report Content -->
+                    <div data-report-content="stock-inventory" class="space-y-4 hidden">
+                        <h3 class="font-bold text-lg text-red-600 border-b pb-2">تقرير جرد المخازن</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <div>
+                                <label for="inventory-report-date" class="block text-sm font-medium text-gray-700">التاريخ:</label>
+                                <input type="date" id="inventory-report-date" class="mt-1 block w-full p-2 border rounded-md">
+                            </div>
+                            <div>
+                                <label for="inventory-warehouse" class="block text-sm font-medium text-gray-700">المخزن:</label>
+                                <select id="inventory-warehouse" class="mt-1 block w-full p-2 border rounded-md">
+                                    <option value="all">جميع المخازن</option>
+                                    <option value="main">المخزن الرئيسي</option>
+                                    <option value="secondary">المخزن الفرعي</option>
+                                </select>
+                            </div>
+                            <div>
+                                <label for="inventory-category" class="block text-sm font-medium text-gray-700">الفئة:</label>
+                                <select id="inventory-category" class="mt-1 block w-full p-2 border rounded-md">
+                                    <option value="all">جميع الفئات</option>
+                                    <option value="finished">إنتاج تام</option>
+                                    <option value="raw">خامات</option>
+                                    <option value="packaging">تعبئة وتغليف</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="generate-inventory-report-btn" class="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 font-semibold">عرض تقرير الجرد</button>
+                        <p class="text-xs text-gray-600">يعرض الكميات الحالية في المخازن، قيمة المخزون، والحركة خلال الفترة المحددة.</p>
+                    </div>
+
+                    <!-- Batch Profits Report Content -->
+                    <div data-report-content="batch-profits" class="space-y-4 hidden">
+                        <h3 class="font-bold text-lg text-red-600 border-b pb-2">تقرير أرباح وخسائر التشغيلات</h3>
+                        <div class="grid grid-cols-2 md:grid-cols-3 gap-4">
+                            <div>
+                                <label for="batch-profits-start" class="block text-sm font-medium text-gray-700">من تاريخ:</label>
+                                <input type="date" id="batch-profits-start" class="mt-1 block w-full p-2 border rounded-md">
+                            </div>
+                            <div>
+                                <label for="batch-profits-end" class="block text-sm font-medium text-gray-700">إلى تاريخ:</label>
+                                <input type="date" id="batch-profits-end" class="mt-1 block w-full p-2 border rounded-md">
+                            </div>
+                            <div>
+                                <label for="batch-profits-product" class="block text-sm font-medium text-gray-700">المنتج:</label>
+                                <select id="batch-profits-product" class="mt-1 block w-full p-2 border rounded-md">
+                                    <option value="all">جميع المنتجات</option>
+                                </select>
+                            </div>
+                        </div>
+                        <button id="generate-batch-profits-btn" class="w-full bg-red-600 text-white py-2 rounded-lg hover:bg-red-700 font-semibold">عرض تقرير الأرباح</button>
+                        <p class="text-xs text-gray-600">يعرض تفاصيل كل تشغيلة (رقم التشغيلة، المنتج، الكمية المنتجة، التكلفة، الإيراد، صافي الربح، هامش الربح %).</p>
+                        <div id="batch-profits-output" class="mt-4"></div>
+                    </div>
+
                 </div>
 
                 <div id="report-output-area" class="mt-6">
@@ -1901,6 +1955,12 @@
                 </button>
                 <button data-report-section="reconciliation" class="reports-subnav-item">
                     <i data-lucide="scale"></i><span>التسوية النهائية</span>
+                </button>
+                <button data-report-section="stock-inventory" class="reports-subnav-item">
+                    <i data-lucide="package-search"></i><span>جرد المخازن</span>
+                </button>
+                <button data-report-section="batch-profits" class="reports-subnav-item">
+                    <i data-lucide="trending-up"></i><span>أرباح التشغيلات</span>
                 </button>
                 <button data-report-section="targets" class="reports-subnav-item">
                     <i data-lucide="target"></i><span>تارجت المناديب</span>

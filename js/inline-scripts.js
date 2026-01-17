@@ -16194,6 +16194,33 @@
                 stocktakeEndDateInput.value = today;
             }
             
+            // Set dates for new reports
+            const invDateInput = document.getElementById('inventory-report-date');
+            if (invDateInput) invDateInput.value = today;
+            
+            const batchStartInput = document.getElementById('batch-profits-start');
+            const batchEndInput = document.getElementById('batch-profits-end');
+            if (batchStartInput && batchEndInput) {
+                const now = new Date();
+                const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+                batchStartInput.value = firstOfMonth.toISOString().split('T')[0];
+                batchEndInput.value = today;
+            }
+            
+            // Populate products for batch-profits report
+            const batchProductSelect = document.getElementById('batch-profits-product');
+            if (batchProductSelect) {
+                batchProductSelect.innerHTML = '<option value="all">جميع المنتجات</option>';
+                (state.products || []).forEach(p => {
+                    if ((p.category || '').includes('إنتاج تام')) {
+                        const opt = document.createElement('option');
+                        opt.value = p.id || p._id;
+                        opt.textContent = p.name;
+                        batchProductSelect.appendChild(opt);
+                    }
+                });
+            }
+            
             // Set initial content area based on active subnav item
             const reportsSubnavEl = document.getElementById('reports-subnav');
             const activeReportSection = reportsSubnavEl?.querySelector('.reports-subnav-item.active')?.dataset.reportSection || 'daily';
@@ -17374,6 +17401,224 @@
                 if (!options.auto) {
                     await customDialog({ title: 'خطأ', message: 'تعذر تحميل ملخص الجرد. حاول مرة أخرى.' });
                 }
+            }
+        }
+
+        // تقرير جرد المخازن
+        async function generateInventoryReport() {
+            const out = reportOutputArea;
+            const dateVal = document.getElementById('inventory-report-date')?.value;
+            const warehouse = document.getElementById('inventory-warehouse')?.value || 'all';
+            const category = document.getElementById('inventory-category')?.value || 'all';
+
+            if (!out) return;
+            if (!dateVal) {
+                await customDialog({ title: 'بيانات ناقصة', message: 'الرجاء تحديد تاريخ الجرد.' });
+                return;
+            }
+
+            out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل تقرير الجرد...</p>';
+
+            try {
+                // Filter products by category
+                let products = state.products || [];
+                if (category !== 'all') {
+                    const catMap = {
+                        'finished': 'إنتاج تام',
+                        'raw': 'خامات',
+                        'packaging': 'تعبئة وتغليف'
+                    };
+                    const catName = catMap[category];
+                    products = products.filter(p => (p.category || '').includes(catName));
+                }
+
+                let totalValue = 0;
+                const rows = products.map(p => {
+                    const stock = Number(p.stock || 0);
+                    const price = Number(p.price || 0);
+                    const value = stock * price;
+                    totalValue += value;
+
+                    return `
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="px-3 py-2 text-right font-semibold">${escapeHtml(p.name)}</td>
+                            <td class="px-3 py-2 text-center">${escapeHtml(p.category || '-')}</td>
+                            <td class="px-3 py-2 text-center font-bold text-blue-600">${stock}</td>
+                            <td class="px-3 py-2 text-center">${formatCurrency(price)}</td>
+                            <td class="px-3 py-2 text-center font-bold">${formatCurrency(value)}</td>
+                        </tr>
+                    `;
+                }).join('');
+
+                out.innerHTML = `
+                    <div id="inventory-report-output" class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="text-xl font-bold mb-4 text-center text-blue-600">تقرير جرد المخازن - ${dateVal}</h3>
+                        <div class="mb-4 p-3 bg-gray-100 rounded flex justify-between items-center">
+                            <span class="font-semibold">إجمالي قيمة المخزون:</span>
+                            <span class="text-2xl font-bold text-green-600">${formatCurrency(totalValue)}</span>
+                        </div>
+                        <div class="overflow-x-auto border rounded">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-blue-600 text-white">
+                                    <tr>
+                                        <th class="px-3 py-2 text-right">الصنف</th>
+                                        <th class="px-3 py-2 text-center">الفئة</th>
+                                        <th class="px-3 py-2 text-center">الكمية</th>
+                                        <th class="px-3 py-2 text-center">السعر</th>
+                                        <th class="px-3 py-2 text-center">القيمة</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows}</tbody>
+                                <tfoot class="bg-gray-100 font-bold">
+                                    <tr>
+                                        <td colspan="4" class="px-3 py-2 text-right">الإجمالي:</td>
+                                        <td class="px-3 py-2 text-center text-green-600">${formatCurrency(totalValue)}</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div class="mt-4 flex gap-2 no-print">
+                            <button onclick="printSection('inventory-report-output')" class="flex-1 bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
+                            <button onclick="generateReportImage('inventory-report-output')" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
+                        </div>
+                    </div>
+                `;
+                updateIcons();
+            } catch (err) {
+                console.error('generateInventoryReport error:', err);
+                out.innerHTML = '<p class="text-center text-red-500 p-4">حدث خطأ أثناء تحميل تقرير الجرد.</p>';
+            }
+        }
+
+        // تقرير أرباح وخسائر التشغيلات
+        async function generateBatchProfitsReport() {
+            const out = document.getElementById('batch-profits-output') || reportOutputArea;
+            const startVal = document.getElementById('batch-profits-start')?.value;
+            const endVal = document.getElementById('batch-profits-end')?.value;
+            const productFilter = document.getElementById('batch-profits-product')?.value || 'all';
+
+            if (!out) return;
+            if (!startVal || !endVal) {
+                await customDialog({ title: 'بيانات ناقصة', message: 'الرجاء تحديد فترة التقرير.' });
+                return;
+            }
+
+            out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل تقرير الأرباح...</p>';
+
+            try {
+                // Get batches from Costs V2 system
+                const batchesSnap = await db.collection('costs_v2_batches')
+                    .where('status', '==', 'completed')
+                    .orderBy('completedAt', 'desc')
+                    .get();
+
+                const startDate = new Date(startVal);
+                const endDate = new Date(endVal);
+                
+                let totalRevenue = 0;
+                let totalCost = 0;
+                let totalProfit = 0;
+
+                const rows = [];
+                
+                for (const doc of batchesSnap.docs) {
+                    const batch = doc.data();
+                    const completedDate = batch.completedAt?.toDate?.() || new Date(batch.completedAt);
+                    
+                    if (completedDate < startDate || completedDate > endDate) continue;
+                    if (productFilter !== 'all' && batch.finishedProductId !== productFilter) continue;
+
+                    const batchNumber = batch.batchNumber || doc.id;
+                    const productName = batch.finishedProductName || '-';
+                    const quantityProduced = Number(batch.actualYield || 0);
+                    const costPerUnit = Number(batch.costPerKg || 0);
+                    const totalBatchCost = quantityProduced * costPerUnit;
+
+                    // Get revenue from sales (from batch.revenue if available)
+                    const revenue = Number(batch.revenue || 0);
+                    const profit = revenue - totalBatchCost;
+                    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : '0.00';
+
+                    totalRevenue += revenue;
+                    totalCost += totalBatchCost;
+                    totalProfit += profit;
+
+                    rows.push(`
+                        <tr class="border-b hover:bg-gray-50">
+                            <td class="px-3 py-2 text-center font-semibold">${escapeHtml(batchNumber)}</td>
+                            <td class="px-3 py-2 text-right">${escapeHtml(productName)}</td>
+                            <td class="px-3 py-2 text-center">${quantityProduced.toFixed(2)}</td>
+                            <td class="px-3 py-2 text-center">${formatCurrency(costPerUnit)}</td>
+                            <td class="px-3 py-2 text-center text-red-600 font-bold">${formatCurrency(totalBatchCost)}</td>
+                            <td class="px-3 py-2 text-center text-green-600 font-bold">${formatCurrency(revenue)}</td>
+                            <td class="px-3 py-2 text-center font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(profit)}</td>
+                            <td class="px-3 py-2 text-center ${parseFloat(margin) >= 0 ? 'text-green-600' : 'text-red-600'}">${margin}%</td>
+                        </tr>
+                    `);
+                }
+
+                if (rows.length === 0) {
+                    out.innerHTML = '<p class="text-center text-gray-500 p-4">لا توجد تشغيلات مكتملة في الفترة المحددة.</p>';
+                    return;
+                }
+
+                const totalMargin = totalRevenue > 0 ? ((totalProfit / totalRevenue) * 100).toFixed(2) : '0.00';
+
+                out.innerHTML = `
+                    <div id="batch-profits-report-output" class="bg-white p-4 rounded-lg shadow">
+                        <h3 class="text-xl font-bold mb-4 text-center text-blue-600">تقرير أرباح وخسائر التشغيلات</h3>
+                        <div class="mb-4 p-3 bg-gray-100 rounded">
+                            <div class="grid grid-cols-3 gap-4 text-center">
+                                <div>
+                                    <div class="text-sm text-gray-600">إجمالي الإيرادات</div>
+                                    <div class="text-xl font-bold text-green-600">${formatCurrency(totalRevenue)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm text-gray-600">إجمالي التكاليف</div>
+                                    <div class="text-xl font-bold text-red-600">${formatCurrency(totalCost)}</div>
+                                </div>
+                                <div>
+                                    <div class="text-sm text-gray-600">صافي الربح</div>
+                                    <div class="text-xl font-bold ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(totalProfit)}</div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="overflow-x-auto border rounded">
+                            <table class="min-w-full text-sm">
+                                <thead class="bg-blue-600 text-white">
+                                    <tr>
+                                        <th class="px-3 py-2 text-center">رقم التشغيلة</th>
+                                        <th class="px-3 py-2 text-right">المنتج</th>
+                                        <th class="px-3 py-2 text-center">الكمية المنتجة</th>
+                                        <th class="px-3 py-2 text-center">تكلفة الوحدة</th>
+                                        <th class="px-3 py-2 text-center">التكلفة الكلية</th>
+                                        <th class="px-3 py-2 text-center">الإيراد</th>
+                                        <th class="px-3 py-2 text-center">صافي الربح</th>
+                                        <th class="px-3 py-2 text-center">هامش الربح %</th>
+                                    </tr>
+                                </thead>
+                                <tbody>${rows.join('')}</tbody>
+                                <tfoot class="bg-gray-100 font-bold">
+                                    <tr>
+                                        <td colspan="4" class="px-3 py-2 text-right">الإجمالي:</td>
+                                        <td class="px-3 py-2 text-center text-red-600">${formatCurrency(totalCost)}</td>
+                                        <td class="px-3 py-2 text-center text-green-600">${formatCurrency(totalRevenue)}</td>
+                                        <td class="px-3 py-2 text-center ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(totalProfit)}</td>
+                                        <td class="px-3 py-2 text-center">${totalMargin}%</td>
+                                    </tr>
+                                </tfoot>
+                            </table>
+                        </div>
+                        <div class="mt-4 flex gap-2 no-print">
+                            <button onclick="printSection('batch-profits-report-output')" class="flex-1 bg-gray-600 text-white py-2 rounded-lg hover:bg-gray-700 flex items-center justify-center gap-2"><i data-lucide='printer'></i> طباعة</button>
+                            <button onclick="generateReportImage('batch-profits-report-output')" class="flex-1 bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700 flex items-center justify-center gap-2"><i data-lucide='image'></i> نسخ كصورة</button>
+                        </div>
+                    </div>
+                `;
+                updateIcons();
+            } catch (err) {
+                console.error('generateBatchProfitsReport error:', err);
+                out.innerHTML = '<p class="text-center text-red-500 p-4">حدث خطأ أثناء تحميل تقرير الأرباح.</p>';
             }
         }
 
@@ -20204,6 +20449,8 @@
             try { document.getElementById('generate-stocktake-report-btn').addEventListener('click', () => generateStocktakeReport({ auto:false })); } catch(e){}
             try { document.getElementById('generate-targets-report-btn').addEventListener('click', generateTargetsReport); } catch(e){}
             try { document.getElementById('generate-customer-targets-report-btn').addEventListener('click', generateCustomerTargetsReport); } catch(e){}
+            try { document.getElementById('generate-inventory-report-btn').addEventListener('click', generateInventoryReport); } catch(e){}
+            try { document.getElementById('generate-batch-profits-btn').addEventListener('click', generateBatchProfitsReport); } catch(e){}
             // Targets: regenerate on month or rep filter change
             try {
                 const tMonth = document.getElementById('targets-month');
