@@ -1500,7 +1500,8 @@
                     }
                     
                     // 🔒 إعادة تطبيق قيود الأدوار بعد تحميل المناديب لضمان عرض الأيقونات الصحيحة
-                    if (typeof window.applyRoleNavRestrictions === 'function') {
+                    // لكن لا تفعل هذا أثناء عملية الحفظ
+                    if (typeof window.applyRoleNavRestrictions === 'function' && !isSavingInProgress) {
                         console.log('🔒 Reps loaded - reapplying role nav restrictions');
                         window.applyRoleNavRestrictions();
                     }
@@ -1536,8 +1537,8 @@
                         const data = snap.data() || {};
                         const appState = data.appState || {};
                         
-                        // Load chains from cloud
-                        if (Array.isArray(appState.chains)) {
+                        // Load chains from cloud (لكن ليس أثناء عملية الحفظ)
+                        if (Array.isArray(appState.chains) && !isSavingInProgress) {
                             state.chains = appState.chains;
                             // Update localStorage for offline access
                             try { localStorage.setItem('customerChains', JSON.stringify(appState.chains)); } catch(e){}
@@ -9774,6 +9775,9 @@
             }
 
             try {
+                // 🔒 Lock UI during save
+                window.setSaveInProgress(true);
+                
                 showLoading('جارٍ حفظ الفاتورة...');
 
                 // حفظ عبر Firestore بدلاً من push محلي
@@ -9790,7 +9794,7 @@
                 hideLoading();
                 closeModal(saleModal);
                 // onSnapshot سيعيد تحديث القوائم تلقائياً
-                // تحديث التقارير بعد 2 ثانية (debounced)
+                // تحديث التقارير بعد 5 ثواني (لا تحديث أثناء الحفظ)
                 try {
                     if (typeof debouncedBatchProfitsUpdate === 'function') {
                         debouncedBatchProfitsUpdate();
@@ -9803,8 +9807,12 @@
                     }
                 } catch(e){ console.warn('Cash cloud sync after sale save failed', e); }
                 await customDialog({ message: 'تم حفظ الفاتورة بنجاح في السحابة.', title: 'نجاح', confirmClass: 'bg-green-600 hover:bg-green-700' });
+                
+                // 🔓 Unlock UI after 1 second
+                setTimeout(() => window.setSaveInProgress(false), 1000);
             } catch (error) {
                 hideLoading(); // Hide loading indicator on error
+                window.setSaveInProgress(false); // Unlock on error
                 console.error('Error saving sale locally:', error);
                 await customDialog({ message: 'فشل حفظ الفاتورة: ' + (error && error.message ? error.message : String(error)), title: 'خطأ في الحفظ', confirmClass: 'bg-red-600 hover:bg-red-700' });
             }
@@ -9812,18 +9820,29 @@
 
         // --- END NEW FUNCTIONS ---
 
+        // 🔒 UI Lock for Save Operations
+        let isSavingInProgress = false;
+        window.setSaveInProgress = function(state) {
+            isSavingInProgress = state;
+            console.log(isSavingInProgress ? '🔒 UI Locked - Save in progress' : '🔓 UI Unlocked - Save complete');
+        };
+
         // ⏳ Debounce helper for post-save updates
         let batchProfitsReportTimeout = null;
         function debouncedBatchProfitsUpdate() {
             if (batchProfitsReportTimeout) clearTimeout(batchProfitsReportTimeout);
             batchProfitsReportTimeout = setTimeout(() => {
-                try {
-                    if (typeof window.generateBatchProfitsReport === 'function') {
-                        console.log('⏳ Updating batch profits report (debounced)...');
-                        window.generateBatchProfitsReport();
-                    }
-                } catch(e) { console.warn('Debounced batch profits update failed:', e); }
-            }, 2000); // تأخير 2 ثانية
+                // فقط إذا كانت صفحة التقارير مفتوحة
+                const reportsPage = document.getElementById('page-reports');
+                if (reportsPage && !reportsPage.classList.contains('hidden')) {
+                    try {
+                        if (typeof window.generateBatchProfitsReport === 'function') {
+                            console.log('⏳ Updating batch profits report (debounced - 5s delay)...');
+                            window.generateBatchProfitsReport();
+                        }
+                    } catch(e) { console.warn('Debounced batch profits update failed:', e); }
+                }
+            }, 5000); // 5 ثواني كاملة بدلاً من 2
         }
 
         function loadState() {
@@ -15915,6 +15934,9 @@
         }
 
         async function saveAllSpreadsheetEntries() {
+            // 🔒 Lock UI during save
+            window.setSaveInProgress(true);
+            
             const repName = spreadsheetRepSelect.value;
             const customerId = spreadsheetCustomerSelect.value;
             const dateValue = spreadsheetDateInput.value;
@@ -15922,6 +15944,7 @@
             const requiresTaxFiling = customer?.requiresTaxFiling || false;
 
             if (!repName || !customerId || !dateValue) {
+                window.setSaveInProgress(false); // Unlock on early return
                 await customDialog({ message: 'الرجاء اختيار المندوب والعميل والتاريخ أولاً.', title: 'بيانات ناقصة', confirmClass: 'bg-red-600 hover:bg-red-700' });
                 return;
             }
@@ -16219,6 +16242,10 @@
                 
                 renderAll();
                 await customDialog({ message: `تم حفظ ${savedCount} فاتورة بنجاح. ${rep ? `رقم الفاتورة القادمة للمندوب ${repName} هو ${rep.nextInvoiceNumber}.` : ''}`, title: 'حفظ ناجح', confirmClass: 'bg-green-600 hover:bg-green-700' });
+                
+                // 🔓 Unlock UI after 1 second
+                setTimeout(() => window.setSaveInProgress(false), 1000);
+                
                 initializeSpreadsheetPage();
             } else {
                 // Provide more info to the user if available
@@ -16246,6 +16273,9 @@
                         if (firstInvalid && typeof firstInvalid.focus === 'function') firstInvalid.focus();
                     } catch(_){ }
                 }
+                
+                // 🔓 Unlock UI on error
+                window.setSaveInProgress(false);
             }
         }
 
