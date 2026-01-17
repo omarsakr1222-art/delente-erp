@@ -245,27 +245,29 @@
             position: fixed;
             left: 0;
             right: 0;
-            bottom: -64px; /* Hide below bottom-nav by default */
-            height: 64px; /* Taller area for icons/labels */
+            bottom: 56px; /* Above bottom-nav */
+            height: auto;
+            min-height: 56px;
             background-color: #f3f4f6; /* Gray-100 */
             border-top: 1px solid #e5e7eb;
             box-shadow: 0 -1px 8px rgba(0,0,0,0.04);
             display: none;
             justify-content: space-around;
             align-items: center;
-            padding: 0 6px;
-            z-index: 50; /* below bottom nav */
-            transition: bottom 0.3s ease;
+            padding: 8px 6px;
+            z-index: 45; /* below bottom nav (50) but visible */
+            transition: all 0.3s ease;
+            gap: 4px;
         }
 
         #reports-subnav.active {
             display: flex !important;
-            bottom: 56px !important; /* Position above bottom-nav (56px is default min-height) */
         }
         
         .reports-subnav-item {
-            width: 25%; /* 4 items */
-            padding: 0.5rem 0.25rem; /* Equivalent to p-2 */
+            flex: 1;
+            max-width: 120px;
+            padding: 8px 4px;
             display: flex;
             flex-direction: column;
             align-items: center;
@@ -1725,7 +1727,7 @@
             </div>
             
             <!-- RE-ACTIVATED REPORTS PAGE -->
-            <div id="page-reports" class="page" style="padding-bottom: 50px;">
+            <div id="page-reports" class="page" style="padding-bottom: 130px;">
                 <h2 class="text-xl font-bold mb-4 no-print">التقارير التفصيلية</h2>
                 
                 <div id="report-filter-container" class="bg-gray-100 p-4 rounded-lg mb-4 no-print">

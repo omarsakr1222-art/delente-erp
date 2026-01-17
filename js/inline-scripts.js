@@ -10505,7 +10505,13 @@
                 if (pageEl) pageEl.classList.add('active');
                 // Query reports-subnav fresh each time to ensure it's found
                 const reportsSubnavEl = document.getElementById('reports-subnav');
-                if (reportsSubnavEl) reportsSubnavEl.classList.add('active');
+                console.log('📊 Reports page activated, reportsSubnavEl:', reportsSubnavEl);
+                if (reportsSubnavEl) {
+                    reportsSubnavEl.classList.add('active');
+                    console.log('✅ reports-subnav class "active" added');
+                } else {
+                    console.warn('⚠️ reports-subnav element not found!');
+                }
                 initializeReportsPage();
             } else {
                 // Query reports-subnav fresh each time
