@@ -2677,71 +2677,6 @@
             </div>
 
             <!-- PAGE: PRODUCTION RUNS / التشغيلات -->
-            <div id="page-production" class="page" style="padding-bottom: 80px;">
-                <div class="mb-6 flex items-center justify-between">
-                    <h3 class="text-xl font-bold flex items-center gap-2">
-                        <i data-lucide="settings" class="w-6 h-6 text-green-600"></i>
-                        إدارة التشغيلات (دفعات الإنتاج)
-                    </h3>
-                    <button id="create-production-btn" onclick="window.openCreateProductionModal()" class="bg-green-600 hover:bg-green-700 text-white px-4 py-2 rounded-md text-sm font-semibold flex items-center gap-1">
-                        <i data-lucide="plus" class="w-4 h-4"></i> تشغيلة جديدة
-                    </button>
-                </div>
-
-                <div class="p-4 rounded-lg bg-green-50 border border-green-200 text-sm leading-relaxed mb-6">
-                    إنشاء تشغيلات إنتاج جديدة بناءً على الوصفات. كل تشغيلة تُتبع من البدء إلى الانتهاء، مع تحديث المخزون وحساب الأرباح والخسائر تلقائياً.
-                </div>
-
-                <!-- Tabs for viewing productions -->
-                <div class="flex gap-2 mb-4 border-b">
-                    <button id="tab-active-productions" class="px-4 py-2 font-semibold text-green-600 border-b-2 border-green-600">التشغيلات الجارية</button>
-                    <button id="tab-completed-productions" class="px-4 py-2 font-semibold text-gray-600 hover:text-gray-800">التشغيلات المنتهية</button>
-                </div>
-
-                <!-- Active Productions Table -->
-                <div id="active-productions-section" class="mb-6">
-                    <div class="overflow-x-auto bg-white rounded-lg shadow">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-green-50">
-                                <tr>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">رقم التشغيلة</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">المنتج</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">الوصفة</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">تاريخ البدء</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">الكمية المتوقعة</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">الحالة</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">الإجراءات</th>
-                                </tr>
-                            </thead>
-                            <tbody id="active-productions-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
-                    </div>
-                    <div id="no-active-productions" class="text-center py-6 text-gray-500">لا توجد تشغيلات جارية حالياً</div>
-                </div>
-
-                <!-- Completed Productions Table -->
-                <div id="completed-productions-section" class="mb-6 hidden">
-                    <div class="overflow-x-auto bg-white rounded-lg shadow">
-                        <table class="min-w-full divide-y divide-gray-200">
-                            <thead class="bg-blue-50">
-                                <tr>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">رقم التشغيلة</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">المنتج</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">الكمية النهائية</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">التكلفة الإجمالية</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">سعر البيع</th>
-                                    <th class="px-3 py-3 text-right text-xs font-semibold text-gray-700">الربح/الخسارة</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">تاريخ الانتهاء</th>
-                                    <th class="px-3 py-3 text-center text-xs font-semibold text-gray-700">الإجراءات</th>
-                                </tr>
-                            </thead>
-                            <tbody id="completed-productions-table-body" class="bg-white divide-y divide-gray-200"></tbody>
-                        </table>
-                    </div>
-                    <div id="no-completed-productions" class="text-center py-6 text-gray-500">لا توجد تشغيلات منتهية حالياً</div>
-                </div>
-            </div>
-
             <div id="page-total-bills" class="page">
                 <div id="total-bills-content-wrapper">
                     <h2 class="text-xl font-bold mb-4">إجمالي الفواتير</h2>
@@ -3492,11 +3427,6 @@
             <button id="costs-v2-nav-btn" data-page="costs-v2" class="bottom-nav-item flex flex-col items-center text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-factory"><path d="M2 20h20"/><path d="M4 20V10l6-6 6 6v10"/><path d="M8 14h8"/><path d="M8 18h8"/></svg>
                 <span class="text-xs">تكاليف2</span>
-            </button>
-            <!-- NEW: Production / التشغيلات Button -->
-            <button id="production-nav-btn" data-page="production" class="bottom-nav-item flex flex-col items-center text-gray-600">
-                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-settings"><circle cx="12" cy="12" r="3"/><path d="M12 1v6m0 6v6M4.22 4.22l4.24 4.24m5.08 5.08l4.24 4.24M1 12h6m6 0h6M4.22 19.78l4.24-4.24m5.08-5.08l4.24-4.24"/></svg>
-                <span class="text-xs">التشغيلات</span>
             </button>
             <button data-page="promotions" class="bottom-nav-item flex flex-col items-center text-gray-600">
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-percent"><line x1="19" x2="5" y1="5" y2="19"/><circle cx="6.5" cy="6.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/></svg>

@@ -17590,6 +17590,7 @@
 
                 const startDate = new Date(startVal);
                 const endDate = new Date(endVal);
+                endDate.setHours(23, 59, 59, 999);
                 
                 let totalRevenue = 0;
                 let totalCost = 0;
@@ -17606,12 +17607,44 @@
 
                     const batchNumber = batch.batchNumber || doc.id;
                     const productName = batch.finishedProductName || '-';
+                    const productId = batch.finishedProductId;
                     const quantityProduced = Number(batch.actualYield || 0);
                     const costPerUnit = Number(batch.costPerKg || 0);
                     const totalBatchCost = quantityProduced * costPerUnit;
 
-                    // Get revenue from sales (from batch.revenue if available)
-                    const revenue = Number(batch.revenue || 0);
+                    // Calculate revenue from sales for this product during batch period
+                    // Get batch start date (or use completed date as fallback)
+                    const batchStart = batch.createdAt?.toDate?.() || completedDate;
+                    
+                    let revenue = 0;
+                    
+                    // Calculate from state.sales
+                    if (productId && state.sales) {
+                        const productSales = state.sales.filter(sale => {
+                            const saleDate = new Date(sale.date);
+                            if (isNaN(saleDate.getTime())) return false;
+                            // Sales between batch start and completion
+                            if (saleDate < batchStart || saleDate > completedDate) return false;
+                            
+                            // Check if sale contains this product
+                            return sale.items?.some(item => 
+                                item.productId === productId || 
+                                item.productName === productName
+                            );
+                        });
+                        
+                        // Sum revenue from matching sales
+                        productSales.forEach(sale => {
+                            sale.items?.forEach(item => {
+                                if (item.productId === productId || item.productName === productName) {
+                                    const qty = Number(item.quantity || item.qty || 0);
+                                    const price = Number(item.price || 0);
+                                    revenue += qty * price;
+                                }
+                            });
+                        });
+                    }
+
                     const profit = revenue - totalBatchCost;
                     const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : '0.00';
 
