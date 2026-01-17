@@ -1052,17 +1052,21 @@
         const suggestionsDiv = document.getElementById('cv2-product-suggestions');
         if (!suggestionsDiv) return;
 
+        // If empty query, show ALL finished products (full dropdown behavior)
+        let matches;
         if (query.length === 0) {
-            suggestionsDiv.classList.add('hidden');
-            return;
+            // Show all finished products when field is empty/focused
+            matches = Object.entries(productsMap)
+                .map(([id, p]) => ({ id, ...p }))
+                .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+        } else {
+            // 🔍 Search in finished products (case-insensitive, partial match)
+            const queryLower = query.toLowerCase();
+            matches = Object.entries(productsMap)
+                .filter(([id, p]) => p.name && p.name.toLowerCase().includes(queryLower))
+                .map(([id, p]) => ({ id, ...p }))
+                .slice(0, 15);
         }
-
-        // 🔍 Search in finished products (case-insensitive, partial match)
-        const queryLower = query.toLowerCase();
-        const matches = Object.entries(productsMap)
-            .filter(([id, p]) => p.name && p.name.toLowerCase().includes(queryLower))
-            .map(([id, p]) => ({ id, ...p }))
-            .slice(0, 10);
 
         if (matches.length === 0) {
             // Show "no results" message
@@ -1077,9 +1081,13 @@
             const displayUnit = product.unit || 'كجم';
             const displayPrice = product.price ? product.price.toFixed(2) : '0.00';
             html += `
-                <div class="p-3 border-b cursor-pointer hover:bg-blue-50 transition" onclick="window.costsV2.selectProduct('${displayName}', '${displayUnit}')">
-                    <div class="font-bold text-slate-800">${displayName}</div>
-                    <div class="text-xs text-slate-500">الوحدة: <span class="font-semibold text-slate-600">${displayUnit}</span> | السعر: ${displayPrice} ج.م</div>
+                <div class="p-3 border-b cursor-pointer hover:bg-blue-50 transition flex justify-between items-center" 
+                     onclick="window.costsV2.selectProduct('${displayName}', '${displayUnit}')">
+                    <div class="flex-1">
+                        <div class="font-bold text-slate-800">${displayName}</div>
+                        <div class="text-xs text-slate-500">السعر: ${displayPrice} ج.م</div>
+                    </div>
+                    <div class="text-xs font-semibold text-slate-600 ml-4">${displayUnit}</div>
                 </div>
             `;
         });

@@ -3270,14 +3270,16 @@
                             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                                 <div class="relative">
                                     <label class="text-xs font-bold text-slate-500 mb-1 block">اسم المنتج النهائي</label>
-                                    <input id="cv2-rec-name" placeholder="مثال: جبنة بيضاء" class="w-full p-2 border rounded-lg text-sm" required oninput="window.costsV2.showProductSuggestions(this.value)">
-                                    <div id="cv2-product-suggestions" class="hidden absolute bg-white border-2 border-blue-200 rounded-lg shadow-lg mt-1 max-h-40 overflow-y-auto w-full z-50">
+                                    <input id="cv2-rec-name" placeholder="اختر منتج من القائمة..." class="w-full p-2 border rounded-lg text-sm cursor-pointer" required 
+                                           onfocus="window.costsV2.showProductSuggestions('')"
+                                           oninput="window.costsV2.showProductSuggestions(this.value)">
+                                    <div id="cv2-product-suggestions" class="hidden absolute bg-white border-2 border-blue-200 rounded-lg shadow-lg mt-1 max-h-60 overflow-y-auto w-full z-50">
                                         <!-- سيتم ملأها ديناميكياً -->
                                     </div>
                                 </div>
                                 <div>
                                     <label class="text-xs font-bold text-slate-500 mb-1 block">وحدة المنتج</label>
-                                    <input id="cv2-rec-unit" placeholder="صفيحة/كجم" class="w-full p-2 border rounded-lg text-sm" required>
+                                    <input id="cv2-rec-unit" placeholder="مثال: قطعة / كجم" class="w-full p-2 border rounded-lg text-sm bg-blue-50" required readonly>
                                 </div>
                             </div>
 
