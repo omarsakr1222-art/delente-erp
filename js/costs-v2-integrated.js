@@ -251,13 +251,15 @@
                     category: 'packaging',
                     type: 'تغليف'
                 };
-            } else if (d.category === 'finished_goods' || d.type === 'finished' || d.category === 'منتج تام') {
-                // منتجات تامة
+            } else {
+                // ✅ كل ما تبقى = منتج تام (لا خامات، لا تغليف)
+                // هذا يشمل: finished_goods, منتج تام, أو أي شيء آخر
                 productsMap[d.id || product.id] = {
                     name: d.name,
                     unit: d.unit || 'كجم',
                     price: d.price || 0,
-                    id: d.id
+                    id: d.id,
+                    category: d.category || 'finished_goods'
                 };
             }
 
