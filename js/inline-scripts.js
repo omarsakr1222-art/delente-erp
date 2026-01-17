@@ -1066,40 +1066,58 @@
 
                     const setupRepNameListener = () => {
                         try {
-                            const currentRepDoc = (state.reps || []).find(r => (r.email || '').toLowerCase() === email);
-                            const repName = currentRepDoc ? currentRepDoc.name : null;
-                            if (repName) {
+                            const normalizedEmail = (email || '').trim().toLowerCase();
+                            // 🔍 بحث دقيق: استخدام trim() و toLowerCase() للمقارنة
+                            const currentRepDoc = (state.reps || []).find(r => {
+                                const rEmail = (r.email || '').trim().toLowerCase();
+                                return rEmail === normalizedEmail;
+                            });
+                            
+                            // 📛 اسم المندوب: من قاعدة البيانات أو fallback للجزء الأول من الإيميل
+                            const repName = currentRepDoc ? currentRepDoc.name : (() => {
+                                // Fallback: استخدم الجزء الأول من الإيميل (قبل @)
+                                const localPart = (email || '').split('@')[0];
+                                return localPart ? localPart : 'user';
+                            })();
+                            
+                            if (currentRepDoc) {
                                 console.log('✅ Rep listener: watching sales where repName==', repName);
-                                db.collection('sales').where('repName', '==', repName).onSnapshot(snap => {
-                                    // console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
-                                    try {
-                                        snap.docChanges().forEach(change => {
-                                            if (change.type === 'removed') {
-                                                try {
-                                                    byId.delete(change.doc.id);
-                                                } catch(_) {}
-                                                return;
-                                            }
-                                            const d = change.doc.data() || {};
-                                            d._id = change.doc.id;
-                                            if (!d.id) d.id = change.doc.id;
-                                            console.log(' - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
-                                            byId.set(change.doc.id, d);
-                                        });
-                                    } catch(e) {
-                                        snap.forEach(doc => {
-                                            const d = doc.data() || {};
-                                            d._id = doc.id;
-                                            if (!d.id) d.id = doc.id;
-                                            byId.set(doc.id, d);
-                                        });
-                                    }
-                                    mergeAndRender();
-                                }, err => console.warn('sales repName query error', err));
                             } else {
-                                console.warn('⚠️ Could not find rep name for email:', email);
-                                // Retry removed to prevent console spam
+                                // بدلاً من التحذير الأصفر، نستخدم الاسم المؤقت بصمت
+                                console.log('ℹ️ Rep name not found in database, using email prefix:', repName);
                             }
+                            
+                            db.collection('sales').where('repName', '==', repName).onSnapshot(snap => {
+                                // console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
+                                try {
+                                    snap.docChanges().forEach(change => {
+                                        if (change.type === 'removed') {
+                                            try {
+                                                byId.delete(change.doc.id);
+                                            } catch(_) {}
+                                            return;
+                                        }
+                                        const d = change.doc.data() || {};
+                                        d._id = change.doc.id;
+                                        if (!d.id) d.id = change.doc.id;
+                                        // console.log(' - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
+                                        byId.set(change.doc.id, d);
+                                    });
+                                } catch(e) {
+                                    snap.forEach(doc => {
+                                        const d = doc.data() || {};
+                                        d._id = doc.id;
+                                        if (!d.id) d.id = doc.id;
+                                        byId.set(doc.id, d);
+                                    });
+                                }
+                                mergeAndRender();
+                            }, err => {
+                                // صمت تام لأخطاء البحث (قد تكون فارغة إذا لم يكن هناك فواتير)
+                                if (err && err.code !== 'permission-denied') {
+                                    console.warn('sales repName query error', err);
+                                }
+                            });
                         } catch(e) {
                             console.warn('setupRealtimeListeners: repName listener failed', e);
                             // setTimeout(setupRepNameListener, 2000); // Retry removed to prevent console spam
