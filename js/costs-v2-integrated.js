@@ -24,6 +24,16 @@
     let allProductsFromStock = [];  // جميع المنتجات من الاستوك
     // تجميع الإيرادات الحقيقية من مجموعة المبيعات العامة (sales) حسب المنتج
     let salesRevenueByProductId = {}; // { productId: sumRevenue }
+    
+    // ===== Listener Management =====
+    let listenersActive = false;  // Track if listeners are running
+    let unsubscribers = {
+        ingredients: null,
+        recipes: null,
+        batches: null,
+        salesRevenue: null,
+        productsStock: null
+    };
 
     function normalizeName(s){
         return String(s||'').trim().toLowerCase();
@@ -287,6 +297,11 @@
         const db = getDb();
         if(!db) return;
 
+        // Clean up old listener if exists
+        if(unsubscribers.ingredients) {
+            try { unsubscribers.ingredients(); } catch(e){ }
+        }
+
         const unsubscribe = db.collection(COLL_ING)
             .orderBy('updatedAt', 'desc')
             .onSnapshot(snap => {
@@ -300,7 +315,10 @@
                 renderAllIngredients();
             });
 
-        // Store subscription for cleanup
+        // Store unsubscriber for cleanup
+        unsubscribers.ingredients = unsubscribe;
+        
+        // Also store in legacy system for compatibility
         if(window.storeSubscription) {
             window.storeSubscription('cv2-ingredients', unsubscribe);
         }
@@ -379,8 +397,14 @@
     function initSalesRevenueListener(){
         const db = getDb();
         if(!db) return;
+        
+        // Clean up old listener if exists
+        if(unsubscribers.salesRevenue) {
+            try { unsubscribers.salesRevenue(); } catch(e){ }
+        }
+        
         try {
-            db.collection('sales').onSnapshot(snap => {
+            const unsubscribe = db.collection('sales').onSnapshot(snap => {
                 const agg = {};
                 snap.forEach(doc => {
                     const s = doc.data() || {};
@@ -410,6 +434,9 @@
             }, err => {
                 // Silent on permission errors
             });
+            
+            // Store unsubscriber for cleanup
+            unsubscribers.salesRevenue = unsubscribe;
         } catch(e){ /* ignore */ }
     }
 
@@ -481,6 +508,11 @@
         const db = getDb();
         if(!db) return;
 
+        // Clean up old listener if exists
+        if(unsubscribers.recipes) {
+            try { unsubscribers.recipes(); } catch(e){ }
+        }
+
         const unsubscribe = db.collection(COLL_RECIPES)
             .onSnapshot(snap => {
                 console.log('📋 Recipes loaded:', snap.docs.length, 'recipes');
@@ -525,6 +557,9 @@
                 if(window.lucide) lucide.createIcons();
             });
 
+        // Store unsubscriber for cleanup
+        unsubscribers.recipes = unsubscribe;
+        
         if(window.storeSubscription) {
             window.storeSubscription('cv2-recipes', unsubscribe);
         }
@@ -622,6 +657,11 @@
         const db = getDb();
         if(!db) return;
 
+        // Clean up old listener if exists
+        if(unsubscribers.batches) {
+            try { unsubscribers.batches(); } catch(e){ }
+        }
+
         const unsubscribe = db.collection(COLL_BATCHES)
             .orderBy('createdAt', 'desc')
             .onSnapshot(snap => {
@@ -686,6 +726,9 @@
                 if(window.lucide) lucide.createIcons();
             });
 
+        // Store unsubscriber for cleanup
+        unsubscribers.batches = unsubscribe;
+        
         if(window.storeSubscription) {
             window.storeSubscription('cv2-batches', unsubscribe);
         }
@@ -1081,6 +1124,46 @@
         console.log('✅ Batch profits dropdown populated with', finishedProducts.length, 'finished products');
     }
 
+    // ===== Cleanup: Disable all listeners when not needed =====
+    function cleanupListeners() {
+        console.log('🔴 Costs V2: Disabling all listeners (entering idle state)...');
+        
+        // Unsubscribe from all active listeners
+        if(unsubscribers.ingredients) {
+            try { unsubscribers.ingredients(); } catch(e){ }
+            unsubscribers.ingredients = null;
+        }
+        if(unsubscribers.recipes) {
+            try { unsubscribers.recipes(); } catch(e){ }
+            unsubscribers.recipes = null;
+        }
+        if(unsubscribers.batches) {
+            try { unsubscribers.batches(); } catch(e){ }
+            unsubscribers.batches = null;
+        }
+        if(unsubscribers.salesRevenue) {
+            try { unsubscribers.salesRevenue(); } catch(e){ }
+            unsubscribers.salesRevenue = null;
+        }
+        if(unsubscribers.productsStock) {
+            try { unsubscribers.productsStock(); } catch(e){ }
+            unsubscribers.productsStock = null;
+        }
+        
+        // Clear debounce timers
+        if(window.salesRevenueUpdateTimeout) {
+            clearTimeout(window.salesRevenueUpdateTimeout);
+            window.salesRevenueUpdateTimeout = null;
+        }
+        if(window.batchProfitsReportTimeout) {
+            clearTimeout(window.batchProfitsReportTimeout);
+            window.batchProfitsReportTimeout = null;
+        }
+        
+        listenersActive = false;
+        console.log('✅ Costs V2: All listeners disabled (memory freed)');
+    }
+
     // ===== Export Public API =====
     window.costsV2 = {
         init,
@@ -1100,7 +1183,8 @@
         loadReports,
         showProductSuggestions,
         selectProduct,
-        populateFinishedProductsDropdown
+        populateFinishedProductsDropdown,
+        cleanupListeners
     };
 
     // ===== Lazy-init: Only start after user authentication =====

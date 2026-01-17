@@ -10562,6 +10562,30 @@
                 try { ensureDefaultActivePeriod(); } catch(e){}
             }
             
+            // ===== 🔴 LISTENER CLEANUP: Disable Costs V2 & Stock Control V2 listeners when not needed =====
+            if (pageId === 'sales') {
+                // User entering sales page - disable heavy listeners to free up mobile resources
+                if (window.costsV2 && typeof window.costsV2.cleanupListeners === 'function') {
+                    window.costsV2.cleanupListeners();
+                }
+                if (window.appV2 && typeof window.appV2.cleanup === 'function') {
+                    window.appV2.cleanup();
+                }
+                console.log('🟢 Sales page: Disabled Costs V2 & Stock Control listeners for mobile performance');
+            }
+            
+            // ===== 🟢 RE-ENABLE LISTENERS: Only when clicking Costs/Stock tabs =====
+            if (pageId === 'costs' || pageId === 'finished-products' || pageId === 'raw-materials' || pageId === 'packaging' || pageId === 'stock-control') {
+                // User entering costs or stock pages - reinitialize listeners on demand
+                if (window.costsV2 && typeof window.costsV2.init === 'function') {
+                    window.costsV2.init();
+                }
+                if (window.appV2 && typeof window.appV2.init === 'function') {
+                    window.appV2.init();
+                }
+                console.log('🟢 Costs/Stock page: Listeners re-enabled on demand');
+            }
+            
             // Restrict pages by role (central guard)
             try {
                 if (!canAccessPage(pageId)) {

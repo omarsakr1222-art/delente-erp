@@ -88,6 +88,11 @@ const appV2 = {
         try {
             if (!this.db) return;
             
+            // Clean up old listener if exists
+            if(this.unsubscribeProducts) {
+                try { this.unsubscribeProducts(); } catch(e){ }
+            }
+            
             // ⏳ Debounce timer for render updates
             let renderUpdateTimeout = null;
             
@@ -184,6 +189,9 @@ const appV2 = {
             });
             
             try { 
+                // Store unsubscriber for cleanup
+                this.unsubscribeProducts = unsubProductsV2;
+                
                 if (window.storeSubscription) {
                     window.storeSubscription('stock_v2_products', unsubProductsV2);
                 }
@@ -1319,6 +1327,17 @@ appV2.submitStocktake = async function() {
     } catch (err) {
         console.error('submitStocktake error:', err);
         alert("❌ خطأ في الترحيل: " + err.message);
+    }
+    },
+
+    // ===== Cleanup: Disable listener when not needed =====
+    cleanup() {
+        console.log('🔴 Stock Control V2: Disabling listener (entering idle state)...');
+        if(this.unsubscribeProducts) {
+            try { this.unsubscribeProducts(); } catch(e){ }
+            this.unsubscribeProducts = null;
+        }
+        console.log('✅ Stock Control V2: Listener disabled (memory freed)');
     }
 };
 
