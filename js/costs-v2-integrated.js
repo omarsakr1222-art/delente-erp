@@ -841,94 +841,23 @@
                     </div>
                 </div>
                 <div class="glass-card p-12">
-                    <div class="flex justify-between items-center mb-10">
+                    <div class="mb-10">
                         <h4 class="font-black text-slate-900 text-3xl flex items-center gap-5">
-                            <i data-lucide="shopping-bag" class="text-blue-600 w-10 h-10"></i> سجل مبيعات التشغيلة
+                            <i data-lucide="shopping-bag" class="text-blue-600 w-10 h-10"></i> سجل مبيعات المنتج (حسب المبيعات العامة)
                         </h4>
-                        <button onclick="window.costsV2.openModal('cv2-modal-sale')" class="bg-blue-600 text-white px-10 py-4 rounded-3xl font-black text-base shadow-xl hover:scale-105 transition">
-                            + تسجيل بيع جديد
-                        </button>
+                        <p class="text-sm text-slate-500 mt-2">يتم حساب الإيراد تلقائياً من المبيعات المسجلة في صفحة المبيعات</p>
                     </div>
-                    <table class="w-full text-right">
-                        <thead class="bg-slate-50 text-slate-400 font-black text-[12px] uppercase border-b tracking-[0.2em]">
-                            <tr>
-                                <th class="p-6">العميل</th>
-                                <th class="p-6">الكمية</th>
-                                <th class="p-6">السعر</th>
-                                <th class="p-6">الربح</th>
-                            </tr>
-                        </thead>
-                        <tbody id="cv2-bd-sales-tbody" class="divide-y divide-slate-100 font-bold text-slate-800 text-xl"></tbody>
-                    </table>
+                    <div class="p-6 bg-emerald-50 rounded-xl border border-emerald-200">
+                        <div class="text-center">
+                            <div class="text-sm text-emerald-600 mb-2">إجمالي الإيراد من المبيعات</div>
+                            <div class="text-4xl font-black text-emerald-700">${realRevenue.toLocaleString()} ج.م</div>
+                        </div>
+                    </div>
                 </div>
             `;
 
-            loadBatchSales(id);
             if(window.lucide) lucide.createIcons();
         });
-    }
-
-    function loadBatchSales(id) {
-        const db = getDb();
-        if(!db) return;
-
-        db.collection(COLL_SALES)
-            .where('batchId', '==', id)
-            .onSnapshot(snap => {
-                const tbody = document.getElementById('cv2-bd-sales-tbody');
-                if(!tbody) return;
-                tbody.innerHTML = '';
-
-                snap.docs.forEach(doc => {
-                    const s = doc.data();
-                    const p = s.total - (s.qty * s.costAtSale);
-                    const row = `
-                        <tr class="hover:bg-slate-50 transition">
-                            <td class="p-6 font-black">${s.customer}</td>
-                            <td class="p-6 font-black text-slate-400">${s.qty}</td>
-                            <td class="p-6 text-blue-600 font-black">${s.price}</td>
-                            <td class="p-6 text-emerald-600 font-black">${p.toFixed(1)}</td>
-                        </tr>
-                    `;
-                    tbody.innerHTML += row;
-                });
-            });
-    }
-
-    async function saveBatchSale(e) {
-        e.preventDefault();
-        const db = getDb();
-        if(!db) return;
-
-        const bRef = db.collection(COLL_BATCHES).doc(currentBatchId);
-        const b = (await bRef.get()).data();
-
-        const q = parseFloat(document.getElementById('cv2-sale-qty').value);
-        const p = parseFloat(document.getElementById('cv2-sale-price').value);
-        const total = q * p;
-
-        await db.collection(COLL_SALES).add({
-            batchId: currentBatchId,
-            customer: document.getElementById('cv2-sale-customer').value,
-            qty: q,
-            price: p,
-            total: total,
-            costAtSale: b.unitCost,
-            createdAt: new Date().toISOString()
-        });
-
-        const nS = (b.soldQty || 0) + q;
-        const nR = (b.totalRev || 0) + total;
-        const nP = nR - (nS * b.unitCost);
-
-        await bRef.update({
-            soldQty: nS,
-            totalRev: nR,
-            netProfit: nP
-        });
-
-        closeModal('cv2-modal-sale');
-        e.target.reset();
     }
 
     // ===== Recipe Helpers =====
@@ -1109,7 +1038,6 @@
         saveIngredient,
         saveRecipe,
         closeBatchConfirm,
-        saveBatchSale,
         loadReports,
         showProductSuggestions,
         selectProduct

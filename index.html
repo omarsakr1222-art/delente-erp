@@ -3373,24 +3373,6 @@
                         </form>
                     </div>
                 </div>
-
-                <!-- Modal: Sale -->
-                <div id="cv2-modal-sale" class="fixed inset-0 bg-black/80 hidden z-[100] flex items-center justify-center backdrop-blur-xl p-6">
-                    <div class="bg-white rounded-[2.5rem] w-full max-w-md p-10 shadow-2xl">
-                        <h3 class="text-2xl font-black mb-10 border-b pb-5 text-blue-600">تسجيل مبيعات التشغيلة</h3>
-                        <form onsubmit="window.costsV2.saveBatchSale(event)" class="space-y-6">
-                            <input id="cv2-sale-customer" placeholder="اسم العميل" class="input-pro" required>
-                            <div class="grid grid-cols-2 gap-6">
-                                <input id="cv2-sale-qty" type="number" step="0.01" placeholder="الكمية" class="input-pro" required>
-                                <input id="cv2-sale-price" type="number" step="0.01" placeholder="سعر البيع" class="input-pro text-emerald-600 font-black" required>
-                            </div>
-                            <div class="mt-12 flex gap-5">
-                                <button type="button" onclick="window.costsV2.closeModal('cv2-modal-sale')" class="flex-1 py-5 text-slate-400 font-black">إلغاء</button>
-                                <button type="submit" class="flex-2 py-5 bg-blue-600 text-white rounded-3xl font-black text-lg shadow-2xl">حفظ العملية</button>
-                            </div>
-                        </form>
-                    </div>
-                </div>
             </div>
         </div>
 
