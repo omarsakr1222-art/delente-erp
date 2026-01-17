@@ -22,6 +22,31 @@
     let activeRecipeMap = {};
     let currentBatchId = null;
     let allProductsFromStock = [];  // جميع المنتجات من الاستوك
+    // تجميع الإيرادات الحقيقية من مجموعة المبيعات العامة (sales) حسب المنتج
+    let salesRevenueByProductId = {}; // { productId: sumRevenue }
+
+    function normalizeName(s){
+        return String(s||'').trim().toLowerCase();
+    }
+
+    function findFinishedProductIdByName(name){
+        const n = normalizeName(name);
+        // مطابقة مباشرة على الاسم
+        for(const pid in productsMap){
+            const p = productsMap[pid];
+            if(!p || !p.name) continue;
+            const pn = normalizeName(p.name);
+            if(pn === n) return pid;
+        }
+        // مطابقة تحتوي/يحتوي كحل احتياطي
+        for(const pid in productsMap){
+            const p = productsMap[pid];
+            if(!p || !p.name) continue;
+            const pn = normalizeName(p.name);
+            if(pn.includes(n) || n.includes(pn)) return pid;
+        }
+        return null;
+    }
 
     // ===== Helper Functions =====
     const safeText = (id, text) => {
@@ -117,6 +142,9 @@
 
         // تحميل البيانات من الاستوك أولاً (SYNCHRONOUS)
         loadProductsFromStock();
+
+        // تشغيل مستمع الإيرادات الحقيقية من مجموعة المبيعات العامة
+        initSalesRevenueListener();
         
         // تأخير صغير لضمان معالجة البيانات قبل الاستماع للـ ingredients
         setTimeout(() => {
@@ -321,6 +349,78 @@
             }
 
             const costColor = itemType === 'تغليف' ? 'text-blue-600' : 'text-orange-600';
+
+            // ===== Real Market Revenue Listener (sales collection) =====
+            function initSalesRevenueListener(){
+                const db = getDb();
+                if(!db) return;
+                try {
+                    db.collection('sales').onSnapshot(snap => {
+                        const agg = {};
+                        snap.forEach(doc => {
+                            const s = doc.data() || {};
+                            const items = Array.isArray(s.items) ? s.items : [];
+                            for(const it of items){
+                                const pid = it.productId || it.id || null;
+                                if(!pid) continue;
+                                const qty = Number(it.qty != null ? it.qty : (it.quantity || 0));
+                                const price = Number(it.price || 0);
+                                const subtotal = (isFinite(qty) ? qty : 0) * (isFinite(price) ? price : 0);
+                                agg[pid] = (agg[pid] || 0) + subtotal;
+                            }
+                        });
+                        salesRevenueByProductId = agg;
+                        // لا نطبع أي سجلات هنا للحفاظ على نظافة الكونسول
+                        // إعادة رسم التقارير إن كانت الصفحة مفتوحة
+                        try { rerenderReportsFromRevenue(); } catch(_){ }
+                        // تحديث تفاصيل التشغيلة إن كانت مفتوحة حالياً
+                        try {
+                            const isBatchDetailsVisible = !!document.querySelector('[data-cv2-view="batch-details"]:not(.hidden)');
+                            if(isBatchDetailsVisible && currentBatchId){ viewBatchDetails(currentBatchId); }
+                        } catch(_){ }
+                    }, err => {
+                        // صمت للأخطاء الشائعة التي لا تؤثر على الأداء
+                    });
+                } catch(e){ /* تجاهل */ }
+            }
+
+            function rerenderReportsFromRevenue(){
+                const db = getDb();
+                const tbody = document.getElementById('cv2-reports-tbody');
+                if(!db || !tbody) return;
+                db.collection(COLL_BATCHES)
+                    .where('status', '==', 'closed')
+                    .get()
+                    .then(snap => {
+                        tbody.innerHTML = '';
+                        let tP = 0, tR = 0, tC = 0;
+                        snap.docs.forEach(doc => {
+                            const b = doc.data();
+                            const finishedPid = findFinishedProductIdByName(b.recipeName);
+                            const realRevenue = finishedPid ? (salesRevenueByProductId[finishedPid] || 0) : 0;
+                            const productionCost = Number(b.totalCost || 0);
+                            const profit = realRevenue - productionCost;
+                            tP += profit; tR += realRevenue; tC += productionCost;
+                            const row = `
+                                <tr>
+                                    <td class="p-6 font-mono text-slate-400 text-xs">#${b.batchNumber}</td>
+                                    <td class="p-6 font-black text-xl text-slate-800">${b.recipeName}</td>
+                                    <td class="p-6 font-black text-slate-500">${(b.unitCost||0).toFixed(2)}</td>
+                                    <td class="p-6 font-black text-slate-400">${b.finalQty || 0}</td>
+                                    <td class="p-6 text-emerald-600 font-black text-lg">${realRevenue.toLocaleString()}</td>
+                                    <td class="p-6 text-red-500 font-black text-lg">${productionCost.toLocaleString()}</td>
+                                    <td class="p-6 font-black text-lg ${profit>=0?'text-emerald-700':'text-red-700'}">${profit.toFixed(0)}</td>
+                                    <td class="p-6 font-black bg-slate-50/50">${realRevenue>0?((profit/realRevenue)*100).toFixed(1):0}%</td>
+                                </tr>
+                            `;
+                            tbody.innerHTML += row;
+                        });
+                        safeText('cv2-rpt-total-profit', tP.toLocaleString() + ' ج.م');
+                        safeText('cv2-rpt-total-revenue', tR.toLocaleString() + ' ج.م');
+                        safeText('cv2-rpt-total-cogs', tC.toLocaleString() + ' ج.م');
+                    })
+                    .catch(_ => {});
+            }
             const statusBadge = isFromStock ? 'bg-green-100 text-green-600' : 'bg-yellow-100 text-yellow-600';
             const statusText = isFromStock ? 'متزامن من الاستوك' : 'محلي';
 
@@ -658,22 +758,26 @@
 
                 snap.docs.forEach(doc => {
                     const b = doc.data();
-                    const cogs = (b.soldQty || 0) * b.unitCost;
-                    const profit = b.netProfit || 0;
+                    // الإيراد الحقيقي: تجميع من مجموعة المبيعات العامة بناءً على اسم المنتج
+                    const finishedPid = findFinishedProductIdByName(b.recipeName);
+                    const realRevenue = finishedPid ? (salesRevenueByProductId[finishedPid] || 0) : 0;
+                    // تكلفة الإنتاج الفعلية عند إغلاق التشغيلة
+                    const productionCost = Number(b.totalCost || 0);
+                    const profit = realRevenue - productionCost;
                     tP += profit;
-                    tR += (b.totalRev || 0);
-                    tC += cogs;
+                    tR += realRevenue;
+                    tC += productionCost;
 
                     const row = `
                         <tr>
                             <td class="p-6 font-mono text-slate-400 text-xs">#${b.batchNumber}</td>
                             <td class="p-6 font-black text-xl text-slate-800">${b.recipeName}</td>
-                            <td class="p-6 font-black text-slate-500">${b.unitCost.toFixed(2)}</td>
-                            <td class="p-6 font-black text-slate-400">${b.soldQty}</td>
-                            <td class="p-6 text-emerald-600 font-black text-lg">${(b.totalRev || 0).toLocaleString()}</td>
-                            <td class="p-6 text-red-500 font-black text-lg">${cogs.toLocaleString()}</td>
+                            <td class="p-6 font-black text-slate-500">${(b.unitCost||0).toFixed(2)}</td>
+                            <td class="p-6 font-black text-slate-400">${b.finalQty || 0}</td>
+                            <td class="p-6 text-emerald-600 font-black text-lg">${realRevenue.toLocaleString()}</td>
+                            <td class="p-6 text-red-500 font-black text-lg">${productionCost.toLocaleString()}</td>
                             <td class="p-6 font-black text-lg ${profit>=0?'text-emerald-700':'text-red-700'}">${profit.toFixed(0)}</td>
-                            <td class="p-6 font-black bg-slate-50/50">${b.totalRev>0?((profit/b.totalRev)*100).toFixed(1):0}%</td>
+                            <td class="p-6 font-black bg-slate-50/50">${realRevenue>0?((profit/realRevenue)*100).toFixed(1):0}%</td>
                         </tr>
                     `;
                     tbody.innerHTML += row;
@@ -696,6 +800,12 @@
         db.collection(COLL_BATCHES).doc(id).onSnapshot(doc => {
             const b = doc.data();
             if(!b) return;
+
+            // حساب الإيراد الحقيقي والربح الصافي لهذه التشغيلة
+            const finishedPid = findFinishedProductIdByName(b.recipeName);
+            const realRevenue = finishedPid ? (salesRevenueByProductId[finishedPid] || 0) : 0;
+            const productionCost = Number(b.totalCost || 0);
+            const realProfit = realRevenue - productionCost;
 
             const cont = document.getElementById('cv2-batch-details-content');
             if(!cont) return;
@@ -722,12 +832,12 @@
                             <p class="font-black text-red-600 text-4xl">${b.totalCost.toLocaleString()}</p>
                         </div>
                         <div class="text-center border-r border-slate-200">
-                            <p class="text-[13px] text-slate-400 font-black mb-4 uppercase tracking-widest">المبيعات</p>
-                            <p class="font-black text-emerald-600 text-4xl">${(b.totalRev || 0).toLocaleString()}</p>
+                            <p class="text-[13px] text-slate-400 font-black mb-4 uppercase tracking-widest">الإيراد (فعلي)</p>
+                            <p class="font-black text-emerald-600 text-4xl">${realRevenue.toLocaleString()}</p>
                         </div>
                         <div class="text-center border-r border-slate-200">
                             <p class="text-[13px] text-slate-400 font-black mb-4 uppercase tracking-widest">الربح الصافي</p>
-                            <p class="font-black text-blue-600 text-4xl">${(b.netProfit || 0).toLocaleString()}</p>
+                            <p class="font-black ${realProfit>=0?'text-blue-600':'text-red-600'} text-4xl">${realProfit.toLocaleString()}</p>
                         </div>
                     </div>
                 </div>
