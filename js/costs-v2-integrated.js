@@ -407,7 +407,7 @@
         const tbody = document.getElementById('cv2-reports-tbody');
         if(!db || !tbody) return;
         db.collection(COLL_BATCHES)
-            .where('status', '==', 'closed')
+            .where('status', '==', 'completed')
             .get()
             .then(snap => {
                 tbody.innerHTML = '';
@@ -747,7 +747,7 @@
         if(!db) return;
 
         db.collection(COLL_BATCHES)
-            .where('status', '==', 'closed')
+            .where('status', '==', 'completed')
             .onSnapshot(snap => {
                 const tbody = document.getElementById('cv2-reports-tbody');
                 if(!tbody) return;

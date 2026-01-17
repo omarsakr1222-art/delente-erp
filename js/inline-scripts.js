@@ -2360,6 +2360,7 @@
                 if (!Array.isArray(state.sales)) state.sales = [];
                 const exists = state.sales.some(s => (s.id||s._id) === obj.id);
                 if (!exists) state.sales.unshift(Object.assign({}, obj));
+                console.log('✅ Sale added to state.sales:', obj.id, '| Total sales:', state.sales.length); // Debug
                 const textFilter = document.getElementById('search-sales-text')?.value || '';
                 const dateFilter = document.getElementById('search-sales-date')?.value || '';
                 const taxStatusFilter = document.getElementById('tax-status-filter')?.value || 'all';
@@ -9721,6 +9722,30 @@
                 }
             } catch(e){ console.warn('Setting review flag failed', e); }
 
+            // ✅ VALIDATION: Check if customer is assigned to a different rep
+            try {
+                const customer = findCustomer(customerId);
+                if (customer && customer.assignedRepId) {
+                    // Get current rep ID from the selected rep name
+                    const selectedRep = state.reps.find(r => r.name === repName);
+                    const currentRepId = selectedRep ? selectedRep.id : null;
+                    
+                    // Check if current rep is different from assigned rep
+                    if (currentRepId && currentRepId !== customer.assignedRepId) {
+                        const assignedRepName = (state.reps.find(r => r.id === customer.assignedRepId) || {}).name || customer.assignedRepId;
+                        await customDialog({
+                            title: 'ممنوع',
+                            message: `هذا العميل مخصص للمندوب: ${assignedRepName}\nلا يمكنك إنشاء فاتورة لعميل مخصص لمندوب آخر.`,
+                            confirmClass: 'bg-red-600 hover:bg-red-700'
+                        });
+                        return; // Stop processing
+                    }
+                }
+            } catch(e) {
+                console.warn('Customer assignment validation failed:', e);
+                // Continue anyway if validation fails (for backward compatibility)
+            }
+
             try {
                 showLoading('جارٍ حفظ الفاتورة...');
 
@@ -9738,6 +9763,12 @@
                 hideLoading();
                 closeModal(saleModal);
                 // onSnapshot سيعيد تحديث القوائم تلقائياً
+                // تحديث التقارير مباشرة
+                try {
+                    if (typeof window.generateBatchProfitsReport === 'function') {
+                        window.generateBatchProfitsReport();
+                    }
+                } catch(e){ console.warn('Batch profits report refresh failed', e); }
                 // Also sync cash data to cloud
                 try {
                     if (typeof window.debouncedSaveCash === 'function') {
@@ -16017,6 +16048,29 @@
                 }
             } catch(e) { console.warn('Invoice sequence validation failed', e); }
 
+            // ✅ VALIDATION: Check if customer is assigned to a different rep (for spreadsheet entry)
+            try {
+                const customer = findCustomer(customerId);
+                if (customer && customer.assignedRepId) {
+                    // Get the ID of the selected rep
+                    const selectedRepId = rep ? rep.id : null;
+                    
+                    // Check if selected rep is different from assigned rep
+                    if (selectedRepId && selectedRepId !== customer.assignedRepId) {
+                        const assignedRepName = (state.reps.find(r => r.id === customer.assignedRepId) || {}).name || customer.assignedRepId;
+                        await customDialog({
+                            title: 'ممنوع',
+                            message: `هذا العميل مخصص للمندوب: ${assignedRepName}\nلا يمكنك إنشاء فاتورة لعميل مخصص لمندوب آخر.`,
+                            confirmClass: 'bg-red-600 hover:bg-red-700'
+                        });
+                        return; // Stop processing
+                    }
+                }
+            } catch(e) {
+                console.warn('Customer assignment validation failed:', e);
+                // Continue anyway if validation fails (for backward compatibility)
+            }
+
             // Debug: log invoices to save
             try { console.debug('saveAllSpreadsheetEntries: invoicesToSave', Array.from(invoicesToSave.entries()).map(([k,v])=>({invoiceNumber:k, invoiceData:v}))); } catch(_){}
 
@@ -16114,6 +16168,13 @@
                         console.log('✅ Updated rep nextInvoiceNumber to', rep.nextInvoiceNumber, 'for rep', repName);
                     }
                 } catch(e) { console.warn('Failed to update rep nextInvoiceNumber:', e); }
+                
+                // تحديث التقارير مباشرة
+                try {
+                    if (typeof window.generateBatchProfitsReport === 'function') {
+                        window.generateBatchProfitsReport();
+                    }
+                } catch(e){ console.warn('Batch profits report refresh failed', e); }
                 
                 renderAll();
                 await customDialog({ message: `تم حفظ ${savedCount} فاتورة بنجاح. ${rep ? `رقم الفاتورة القادمة للمندوب ${repName} هو ${rep.nextInvoiceNumber}.` : ''}`, title: 'حفظ ناجح', confirmClass: 'bg-green-600 hover:bg-green-700' });
@@ -17623,9 +17684,26 @@
                     
                     let revenue = 0;
                     
-                    // Calculate from state.sales
-                    if (productId && state.sales) {
-                        const productSales = state.sales.filter(sale => {
+                    // Calculate from state.sales OR fetch from Firestore if needed
+                    if (productId) {
+                        let salesToCheck = state.sales || [];
+                        
+                        // If state.sales is empty or limited, try to fetch from Firestore
+                        if (!salesToCheck || salesToCheck.length === 0) {
+                            try {
+                                const salesSnap = await db.collection('sales')
+                                    .where('date', '>=', batchStart.toISOString())
+                                    .where('date', '<=', completedDate.toISOString())
+                                    .limit(500)
+                                    .get();
+                                salesToCheck = salesSnap.docs.map(d => d.data());
+                            } catch(e) {
+                                console.warn('Failed to fetch sales from Firestore:', e);
+                                salesToCheck = state.sales || [];
+                            }
+                        }
+                        
+                        const productSales = salesToCheck.filter(sale => {
                             const saleDate = new Date(sale.date);
                             if (isNaN(saleDate.getTime())) return false;
                             // Sales between batch start and completion
@@ -17800,6 +17878,18 @@
             document.getElementById('customer-id').value = '';
             populatePriceListDropdown(document.getElementById('customer-price-list'));
             populateRepDropdown(document.getElementById('customer-rep'));
+            
+            // Populate assigned rep dropdown
+            const assignedRepSelect = document.getElementById('customer-assigned-rep');
+            if (assignedRepSelect) {
+                assignedRepSelect.innerHTML = '<option value="">-- بدون تخصيص --</option>';
+                (state.reps || []).forEach(rep => {
+                    const opt = document.createElement('option');
+                    opt.value = rep.id;
+                    opt.textContent = rep.name;
+                    assignedRepSelect.appendChild(opt);
+                });
+            }
 
             if (id) {
                 // Edit mode
@@ -17815,6 +17905,10 @@
                     document.getElementById('customer-requires-tax').checked = customer.requiresTaxFiling || false;
                     document.getElementById('customer-price-list').value = customer.priceListId || '';
                     document.getElementById('customer-rep').value = customer.repName || '';
+                    // Set assigned rep
+                    if (assignedRepSelect && customer.assignedRepId) {
+                        assignedRepSelect.value = customer.assignedRepId;
+                    }
                 }
             } else {
                 // Add mode
@@ -17829,6 +17923,10 @@
                             if (myRep && myRep.name) {
                                 const repSel = document.getElementById('customer-rep');
                                 if (repSel) repSel.value = myRep.name;
+                                // Auto-assign this rep to the customer
+                                if (assignedRepSelect) {
+                                    assignedRepSelect.value = current.id;
+                                }
                             }
                         }
                     }
@@ -20045,6 +20143,14 @@
             customerForm.addEventListener('submit', async (e) => {
                 e.preventDefault();
                 const id = document.getElementById('customer-id').value;
+                
+                // Get assignedRepId from the dropdown (new field)
+                const assignedRepDropdown = document.getElementById('customer-assigned-rep');
+                let assignedRepId = '';
+                if (assignedRepDropdown) {
+                    assignedRepId = assignedRepDropdown.value || '';
+                }
+                
                 const payload = {
                     name: document.getElementById('customer-name').value.trim(),
                     taxNumber: document.getElementById('customer-tax-number').value.trim(),
@@ -20053,11 +20159,7 @@
                     requiresTaxFiling: document.getElementById('customer-requires-tax').checked,
                     priceListId: document.getElementById('customer-price-list').value || '',
                     repName: document.getElementById('customer-rep').value || '',
-                    assignedRepId: (function(){
-                        const repField = document.getElementById('customer-rep').value || '';
-                        if (!repField) return '';
-                        try { const repObj = window.findRep ? window.findRep(repField) : null; return repObj ? repObj.id : ''; } catch(e){ return ''; }
-                    })()
+                    assignedRepId: assignedRepId
                 };
 
                 if (!payload.name) {

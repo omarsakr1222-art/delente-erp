@@ -3786,6 +3786,16 @@
                     <label for="customer-rep" class="block text-sm font-medium text-gray-700">المندوب المسؤول</label>
                     <select id="customer-rep" class="mt-1 block w-full p-2 border border-gray-300 rounded-md"></select>
                 </div>
+                <div class="mb-4">
+                    <label for="customer-assigned-rep" class="block text-sm font-medium text-gray-700 flex items-center gap-2">
+                        <i data-lucide="check-circle" class="w-4 h-4 text-blue-600"></i>
+                        المندوب المخصص (من سيعمل الفاتورة)
+                    </label>
+                    <select id="customer-assigned-rep" class="mt-1 block w-full p-2 border border-blue-300 bg-blue-50 rounded-md">
+                        <option value="">-- بدون تخصيص --</option>
+                    </select>
+                    <p class="text-xs text-blue-600 mt-1">الفاتورة ستُرفض إذا عملها مندوب مختلف</p>
+                </div>
                 <div class="flex justify-end gap-3">
                     <button type="button" id="cancel-customer-btn" class="bg-gray-300 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-400">إلغاء</button>
                     <button type="submit" class="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700">حفظ العميل</button>
