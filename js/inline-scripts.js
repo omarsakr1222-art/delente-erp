@@ -2,21 +2,15 @@
         // Safe global error handler: log only, never alter the UI
         window.onerror = function (msg, url, line, col, error) {
             try {
-                const isGeneric = (!url || url === '') && (line === 0 || line === '0') && String(msg).toLowerCase().includes('script error');
-                if (isGeneric) {
-                    console.warn('Ignored generic script error (likely CORS):', msg);
-                    return true;
-                }
+                const msgStr = String(msg).toLowerCase();
+                if (msgStr.includes('violation') || msgStr.includes('handler took') || msgStr.includes('timeout')) return true;
+                if ((!url || url === '') && (line === 0 || line === '0') && msgStr.includes('script error')) return true;
+                
                 const fullMsg = `Error: ${msg}\nFile: ${url || 'unknown'}\nLine: ${line}:${col}`;
                 const stack = (error && error.stack) ? error.stack : '';
                 console.error(fullMsg);
                 if (stack) console.error(stack);
-                // If any legacy banner exists, remove it
-                const legacy = document.getElementById('global-error-banner');
-                if (legacy) legacy.remove();
-            } catch (e) {
-                // swallow
-            }
+            } catch (e) { }
             return true;
         };
         
@@ -53,13 +47,18 @@
                 document.addEventListener('DOMContentLoaded', updateGlobalClock);
                 // raw/pack grids
                 document.addEventListener('DOMContentLoaded', function(){
-                    try {
-                        window._rawGridState = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}');
-                    } catch(e){ window._rawGridState = {}; }
-                    try {
-                        window._packGridState = JSON.parse(localStorage.getItem('packaging_grid') || '{}');
-                    } catch(e){ window._packGridState = {}; }
-                    console.debug('Loaded State:', { raw: window._rawGridState, pack: window._packGridState });
+                    // Defer grid state loading to avoid blocking DOM
+                    if (typeof requestIdleCallback !== 'undefined') {
+                        requestIdleCallback(() => {
+                            try { window._rawGridState = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}'); } catch(e){ window._rawGridState = {}; }
+                            try { window._packGridState = JSON.parse(localStorage.getItem('packaging_grid') || '{}'); } catch(e){ window._packGridState = {}; }
+                        });
+                    } else {
+                        setTimeout(() => {
+                            try { window._rawGridState = JSON.parse(localStorage.getItem('raw_materials_grid') || '{}'); } catch(e){ window._rawGridState = {}; }
+                            try { window._packGridState = JSON.parse(localStorage.getItem('packaging_grid') || '{}'); } catch(e){ window._packGridState = {}; }
+                        }, 500);
+                    }
                     if (!window.saveRawGridStateNow){
                         window.saveRawGridStateNow = function(){
                             try { localStorage.setItem('raw_materials_grid', JSON.stringify(window._rawGridState || {})); } catch(e){}
@@ -728,13 +727,16 @@
                                 return user && user.id;
                             };
                             
-                            // CRITICAL: Start realtime sync and load cost lists AFTER authentication
+                            // ⚠️ DISABLED: loadLists() removed - costs-v2-integrated.js handles Firebase sync
+                            // Old localStorage-based code is being phased out
+                            // Start realtime sync AFTER authentication
                             setTimeout(() => {
-                                if (!isUserAuthenticated()) { console.warn('🔒 Skipping loadLists - user not authenticated'); return; }
-                                try { if (typeof loadLists === 'function') loadLists(); } catch(e){ console.error('loadLists error:', e); }
+                                if (!isUserAuthenticated()) { console.warn('🔒 Skipping sync - user not authenticated'); return; }
+                                // try { if (typeof loadLists === 'function') loadLists(); } catch(e){ console.error('loadLists error:', e); } // ❌ DISABLED
                                 try { if (typeof initRealtimeSync === 'function') initRealtimeSync(); } catch(e){ console.error('initRealtimeSync error:', e); }
                                 try { if (typeof tryLoadCostListsFromCloud === 'function') tryLoadCostListsFromCloud(); } catch(e){ console.error('tryLoadCostListsFromCloud error:', e); }
                             }, 500);
+
                             
                             // Sync all local sales to cloud to prevent data loss
                             // OPTIMIZED: Delay to 5s to avoid blocking login UI
@@ -835,30 +837,19 @@
         try { initFirebase(); } catch(e) { /* ignore */ }
 
         // مستمعات لحظية للمجموعات بعد أول نجاح توثيق (يتم استدعاؤها من onAuthStateChanged بعد تسجيل الدخول)
-        function setupRealtimeListeners(){
-            // ⚠️ منع التشغيل المتكرر
-            if (window.__listenersAttached) {
-                console.log('⏭️ Listeners already attached - skipping');
+        function setupRealtimeListeners() {
+            if (!window.db) {
+                console.warn('Firestore غير جاهز بعد');
                 return;
             }
-            
-            // ⚠️ CRITICAL GUARD: منع جلب البيانات قبل تسجيل الدخول
-            const currentUser = AuthSystem.getCurrentUser();
-            if (!currentUser || !currentUser.id) {
-                console.warn('🔒 setupRealtimeListeners محظور: لم يتم تسجيل الدخول بعد');
-                return;
-            }
-            
-            if (!window.db) { console.warn('Firestore غير جاهز بعد'); return; }
             window.state = window.state || {};
-            
-            console.log('🎧 Setting up Firebase listeners...');
-            window.__listenersAttached = true;
-            // المبيعات (Admin/Reviewer: كل الفواتير؛ المندوب: فواتيره فقط)
+
+            // Sales listeners
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 const current = AuthSystem.getCurrentUser();
-                const applySnap = function(snap){
+
+                const applySnap = function(snap) {
                     const arr = [];
                     snap.forEach(doc => {
                         const d = doc.data() || {};
@@ -866,13 +857,15 @@
                         if (!d.id) d.id = doc.id;
                         arr.push(d);
                     });
-                    arr.sort((a,b)=>{
+                    arr.sort((a, b) => {
                         const ta = new Date(a.date || a.createdAt || 0).getTime();
                         const tb = new Date(b.date || b.createdAt || 0).getTime();
                         return tb - ta;
                     });
-                    state.sales = arr.slice(0,500);
-                    try { localStorage.setItem('cache_sales', JSON.stringify(state.sales)); } catch(e){}
+                    state.sales = arr.slice(0, 500);
+                    try {
+                        localStorage.setItem('cache_sales', JSON.stringify(state.sales));
+                    } catch(e) {}
                     try {
                         const textFilter = document.getElementById('search-sales-text')?.value || '';
                         const dateFilter = document.getElementById('search-sales-date')?.value || '';
@@ -880,11 +873,16 @@
                         if (typeof renderAllSales === 'function') renderAllSales(textFilter, dateFilter, taxStatusFilter);
                         else if (typeof renderSalesList === 'function') renderSalesList();
                         if (typeof renderDashboard === 'function') renderDashboard();
-                    } catch(e){}
+                    } catch(e) {}
                 };
-                const onErr = function(err){
+
+                const onErr = function(err) {
                     console.warn('sales snapshot error', err);
-                    if (err && err.code === 'permission-denied') { try { handlePermissionDenied('sales'); } catch(e){} }
+                    if (err && err.code === 'permission-denied') {
+                        try {
+                            handlePermissionDenied('sales');
+                        } catch(e) {}
+                    }
                     try {
                         const raw = localStorage.getItem('cache_sales');
                         const cached = raw ? JSON.parse(raw) : [];
@@ -896,359 +894,269 @@
                             if (typeof renderAllSales === 'function') renderAllSales(textFilter, dateFilter, taxStatusFilter);
                             if (typeof renderDashboard === 'function') renderDashboard();
                         }
-                    } catch(e){}
+                    } catch(e) {}
                 };
 
                 if (role === 'admin' || role === 'reviewer' || role === 'manager') {
-                    // ⚡ دالة لإنشاء استعلام المبيعات بناءً على activePeriod الحالي
-                    window.setupSalesQuery = function() {
-                        // إلغاء الاشتراك القديم إن وُجد
-                        const oldPeriodUnsub = window.__subscriptions?.get('sales_admin_period');
-                        const oldDateUnsub = window.__subscriptions?.get('sales_admin_fallback');
-                        const oldCgPeriodUnsub = window.__subscriptions?.get('sales_admin_period_cg');
-                        const oldCgDateUnsub = window.__subscriptions?.get('sales_admin_fallback_cg');
-                        if (oldPeriodUnsub && typeof oldPeriodUnsub === 'function') {
-                            try { oldPeriodUnsub(); } catch(e){}
-                            window.__subscriptions.delete('sales_admin_period');
-                        }
-                        if (oldDateUnsub && typeof oldDateUnsub === 'function') {
-                            try { oldDateUnsub(); } catch(e){}
-                            window.__subscriptions.delete('sales_admin_fallback');
-                        }
-                        if (oldCgPeriodUnsub && typeof oldCgPeriodUnsub === 'function') {
-                            try { oldCgPeriodUnsub(); } catch(e){}
-                            window.__subscriptions.delete('sales_admin_period_cg');
-                        }
-                        if (oldCgDateUnsub && typeof oldCgDateUnsub === 'function') {
-                            try { oldCgDateUnsub(); } catch(e){}
-                            window.__subscriptions.delete('sales_admin_fallback_cg');
-                        }
-                        
-                        // استخدام activePeriod من state أو الشهر الحالي كـ fallback
-                        const now = new Date();
-                        const currentPeriod = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
-                        const queryPeriod = (window.state?.activePeriod) || currentPeriod;
-
-                        // حاوية دمج موحدة لمنع التكرار بين استعلام الفترة واستعلام التاريخ
-                        const adminById = new Map();
-                        const mergeAdminAndRender = () => {
-                            const arr = Array.from(adminById.values());
-                            arr.sort((a,b)=>{
-                                const ta = new Date(a.date || 0).getTime();
-                                const tb = new Date(b.date || 0).getTime();
-                                if (ta !== tb) return tb - ta; // تنازلي حسب التاريخ
-                                // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
-                                const ca = new Date(a.createdAt || 0).getTime();
-                                const cb = new Date(b.createdAt || 0).getTime();
-                                return cb - ca; // الأحدث إنشاءاً أولاً
-                            });
-                            state.sales = arr.slice(0,500);
-                            console.log(`📊 Admin mergeAdminAndRender: ${adminById.size} invoices in map, ${state.sales.length} in state.sales`);
-                            try { localStorage.setItem('cache_sales', JSON.stringify(state.sales)); } catch(e){}
-                            try {
-                                const textFilter = document.getElementById('search-sales-text')?.value || '';
-                                const dateFilter = document.getElementById('search-sales-date')?.value || '';
-                                const taxStatusFilter = document.getElementById('tax-status-filter')?.value || 'all';
-                                console.log(`📋 Admin calling renderAllSales IMMEDIATELY with filters: text="${textFilter}", date="${dateFilter}", taxStatus="${taxStatusFilter}"`);
-                                // ⚡ استدعاء مباشر بدون تأجيل لضمان التحديث الفوري
-                                if (typeof renderAllSales === 'function') renderAllSales(textFilter, dateFilter, taxStatusFilter);
-                                else if (typeof renderSalesList === 'function') renderSalesList();
-                                console.log(`📊 Admin calling renderDashboard() IMMEDIATELY`);
-                                if (typeof renderDashboard === 'function') renderDashboard();
-                            } catch(e){ console.error('Admin mergeAdminAndRender render error:', e); }
-                        };
-
-                        console.log(`📅 Admin sales query: period == ${queryPeriod}`);
-
-                        // الاستعلام الأساسي باستخدام period (الأكثر كفاءة)
-                        const unsubPeriod = db.collection('sales')
-                            .where('period', '==', queryPeriod)
-                            .orderBy('date', 'desc')
-                            .limit(500)
-                            .onSnapshot(snap => {
-                                snap.docChanges().forEach(change => {
-                                    if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
-                                    const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id; adminById.set(change.doc.id, d);
-                                });
-                                mergeAdminAndRender();
-                            }, onErr);
-                        window.storeSubscription('sales_admin_period', unsubPeriod);
-
-                        // استعلام مجموعة فرعية للفواتير المخزنة تحت users/{repId}/invoices بدون فلاتر لتفادي متطلبات المؤشرات
-                        try {
-                            console.log('🔍 Admin: collectionGroup("invoices") snapshot (client-side period filter)...');
-                            const unsubCgPeriod = db.collectionGroup('invoices')
-                                .limit(500)
-                                .onSnapshot(snap => {
-                                    console.log(`📦 Admin collectionGroup('invoices') (unfiltered): ${snap.size} invoices found`);
-                                    snap.docChanges().forEach(change => {
-                                        if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
-                                        const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id;
-                                        const docPeriod = d.period || '';
-                                        const docDate = d.date ? new Date(d.date).toISOString().substring(0,7) : '';
-                                        const isMatchingPeriod = !docPeriod || docPeriod === queryPeriod || docDate === queryPeriod;
-                                        if (isMatchingPeriod) {
-                                            console.log(`  ✅ CG invoice: ${d.invoiceNumber} repName: ${d.repName} period: ${docPeriod || docDate || 'n/a'} path: ${change.doc.ref.path}`);
-                                            adminById.set(change.doc.id, d);
-                                        } else {
-                                            console.log(`  ⏭️  Skip CG invoice (period mismatch): ${d.invoiceNumber} period: ${docPeriod} vs query: ${queryPeriod}`);
-                                        }
-                                    });
-                                    console.log(`📊 Admin total invoices merged: ${adminById.size}`);
-                                    mergeAdminAndRender();
-                                }, err => {
-                                    console.warn('❌ Admin collectionGroup invoices error:', err.code, err.message);
-                                    // collectionGroup errors are non-fatal - continue with existing data
-                                    console.log('📊 Continuing with available invoices from other listeners');
-                                    mergeAdminAndRender();
-                                });
-                            window.storeSubscription('sales_admin_period_cg', unsubCgPeriod);
-                        } catch(e){ console.warn('❌ sales admin collectionGroup period query failed:', e.message); mergeAdminAndRender(); }
-
-                        // استعلام احتياطي يغطي الفواتير التي لا تحتوي على period (legacy) باستخدام نطاق التاريخ
-                        try {
-                            const [year, month] = queryPeriod.split('-').map(Number);
-                            const start = new Date(year, month - 1, 1, 0, 0, 0, 0).toISOString();
-                            const end = new Date(year, month, 0, 23, 59, 59, 999).toISOString();
-                            const unsubDateRange = db.collection('sales')
-                                .where('date', '>=', start)
-                                .where('date', '<=', end)
-                                .orderBy('date', 'desc')
-                                .limit(500)
-                                .onSnapshot(snap => {
-                                    snap.docChanges().forEach(change => {
-                                        if (change.type === 'removed') { adminById.delete(change.doc.id); return; }
-                                        const d = change.doc.data() || {}; d._id = change.doc.id; if (!d.id) d.id = change.doc.id; adminById.set(change.doc.id, d);
-                                    });
-                                    mergeAdminAndRender();
-                                }, onErr);
-                            window.storeSubscription('sales_admin_fallback', unsubDateRange);
-
-                            // أزلنا استعلام collectionGroup بنطاق التاريخ لتجنب متطلبات المؤشر؛ نعتمد على الاستعلام غير المفلتر أعلاه
-                        } catch(e){ console.warn('sales admin date-range fallback failed', e); }
-                    };
-                    
-                    // إنشاء الاستعلام الأولي
-                    window.setupSalesQuery();
-                    } else if ((role === 'rep' || role === 'user') && current && current.id) {
+                    db.collection('sales').onSnapshot(applySnap, onErr);
+                } else if ((role === 'rep' || role === 'user') && current && current.id) {
                     const uid = String(current.id);
-                    const email = (current.email||'').toLowerCase();
+                    const email = (current.email || '').toLowerCase();
                     const byId = new Map();
                     let salesErrCount = 0;
+
+                    let renderTimeout;
                     const mergeAndRender = () => {
                         const arr = Array.from(byId.values());
-                        arr.sort((a,b)=>{
-                            const ta = new Date(a.date || 0).getTime();
-                            const tb = new Date(b.date || 0).getTime();
-                            if (ta !== tb) return tb - ta; // تنازلي حسب التاريخ
-                            // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
-                            const ca = new Date(a.createdAt || 0).getTime();
-                            const cb = new Date(b.createdAt || 0).getTime();
-                            return cb - ca; // الأحدث إنشاءاً أولاً
+                        arr.sort((a, b) => {
+                            const ta = new Date(a.date || a.createdAt || 0).getTime();
+                            const tb = new Date(b.date || b.createdAt || 0).getTime();
+                            return tb - ta;
                         });
-                        state.sales = arr.slice(0,500);
-                        try { localStorage.setItem('cache_sales', JSON.stringify(state.sales)); } catch(e){}
-                        try { if (typeof renderAllSales === 'function') renderAllSales('', '', 'all'); } catch(e){}
-                        try { if (typeof renderDashboard === 'function') renderDashboard(); } catch(e){}
+                        state.sales = arr.slice(0, 500);
+                        try {
+                            localStorage.setItem('cache_sales', JSON.stringify(state.sales));
+                        } catch(e) {}
+                        // Debounce: render once per 300ms max
+                        clearTimeout(renderTimeout);
+                        renderTimeout = setTimeout(() => {
+                            try {
+                                if (typeof renderAllSales === 'function') renderAllSales('', '', 'all');
+                            } catch(e) {}
+                            try {
+                                if (typeof renderDashboard === 'function') renderDashboard();
+                            } catch(e) {}
+                        }, 300);
                     };
-                    // CRITICAL FIX: Listen to the rep's personal invoices subcollection
-                    // This ensures admin-created invoices appear on the rep's screen
-                    const unsub1 = db.collection('users').doc(uid).collection('invoices').onSnapshot(snap => {
+
+                    db.collection('users').doc(uid).collection('invoices').onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
-                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; byId.set(change.doc.id, d);
+                                if (change.type === 'removed') {
+                                    try {
+                                        byId.delete(change.doc.id);
+                                    } catch(_) {}
+                                    return;
+                                }
+                                const d = change.doc.data() || {};
+                                d._id = change.doc.id;
+                                if (!d.id) d.id = change.doc.id;
+                                byId.set(change.doc.id, d);
                             });
-                        } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
-                        mergeAndRender();
-                    }, err => {
-                        if (err.code === 'permission-denied') {
-                            console.warn('⚠️ Rep subcollection permission error - user may not have invoices yet:', err.message);
-                            // Still render what we have from other sources
-                            mergeAndRender();
-                        } else {
-                            onErr(err);
+                        } catch(e) {
+                            snap.forEach(doc => {
+                                const d = doc.data() || {};
+                                d._id = doc.id;
+                                if (!d.id) d.id = doc.id;
+                                byId.set(doc.id, d);
+                            });
                         }
-                    });
-                    window.storeSubscription('sales_rep_invoices', unsub1);
-                    
-                    // الاستعلامات المتعددة لدعم الأسماء القديمة للحقول
-                    const unsub2 = db.collection('sales').where('createdBy','==', uid).onSnapshot(snap => {
-                        try {
-                            snap.docChanges().forEach(change => {
-                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; byId.set(change.doc.id, d);
-                            });
-                        } catch(e){ /* fallback to full snapshot */ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
                         mergeAndRender();
                     }, onErr);
-                    window.storeSubscription('sales_rep_createdBy', unsub2);
-                    
-                    const unsub3 = db.collection('sales').where('repId','==', uid).onSnapshot(snap => {
+
+                    db.collection('sales').where('createdBy', '==', uid).onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
-                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; byId.set(change.doc.id, d);
+                                if (change.type === 'removed') {
+                                    try {
+                                        byId.delete(change.doc.id);
+                                    } catch(_) {}
+                                    return;
+                                }
+                                const d = change.doc.data() || {};
+                                d._id = change.doc.id;
+                                if (!d.id) d.id = change.doc.id;
+                                byId.set(change.doc.id, d);
                             });
-                        } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
+                        } catch(e) {
+                            snap.forEach(doc => {
+                                const d = doc.data() || {};
+                                d._id = doc.id;
+                                if (!d.id) d.id = doc.id;
+                                byId.set(doc.id, d);
+                            });
+                        }
                         mergeAndRender();
                     }, onErr);
-                    window.storeSubscription('sales_rep_repId_uid', unsub3);
-                    // Legacy support: بعض الفواتير القديمة تستخدم معرف مستند المندوب بدلاً من uid
-                    // حاول الحصول على معرف مستند المندوب من قائمة المناديب بناءً على البريد أو الاسم
+
+                    db.collection('sales').where('repId', '==', uid).onSnapshot(snap => {
+                        try {
+                            snap.docChanges().forEach(change => {
+                                if (change.type === 'removed') {
+                                    try {
+                                        byId.delete(change.doc.id);
+                                    } catch(_) {}
+                                    return;
+                                }
+                                const d = change.doc.data() || {};
+                                d._id = change.doc.id;
+                                if (!d.id) d.id = change.doc.id;
+                                byId.set(change.doc.id, d);
+                            });
+                        } catch(e) {
+                            snap.forEach(doc => {
+                                const d = doc.data() || {};
+                                d._id = doc.id;
+                                if (!d.id) d.id = doc.id;
+                                byId.set(doc.id, d);
+                            });
+                        }
+                        mergeAndRender();
+                    }, onErr);
+
                     try {
-                        const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email) || (state.reps||[]).find(r => (r.name||'') === (current && current.name));
+                        const currentRepDoc = (state.reps || []).find(r => (r.email || '').toLowerCase() === email) || (state.reps || []).find(r => (r.name || '') === (current && current.name));
                         const repDocId = currentRepDoc && currentRepDoc.id ? String(currentRepDoc.id) : null;
                         if (repDocId && repDocId !== uid) {
-                            const unsub4 = db.collection('sales').where('repId','==', repDocId).onSnapshot(snap => {
+                            db.collection('sales').where('repId', '==', repDocId).onSnapshot(snap => {
                                 try {
                                     snap.docChanges().forEach(change => {
-                                        if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                        const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; byId.set(change.doc.id, d);
+                                        if (change.type === 'removed') {
+                                            try {
+                                                byId.delete(change.doc.id);
+                                            } catch(_) {}
+                                            return;
+                                        }
+                                        const d = change.doc.data() || {};
+                                        d._id = change.doc.id;
+                                        if (!d.id) d.id = change.doc.id;
+                                        byId.set(change.doc.id, d);
                                     });
-                                } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
+                                } catch(e) {
+                                    snap.forEach(doc => {
+                                        const d = doc.data() || {};
+                                        d._id = doc.id;
+                                        if (!d.id) d.id = doc.id;
+                                        byId.set(doc.id, d);
+                                    });
+                                }
                                 mergeAndRender();
                             }, onErr);
-                            window.storeSubscription('sales_rep_repDocId', unsub4);
-                            // attach error-only listener to surface failures - REGISTER IT TOO
-                            const unsub_repDocId_errorOnly = db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, err => console.warn('sales repDocId query error', err));
-                            window.storeSubscription('sales_repDocId_errorOnly', unsub_repDocId_errorOnly);
+                            db.collection('sales').where('repId', '==', repDocId).onSnapshot(() => {}, err => console.warn('sales repDocId query error', err));
                         }
-                    } catch(e){ console.warn('setupRealtimeListeners: repDocId mapping failed', e); }
-                    
-                    const unsub5 = db.collection('sales').where('createdByEmail','==', email).onSnapshot(snap => {
+                    } catch(e) {
+                        console.warn('setupRealtimeListeners: repDocId mapping failed', e);
+                    }
+
+                    db.collection('sales').where('createdByEmail', '==', email).onSnapshot(snap => {
                         try {
                             snap.docChanges().forEach(change => {
-                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; byId.set(change.doc.id, d);
+                                if (change.type === 'removed') {
+                                    try {
+                                        byId.delete(change.doc.id);
+                                    } catch(_) {}
+                                    return;
+                                }
+                                const d = change.doc.data() || {};
+                                d._id = change.doc.id;
+                                if (!d.id) d.id = change.doc.id;
+                                byId.set(change.doc.id, d);
                             });
-                        } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
+                        } catch(e) {
+                            snap.forEach(doc => {
+                                const d = doc.data() || {};
+                                d._id = doc.id;
+                                if (!d.id) d.id = doc.id;
+                                byId.set(doc.id, d);
+                            });
+                        }
                         mergeAndRender();
                     }, onErr);
-                    window.storeSubscription('sales_rep_createdByEmail', unsub5);
-                    // Try to listen by repName. If rep not found in state.reps, look up in users collection once.
-                    (function(){
-                        let repNameAttempts = 0;
-                        const setupRepNameListener = async () => {
-                            try {
-                                repNameAttempts++;
-                                
-                                // 🔥 CRITICAL: إذا state.reps فارغة، احفظ الدالة لإعادة المحاولة لاحقاً
-                                if (!state.reps || state.reps.length === 0) {
-                                    if (repNameAttempts === 1) {
-                                        console.log('⏳ Reps not loaded yet - will retry when reps are available');
-                                        window.__repListenerPending = setupRepNameListener;
-                                        return;
-                                    }
-                                }
-                                
-                                const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email);
-                                let repName = currentRepDoc ? currentRepDoc.name : null;
 
-                                // If not found in reps list and we have tried a couple times, check users collection for displayName
-                                if (!repName && repNameAttempts >= 2 && db && auth) {
+                    const setupRepNameListener = () => {
+                        try {
+                            const currentRepDoc = (state.reps || []).find(r => (r.email || '').toLowerCase() === email);
+                            const repName = currentRepDoc ? currentRepDoc.name : null;
+                            if (repName) {
+                                console.log('✅ Rep listener: watching sales where repName==', repName);
+                                db.collection('sales').where('repName', '==', repName).onSnapshot(snap => {
+                                    // console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
                                     try {
-                                        const q = await db.collection('users').where('email','==', email).limit(1).get();
-                                        if (!q.empty) {
-                                            const ud = q.docs[0].data() || {};
-                                            repName = ud.displayName || ud.name || null;
-                                            if (repName) console.log('ℹ️ Found user displayName in users collection for', email, repName);
-                                        }
-                                    } catch(_){ /* ignore lookup errors */ }
-                                }
-
-                                if (repName) {
-                                    console.log('✅ Rep listener: watching sales where repName ==', repName);
-                                    const unsub_repName = db.collection('sales').where('repName','==', repName).onSnapshot(snap => {
-                                        console.log('📊 Rep sales snapshot received:', snap.size, 'invoices for', repName);
-                                        try {
-                                            snap.docChanges().forEach(change => {
-                                                if (change.type === 'removed') { try { byId.delete(change.doc.id); } catch(_){} return; }
-                                                const d = change.doc.data()||{}; d._id = change.doc.id; if(!d.id) d.id = change.doc.id; 
-                                                console.log('  - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
-                                                byId.set(change.doc.id, d);
-                                            });
-                                        } catch(e){ snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); }); }
-                                        mergeAndRender();
-                                    }, err => console.warn('sales repName query error', err));
-                                    window.storeSubscription('sales_repName', unsub_repName);
-                                } else {
-                                    if (repNameAttempts < 4) {
-                                        console.warn('⚠️ Could not find rep name for email:', email, '- retrying in 2 seconds (attempt', repNameAttempts, ')');
-                                        setTimeout(setupRepNameListener, 2000);
-                                    } else {
-                                        console.warn('⚠️ Rep name not found after retries for email:', email, '- no repName-based listener will be attached');
+                                        snap.docChanges().forEach(change => {
+                                            if (change.type === 'removed') {
+                                                try {
+                                                    byId.delete(change.doc.id);
+                                                } catch(_) {}
+                                                return;
+                                            }
+                                            const d = change.doc.data() || {};
+                                            d._id = change.doc.id;
+                                            if (!d.id) d.id = change.doc.id;
+                                            console.log(' - Invoice:', d.invoiceNumber, 'repName:', d.repName, 'total:', d.total);
+                                            byId.set(change.doc.id, d);
+                                        });
+                                    } catch(e) {
+                                        snap.forEach(doc => {
+                                            const d = doc.data() || {};
+                                            d._id = doc.id;
+                                            if (!d.id) d.id = doc.id;
+                                            byId.set(doc.id, d);
+                                        });
                                     }
-                                }
-                            } catch(e){ 
-                                console.warn('setupRealtimeListeners: repName listener failed', e);
-                                if (repNameAttempts < 4) setTimeout(setupRepNameListener, 2000);
+                                    mergeAndRender();
+                                }, err => console.warn('sales repName query error', err));
+                            } else {
+                                console.warn('⚠️ Could not find rep name for email:', email);
+                                // Retry removed to prevent console spam
                             }
-                        };
-                        // Try immediately, but retry if reps not ready
-                        setupRepNameListener();
-                    })();
-                    const salesErrorHandler = err => { salesErrCount++; console.warn('sales legacy query error', err); if (salesErrCount >= 3) { tryBroadSalesFallback(); } };
-                    // reattach with dedicated handlers - REGISTER all listeners for cleanup
-                    const unsub_createdBy = db.collection('sales').where('createdBy','==', uid).onSnapshot(()=>{}, salesErrorHandler);
-                    window.storeSubscription('sales_createdBy_error_handler', unsub_createdBy);
-                    
-                    const unsub_repId = db.collection('sales').where('repId','==', uid).onSnapshot(()=>{}, salesErrorHandler);
-                    window.storeSubscription('sales_repId_error_handler', unsub_repId);
-                    
-                    const unsub_createdByEmail = db.collection('sales').where('createdByEmail','==', email).onSnapshot(()=>{}, salesErrorHandler);
-                    window.storeSubscription('sales_createdByEmail_error_handler', unsub_createdByEmail);
-                    
+                        } catch(e) {
+                            console.warn('setupRealtimeListeners: repName listener failed', e);
+                            // setTimeout(setupRepNameListener, 2000); // Retry removed to prevent console spam
+                        }
+                    };
+                    setupRepNameListener();
+
+                    const salesErrorHandler = err => {
+                        salesErrCount++;
+                        console.warn('sales legacy query error', err);
+                        if (salesErrCount >= 3) {
+                            tryBroadSalesFallback();
+                        }
+                    };
+                    db.collection('sales').where('createdBy', '==', uid).onSnapshot(() => {}, salesErrorHandler);
+                    db.collection('sales').where('repId', '==', uid).onSnapshot(() => {}, salesErrorHandler);
+                    db.collection('sales').where('createdByEmail', '==', email).onSnapshot(() => {}, salesErrorHandler);
+
                     try {
-                        const currentRepDoc = (state.reps||[]).find(r => (r.email||'').toLowerCase() === email) || (state.reps||[]).find(r => (r.name||'') === (current && current.name));
+                        const currentRepDoc = (state.reps || []).find(r => (r.email || '').toLowerCase() === email) || (state.reps || []).find(r => (r.name || '') === (current && current.name));
                         const repDocId = currentRepDoc && currentRepDoc.id ? String(currentRepDoc.id) : null;
                         if (repDocId && repDocId !== uid) {
-                            const unsub_repDocId = db.collection('sales').where('repId','==', repDocId).onSnapshot(()=>{}, salesErrorHandler);
-                            window.storeSubscription('sales_repDocId_error_handler', unsub_repDocId);
+                            db.collection('sales').where('repId', '==', repDocId).onSnapshot(() => {}, salesErrorHandler);
                         }
-                    } catch(e){ /* ignore */ }
-                    const unsub_userInvoices = db.collection('users').doc(uid).collection('invoices').onSnapshot(()=>{}, err => {
-                        if (err.code === 'permission-denied') {
-                            console.warn('⚠️ Rep user-invoices subcollection permission error (this is expected initially):', err.message);
-                        } else {
-                            console.warn('user-invoices subcollection error', err);
-                        }
-                    });
-                    window.storeSubscription('user_invoices_error_handler', unsub_userInvoices);
-                    function tryBroadSalesFallback(){
-                        // محاولة أخيرة: قراءة محدودة بالشهر الحالي لتقليل الاستهلاك
-                        const now = new Date();
-                        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString();
-                        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59).toISOString();
-                        
-                        db.collection('sales')
-                            .where('date', '>=', startOfMonth)
-                            .where('date', '<=', endOfMonth)
-                            .orderBy('date', 'desc')
-                            .limit(50)
-                            .onSnapshot(snap => {
-                                snap.forEach(doc => { const d = doc.data()||{}; d._id=doc.id; if(!d.id)d.id=doc.id; byId.set(doc.id,d); });
-                                mergeAndRender();
-                            }, err => console.warn('broad sales fallback failed', err));
+                    } catch(e) {}
+
+                    // Removed: subcollection listener (permission denied + not needed)
+
+                    function tryBroadSalesFallback() {
+                        db.collection('sales').limit(500).onSnapshot(snap => {
+                            snap.forEach(doc => {
+                                const d = doc.data() || {};
+                                d._id = doc.id;
+                                if (!d.id) d.id = doc.id;
+                                byId.set(doc.id, d);
+                            });
+                            mergeAndRender();
+                        }, err => console.warn('broad sales fallback failed', err));
                     }
-                    // في حال الرفض كله استخدم الكاش المحلي
-                    setTimeout(()=>{
-                        if ((!state.sales || state.sales.length===0)) {
+
+                    setTimeout(() => {
+                        if ((!state.sales || state.sales.length === 0)) {
                             try {
                                 const raw = localStorage.getItem('cache_sales');
-                                const cached = raw ? JSON.parse(raw): [];
+                                const cached = raw ? JSON.parse(raw) : [];
                                 if (Array.isArray(cached) && cached.length) {
                                     state.sales = cached;
                                     if (typeof renderDashboard === 'function') renderDashboard();
                                 }
-                            } catch(e){}
+                            } catch(e) {}
                         }
                     }, 2000);
                 } else {
-                    const unsub = db.collection('sales').onSnapshot(applySnap, onErr);
-                    window.storeSubscription('sales_other_role', unsub);
+                    db.collection('sales').onSnapshot(applySnap, onErr);
                 }
-            } catch(e){ console.warn('sales listener init failed', e); }
+            } catch(e) {
+                console.warn('sales listener init failed', e);
+            }
             // العملاء (تصفية للمندوب حسب القواعد: يرى عملاءه فقط + غير المعيّنين)
             try {
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
@@ -2225,11 +2133,41 @@
 
         // ===== CRUD: المبيعات =====
         async function addSale(data){
+                // ✅ STEP 1: تحديد repId أولاً قبل أي شيء
+                const currentUser = auth && auth.currentUser ? auth.currentUser : null;
+                const currentEmail = currentUser ? (currentUser.email || '').toLowerCase() : '';
+                
+                // 🔍 تحديد repId بالترتيب:
+                // 1. من data.repId (إذا الأدمن يسجل باسم مندوب)
+                // 2. من data.repName -> نبحث عن id في state.reps
+                // 3. من currentUser.uid (إذا مندوب يسجل)
+                let finalRepId = data.repId || null;
+                let finalRepName = data.repName || data.repId || '';
+                
+                if (!finalRepId && finalRepName) {
+                    // إذا عندنا repName بس مفيش repId، ندور عليه
+                    const matchingRep = (state.reps || []).find(r => r.name === finalRepName || r.id === finalRepName);
+                    if (matchingRep) {
+                        finalRepId = matchingRep.id;
+                        finalRepName = matchingRep.name;
+                    }
+                }
+                
+                if (!finalRepId && currentUser) {
+                    // إذا لسه مفيش repId، نستخدم المستخدم الحالي
+                    const matchingRep = (state.reps || []).find(r => (r.email||'').toLowerCase() === currentEmail);
+                    finalRepId = matchingRep ? matchingRep.id : currentUser.uid;
+                    if (!finalRepName && matchingRep) finalRepName = matchingRep.name;
+                }
+                
+                // console.log('🔵 addSale START | repId:', finalRepId, '| repName:', finalRepName, '| currentUser:', currentUser?.uid, '| invoice#:', data.invoiceNumber);
+                
                 const obj = {
                 id: data.id || undefined,
                 invoiceNumber: data.invoiceNumber || null,
                 customerId: data.customerId || null,
-                repName: data.repName || data.repId || '',
+                repName: finalRepName,
+                repId: finalRepId,
                 items: Array.isArray(data.items) ? data.items : [],
                 // subtotal, taxAmount and withholdingAmount are optional but preferred for reporting
                 // Ensure numeric fields are sanitized to avoid Firestore `undefined` errors
@@ -2243,7 +2181,7 @@
                 taxFilingStatus: data.taxFilingStatus || '',
                 date: data.date || new Date().toISOString(),
                 repEmail: (window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null,
-                repId: data.repId || null,
+                // repId already set above with finalRepId
                 createdBy: (window.auth && auth.currentUser) ? auth.currentUser.uid : null,
                 createdByEmail: (window.auth && auth.currentUser && auth.currentUser.email) ? auth.currentUser.email.toLowerCase() : null,
                 // Admin-entry metadata (if saving on behalf of a rep)
@@ -2327,14 +2265,18 @@
                     console.log('addSale: detected adjusted prices, marking reviewReason=adjusted', { id: obj.id, invoiceNumber: obj.invoiceNumber });
                 }
             } catch(e){ console.warn('addSale: adjusted-detection failed', e); }
+            
+            // repId already set at the beginning of function
+            // console.log('🔵 addSale READY TO WRITE | repId:', obj.repId, '| invoice:', obj.invoiceNumber, '| id:', obj.id);
+            
             const ref = data && data.id
                 ? db.collection('sales').doc(String(data.id))
                 : db.collection('sales').doc();
             if (!data.id) obj.id = ref.id;
             try {
-                console.log('addSale: writing doc', obj.id, 'invoice:', obj.invoiceNumber);
+                // console.log('addSale: writing doc', obj.id, 'invoice:', obj.invoiceNumber);
                 await ref.set(obj, { merge: false });
-                console.log('addSale: write success', obj.id);
+                // console.log('addSale: write success', obj.id);
             } catch (e) {
                 console.warn('addSale: write failed', e);
                 // If this is a permission error and the user is an admin, try fallback paths
@@ -2350,13 +2292,13 @@
                         // update local ref variable so callers receive a docref-like value
                         ref = invoicesRef;
                     } catch (e2) {
-                        console.warn('addSale: fallback to invoices failed', e2);
+                        // Silent: fallback path attempted but may fail
                         // Try per-user invoices subcollection if repId exists
                         if (obj.repId) {
                             try {
                                 const userInvRef = db.collection('users').doc(String(obj.repId)).collection('invoices').doc(obj.id);
                                 await userInvRef.set(obj, { merge: false });
-                                console.log('addSale: fallback write success to users/{repId}/invoices/', obj.id);
+                                // Fallback write success - silent
                                 ref = userInvRef;
                             } catch (e3) {
                                 console.warn('addSale: fallback to users/{repId}/invoices failed', e3);
@@ -2374,6 +2316,25 @@
             }
             // Update local cache immediately to survive refresh when reads are blocked
             try { upsertCachedSale(Object.assign({}, obj, { _id: obj.id })); } catch(e){}
+            
+            // ⚠️ DISABLED: Write to users/{repId}/invoices removed to avoid permission-denied errors
+            // The main sales collection write is sufficient for all listeners
+            
+            // ✅ Trigger Dashboard force-render on Admin: Update admin user doc to trigger listener
+            try {
+                const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
+                const current = (typeof AuthSystem !== 'undefined' && AuthSystem.getCurrentUser) ? AuthSystem.getCurrentUser() : null;
+                if (role === 'admin' && current && current.id) {
+                    // Write a flag to admin's user doc to trigger listener
+                    db.collection('users').doc(String(current.id)).set({
+                        lastInvoiceAdded: new Date().toISOString(),
+                        lastAddedInvoiceId: obj.id
+                    }, { merge: true }).catch(err => {
+                        console.warn('⚠️ Failed to update admin doc with lastInvoiceAdded:', err.message);
+                    });
+                }
+            } catch(e){ console.warn('Admin trigger update failed:', e); }
+            
             // Optional: update UI quickly if snapshots are blocked
             try {
                 if (!window.state) window.state = {};
@@ -3603,10 +3564,10 @@
             try { window._finishedGridState = JSON.parse(localStorage.getItem('finished_products_grid') || '{}'); } catch (e) { window._finishedGridState = {}; }
             // CRITICAL: Also load stock entries from localStorage
             try { if (!window.state) window.state = {}; window.state.stockEntries = JSON.parse(localStorage.getItem('stock_entries') || '{}'); } catch (e) { if (!window.state) window.state = {}; window.state.stockEntries = {}; }
-            console.log('Loaded State:', window._rawGridState);
-            console.log('Loaded Packaging State:', window._packGridState);
-            console.log('Loaded Finished State:', window._finishedGridState);
-            console.log('Loaded Stock Entries:', window.state.stockEntries);
+            // console.log('Loaded State:', window._rawGridState);
+            // console.log('Loaded Packaging State:', window._packGridState);
+            // console.log('Loaded Finished State:', window._finishedGridState);
+            // console.log('Loaded Stock Entries:', window.state.stockEntries);
             // create lightweight save helpers if they aren't present yet
                 if (!window._gridHelpersInstalled) {
                 window._gridHelpersInstalled = true;
@@ -4213,7 +4174,7 @@
                     if (typeof renderRepDebts === 'function') renderRepDebts();
                     
                     // تسجيل التحديث
-                    console.log(`Active period changed to: ${period}`);
+                    // console.log(`Active period changed to: ${period}`);
                 } catch(e){ 
                     console.warn('Error while rendering after period change', e);
                 }
@@ -4230,7 +4191,7 @@
                 
                 // إذا كانت أي من القيم مختلفة عن الحالية → حدّث الكل
                 if (!saved || saved !== current || stateActive !== current) { 
-                    console.log(`ensureDefaultActivePeriod: Updating from saved=${saved}, stateActive=${stateActive} to ${current}`);
+                    // console.log(`ensureDefaultActivePeriod: Updating from saved=${saved}, stateActive=${stateActive} to ${current}`);
                     setActivePeriod(current); 
                 }
             } catch(e){ console.warn('ensureDefaultActivePeriod error', e); }
@@ -8223,7 +8184,7 @@
                                     });
                                 } catch (e) {}
                             });
-                            console.log('Force-styled debts rows, count=', tbody.children.length);
+                            // console.log('Force-styled debts rows, count=', tbody.children.length);
                         }
                     } catch (e) { console.warn('Debts force-render failed', e); }
                 }, 150);
@@ -9020,8 +8981,8 @@
              if (!statementCustomerList) return;
              statementCustomerList.innerHTML = '';
 
-             console.log('updateCustomerList called with:', { filter, chain });
-             console.log('Initial state.customers:', state.customers);
+             // console.log('updateCustomerList called with:', { filter, chain });
+             // console.log('Initial state.customers:', state.customers);
 
              let filteredCustomers = state.customers;
              const allChains = loadChains();
@@ -9604,7 +9565,7 @@
             let saleNeedsReview = false;
             for (const row of itemRows) {
                 const productId = row.querySelector('.sale-item-product').value;
-                const quantity = parseInt(row.querySelector('.sale-item-quantity').value);
+                const quantity = parseFloat(row.querySelector('.sale-item-quantity').value); // Changed from parseInt to parseFloat
                 const price = parseFloat(row.querySelector('.sale-item-price').value);
                 
                 // Check quantity for zero, but allow negative for returns
@@ -9612,6 +9573,22 @@
                     await customDialog({ message: 'أحد المنتجات في الفاتورة به بيانات غير صحيحة (الكمية يجب أن تكون رقم غير صفري).', title: 'بيانات ناقصة' });
                     return;
                 }
+                
+                // Validate quantity based on product unit type
+                const prod = findProduct(productId) || {};
+                const unitType = prod.unitType || 'piece'; // Default to 'piece' if not set
+                
+                if (unitType === 'piece') {
+                    // For packaged products (قطعة), quantity must be integer
+                    if (!Number.isInteger(quantity)) {
+                        await customDialog({ 
+                            message: `المنتج "${prod.name || productId}" من نوع معبأ (قطعة) ويجب أن تكون الكمية رقم صحيح فقط.\nالكمية المدخلة: ${quantity}`, 
+                            title: 'خطأ في الكمية' 
+                        });
+                        return;
+                    }
+                }
+                // For weight type (موزون), allow decimals - no validation needed
                 
                 const itemTotal = quantity * price;
                 // Determine expected/base price for this product (consider customer-specific price lists and promotions)
@@ -10464,8 +10441,8 @@
         let currentNavigationId = 0;
         
         function navigateTo(pageId) {
-            // 🔌 UNSUBSCRIBE from all previous listeners to prevent reads leaks
-            try { window.unsubscribeAll(); } catch(e){ console.warn('Failed to unsubscribe listeners:', e); }
+            // ⚡ SKIP unsubscribeAll for performance - listeners are lightweight and persistent
+            // try { window.unsubscribeAll(); } catch(e){ console.warn('Failed to unsubscribe listeners:', e); }
             
             // أعطِ كل طلب تنقل رقم فريد
             const navigationId = ++currentNavigationId;
@@ -10488,14 +10465,14 @@
             // Avoid redundant heavy re-renders when navigating to the same page repeatedly
             try {
                 if (window.__currentPage === pageId) { 
-                    console.log(`⏭️ Already on page: ${pageId} - skipping`);
+                    // console.log(`⏭️ Already on page: ${pageId} - skipping`);
                     updateIcons();
                     return; // EXIT EARLY - no re-render
                 }
                 window.__currentPage = pageId;
             } catch(_){ }
             
-            console.log(`🔄 Navigating to: ${pageId} [ID: ${navigationId}]`);
+            // console.log(`🔄 Navigating to: ${pageId} [ID: ${navigationId}]`);
             
             // تحسين الأداء: استخدام class بدلاً من البحث عن جميع الصفحات
             // Clear active class from all pages at once
@@ -10539,38 +10516,42 @@
                 // تحديث فوري لصفحة المبيعات مع الفترة النشطة
                 try { 
                     renderAllSales('', '', 'all');
-                    console.log(`Sales page loaded with activePeriod: ${window.state?.activePeriod}`);
-                } catch(e){ console.warn('renderAllSales failed', e); }
+                    // console.log(`Sales page loaded`);
+                } catch(e){ /* silent */ }
             } else if (pageId === 'spreadsheet-entry') { 
                 initializeSpreadsheetPage(); 
             } else if (pageId === 'promotions') { 
                 renderPromotions(); 
             } else if (pageId === 'debts') { 
-                renderDebts(); 
+                // Lazy load debts on demand
+                setTimeout(() => { try { renderDebts(); } catch(e){ /* silent */ } }, 50);
             } else if (pageId === 'rep-debts') { 
-                renderRepDebts(); 
+                // Lazy load rep debts
+                setTimeout(() => { try { renderRepDebts(); } catch(e){ /* silent */ } }, 50);
             } else if (pageId === 'total-bills'){
-                initTotalBillsPage();
+                // Lazy load total bills
+                setTimeout(() => { try { initTotalBillsPage(); } catch(e){ /* silent */ } }, 50);
             } else if (pageId === 'stock-control') {
                 try { 
-                    // Load Stock Control data - default to 'finished' tab if not set
+                    // Load Stock Control data
                     if (window.inventorySystem && window.inventorySystem.loadInventoryData) {
                         const currentTab = window.inventorySystem.currentTab || 'finished';
-                        console.log('📋 Loading Stock Control page, tab:', currentTab);
+                        // console.log('📋 Loading Stock Control...');
                         window.inventorySystem.loadInventoryData(currentTab);
-                        // Also update total value
                         if (typeof window.updateTotalValue === 'function') {
                             window.updateTotalValue();
                         }
                     }
-                } catch(e){ console.warn('loadInventoryData failed', e); }
+                } catch(e){ /* silent */ }
             } else if (pageId === 'finished-products') {
-                try { renderStockLedgerForFinishedProducts(); } catch(e){ console.warn('renderFinishedProducts failed', e); }
+                try { renderStockLedgerForFinishedProducts(); } catch(e){ /* silent */ }
             } else if (pageId === 'dispatch') {
                 try { initializeNewDispatchGrid(); } catch(_){}
-                try { renderDispatchPage(); } catch(_){}
+                // Lazy render dispatch
+                setTimeout(() => { try { renderDispatchPage(); } catch(_){} }, 30);
             } else if (pageId === 'price-lists') {
-                initPriceListsPage();
+                // Lazy load price lists
+                setTimeout(() => { try { initPriceListsPage(); } catch(_){} }, 30);
             } else if (pageId === 'production') {
                 try { 
                     // First try to load from Firebase to get latest data
@@ -10588,26 +10569,25 @@
                     console.warn('renderProductionsList failed:', err); 
                 }
             } else if (pageId === 'cash') {
-                try { renderCash(); } catch(e){ console.warn('renderCash failed', e); }
+                try { renderCash(); } catch(e){ /* silent */ }
             } else if (pageId === 'taxes') {
                 try {
-                    // استخدام initTaxesPage أو window.initTaxesPage
+                    // استخدام initTaxesPage
                     if (typeof window.initTaxesPage === 'function') {
                         window.initTaxesPage();
-                        console.log('✅ Taxes page initialized');
+                        // console.log('✅ Taxes page initialized');
                     } else if (typeof renderTaxesPage === 'function') {
                         renderTaxesPage();
                     } else {
-                        console.warn('renderTaxesPage not loaded - showing sales instead');
-                        renderAllSales(); // Fallback to sales view
+                        renderAllSales(); // Fallback
                     }
-                } catch(e){ console.warn('renderTaxesPage failed', e); }
+                } catch(e){ /* silent */ }
             } else if (pageId === 'costs') {
-                try { renderCostsPage(); } catch(e){ console.warn('renderCostsPage failed', e); }
+                try { renderCostsPage(); } catch(e){ /* silent */ }
             }
             updateIcons();
-            // ✅ Navigation completed - new requests can proceed
-            console.log(`✅ Navigation completed [ID: ${navigationId}]`);
+            // ✅ Navigation completed
+            // console.log(`✅ Navigation completed [ID: ${navigationId}]`);
         }
 
         // إخفاء أزرار الصفحات غير المسموح بها حسب الدور
@@ -10616,15 +10596,14 @@
                 const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                 const buttons = Array.from(document.querySelectorAll('.bottom-nav .bottom-nav-item'));
                 const allow = ROLE_PAGE_ALLOW[role];
-                console.log('🔒 applyRoleNavRestrictions: role=' + role + ', allowed pages=', allow === 'ALL' ? 'ALL' : Array.from(allow || []));
+                // console.log('🔒 applyRoleNavRestrictions: role=' + role);
                 if (!allow || allow === 'ALL') { buttons.forEach(btn => btn.style.display = ''); return; }
                 buttons.forEach(btn => {
                     const p = btn.getAttribute('data-page');
                     const shouldShow = allow.has(p);
                     btn.style.display = shouldShow ? '' : 'none';
-                    if (!shouldShow) console.log('  ❌ Hiding button:', p);
                 });
-            } catch(e){ console.error('applyRoleNavRestrictions error:', e); }
+            } catch(e){ /* silent */ }
         }
         
         // تعريف دالة renderTaxesPage لعرض صفحة الضرائب
@@ -11365,7 +11344,7 @@
             if(!body) return;
             body.innerHTML = '';
 
-            console.log('renderRawMaterials - Loaded State:', window._rawGridState);
+            // console.log('renderRawMaterials - Loaded State:', window._rawGridState);
 
             // قائمة الخامات المعرّفة مسبقاً
             const rawMaterialsList = [
@@ -11520,7 +11499,7 @@
             if(!body) return;
             body.innerHTML = '';
 
-            console.log('renderPackaging - Loaded State:', window._packGridState);
+            // console.log('renderPackaging - Loaded State:', window._packGridState);
 
             // Gather packaging items from state.products (if any) and from cost lists (costPack)
             const prodPack = Array.isArray(state.products) ? state.products.filter(p => p && p.category && (p.category.toString().toLowerCase().includes('تعبئة') || p.category.toString().toLowerCase().includes('تغليف') || p.category.toString().toLowerCase().includes('عبوة') || p.category.toString().toLowerCase().includes('ورق') || p.category.toString().toLowerCase().includes('كيس'))) : [];
@@ -12249,8 +12228,8 @@
                  filteredSales.sort((a,b)=>{
                      const ta = new Date(a.date||0).getTime();
                      const tb = new Date(b.date||0).getTime();
-                     if (ta !== tb) return ta - tb; // تصاعدي حسب التاريخ
-                     // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء
+                     if (ta !== tb) return ta - tb; // تصاعدي: الأقدم أولاً
+                     // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء تصاعدياً
                      const ca = new Date(a.createdAt||0).getTime();
                      const cb = new Date(b.createdAt||0).getTime();
                      return ca - cb; // الأقدم إنشاءاً في الأعلى
@@ -12539,13 +12518,13 @@
             if (missingCustomerIds.size > 20) {
                 const missingIds = Array.from(missingCustomerIds).slice(0, 5).join(', ');
                 const moreCount = missingCustomerIds.size > 5 ? ` و${missingCustomerIds.size - 5} آخرين` : '';
-                console.info(`ℹ️ renderAllSales: ${missingCustomerIds.size} عملاء من الفواتير القديمة (تم استخدام الأسماء المحفوظة): ${missingIds}${moreCount}`);
+                // console.info(`ℹ️ renderAllSales: ${missingCustomerIds.size} عملاء من الفواتير القديمة (تم استخدام الأسماء المحفوظة): ${missingIds}${moreCount}`);
             }
             
             // قياس الأداء
             const perfEnd = performance.now();
             const renderTime = (perfEnd - perfStart).toFixed(2);
-            console.log(`⏱️ renderAllSales: ${filteredSales.length} فواتير في ${renderTime}ms`);
+            // console.log(`⏱️ renderAllSales: ${filteredSales.length} فواتير في ${renderTime}ms`);
             
             updateIcons();
         }
@@ -12628,7 +12607,7 @@
                     // Migrate from localStorage to state
                     state.chains = arr;
                     saveState();
-                    console.log('📦 Migrated chains from localStorage to cloud');
+                    // console.log('📦 Migrated chains from localStorage to cloud');
                 }
                 return Array.isArray(arr) ? arr : []; 
             } catch(e){ return []; } 
@@ -13068,9 +13047,16 @@
                     filteredProducts.forEach(product => {
                         const el = document.createElement('div');
                         el.className = 'bg-white p-2 rounded-md flex justify-between items-center border';
+                        
+                        // Get unit type label
+                        const unitType = product.unitType || 'piece';
+                        const unitLabel = unitType === 'weight' ? '📏 كجم' : '📦 قطعة';
+                        const unitColor = unitType === 'weight' ? 'text-green-600' : 'text-blue-600';
+                        
                         el.innerHTML = `
                             <div>
                                 <p class="font-semibold">${escapeHtml(product.name)} (<span class="text-xs text-blue-500">${escapeHtml(String(product.id))}</span>)</p>
+                                <p class="text-xs ${unitColor} mt-1">${unitLabel}</p>
                             </div>
                             <div class="flex items-center gap-2">
                                 <span class="text-sm text-gray-600">${formatCurrency(product.price)}</span>
@@ -13907,7 +13893,7 @@
             // Small debug output: print counts and show on-screen banner to help diagnose invisible/missing data
             try {
                 const debugEl = document.getElementById('debts-debug');
-                console.log('renderDebts called', { sales: (state.sales || []).length, customers: (state.customers || []).length, noFilters });
+                // console.log('renderDebts called', { sales: (state.sales || []).length, customers: (state.customers || []).length, noFilters });
                 if (debugEl) {
                     debugEl.style.display = 'block';
                     try {
@@ -16049,7 +16035,7 @@
                 try {
                     const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
                     const current = (typeof AuthSystem !== 'undefined' && AuthSystem.getCurrentUser) ? AuthSystem.getCurrentUser() : null;
-                    console.log('🔍 Admin metadata check:', { role, currentId: current?.id, repId: rep?.id, isAdmin: role === 'admin', isDifferentUser: current && rep && String(current.id) !== String(rep.id) });
+                    // console.log('🔍 Admin metadata check:', { role, currentId: current?.id, repId: rep?.id, isAdmin: role === 'admin', isDifferentUser: current && rep && String(current.id) !== String(rep.id) });
                     if (role === 'admin' && current && rep && String(current.id) !== String(rep.id)) {
                         // تمييز الفواتير التي تدخلها الإدارة نيابة عن المندوب
                         newSale.isAdminEntry = true;
@@ -16061,9 +16047,9 @@
                         newSale.entry_source = 'admin';
                         // إضافة ملاحظة توضيحية
                         newSale.notes += ' - (تم التسجيل بمعرفة الإدارة)';
-                        console.log('✅ Admin metadata added to invoice:', invoiceNumber, { isAdminEntry: true, recordedByName: newSale.recordedByName });
+                        // console.log('✅ Admin metadata added to invoice:', invoiceNumber, { isAdminEntry: true, recordedByName: newSale.recordedByName });
                     } else {
-                        console.log('❌ Admin metadata NOT added - condition not met');
+                        // console.log('❌ Admin metadata NOT added - condition not met');
                     }
                 } catch(e) { console.error('Admin metadata error:', e); }
 
@@ -17498,9 +17484,19 @@
                     document.getElementById('product-price').value = product.price || 0;
                     document.getElementById('product-category').value = product.category || '';
                     document.getElementById('product-vat-rate').value = (product.vat_rate !== undefined && product.vat_rate !== null) ? Number(product.vat_rate) : 0;
+                    // Set unit type (default to 'piece' if not set)
+                    const unitTypeSelect = document.getElementById('product-unit-type');
+                    if (unitTypeSelect) {
+                        unitTypeSelect.value = product.unitType || 'piece';
+                    }
                 }
             } else {
                 document.getElementById('product-modal-title').textContent = 'إضافة منتج جديد';
+                // Set default unit type to 'piece'
+                const unitTypeSelect = document.getElementById('product-unit-type');
+                if (unitTypeSelect) {
+                    unitTypeSelect.value = 'piece';
+                }
             }
             openModal(productModal);
         }
@@ -17604,6 +17600,8 @@
             const price = parseFloat(document.getElementById('product-price').value) || 0;
             const vat_rate = parseFloat(document.getElementById('product-vat-rate')?.value) || 0;
             const category = document.getElementById('product-category').value.trim();
+            const unitType = document.getElementById('product-unit-type')?.value || 'piece'; // weight or piece
+            
             if (!code || !name) {
                 await customDialog({ title: 'خطأ', message: 'الرجاء إدخال كود واسم المنتج.' });
                 return;
@@ -17615,12 +17613,13 @@
                     price, 
                     avgCost: price, // مزامنة مع Stock Control
                     category, 
-                    vat_rate: vat_rate, 
+                    vat_rate: vat_rate,
+                    unitType: unitType, // إضافة نوع الوحدة
                     active: true 
                 });
                 
                 // Sync notification for Stock Control V2
-                console.log(`💰 📡 Price Update Synced: ${code} - ${name} = ${price} (Updated at ${new Date().toLocaleTimeString('ar')})`);
+                console.log(`💰 📡 Price Update Synced: ${code} - ${name} = ${price} (Unit: ${unitType}) (Updated at ${new Date().toLocaleTimeString('ar')})`);
                 
                 // Update state.products locally
                 if (window.state?.products) {
@@ -17628,7 +17627,8 @@
                     if (existingProd) {
                         existingProd.price = price;
                         existingProd.avgCost = price;
-                        console.log(`✅ state.products updated: ${name}`);
+                        existingProd.unitType = unitType;
+                        console.log(`✅ state.products updated: ${name} (unitType: ${unitType})`);
                     }
                 }
                 
@@ -17638,8 +17638,9 @@
                     if (existingProd) {
                         existingProd.price = price;
                         existingProd.avgCost = price;
+                        existingProd.unitType = unitType;
                         window.appV2.renderProducts();
-                        console.log(`✅ V2 UI Updated immediately: ${name}`);
+                        console.log(`✅ V2 UI Updated immediately: ${name} (unitType: ${unitType})`);
                     }
                 }
                 
@@ -17650,13 +17651,15 @@
                     if (cacheProd) {
                         cacheProd.price = price;
                         cacheProd.avgCost = price;
+                        cacheProd.unitType = unitType;
                         localStorage.setItem('cache_products', JSON.stringify(cached));
-                        console.log(`💾 cache_products updated: ${name}`);
+                        console.log(`💾 cache_products updated: ${name} (unitType: ${unitType})`);
                     }
                 } catch(_) { }
                 
                 closeModal(productModal);
-                await customDialog({ title: 'نجاح', message: 'تم حفظ المنتج في السحابة.\n✅ تم المزامنة مع الاستوك.' });
+                const unitDesc = unitType === 'weight' ? 'موزون (كجم)' : 'معبأ (قطعة)';
+                await customDialog({ title: 'نجاح', message: `تم حفظ المنتج في السحابة.\n✅ تم المزامنة مع الاستوك.\n📦 نوع الوحدة: ${unitDesc}` });
             } catch (err) {
                 console.warn('saveProduct cloud failed', err);
                 await customDialog({ title: 'خطأ', message: 'تعذر حفظ المنتج في السحابة. تحقق من الاتصال والصلاحيات.' });
@@ -22798,17 +22801,9 @@
         // show page handler
         function onShowCostsPage(){
             try{ document.getElementById('header-title').textContent = 'التكاليف'; }catch(e){}
-            // 🔧 CRITICAL FIX: Reload lists from localStorage to ensure data persists after refresh
-            try { 
-                console.log('📄 onShowCostsPage: reloading lists from localStorage...'); 
-                loadLists(); 
-            } catch(e) { 
-                console.warn('onShowCostsPage: loadLists() failed', e); 
-                // Fallback: just render if loadLists fails
-                // renderPriceManager() removed - feature deleted
-            }
+            // ⚠️ DISABLED: Legacy costs page - costs-v2 now uses Firebase sync
+            // loadLists() removed - costs-v2-integrated.js handles all data loading
             // Call simplified cost renderers if available
-            // renderQuickLists removed - feature deleted
             if(window.renderRecipes) window.renderRecipes();
             // تشغيل استيراد صامت لأول مرة إذا لا توجد وصفات والتاريخ المحلي يحتوي أسماء قديمة
             try {
