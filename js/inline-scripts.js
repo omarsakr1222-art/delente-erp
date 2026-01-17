@@ -17583,9 +17583,10 @@
 
             try {
                 // Get batches from Costs V2 system
+                // Remove where clause to avoid index requirement - filter in JS instead
                 const batchesSnap = await db.collection('costs_v2_batches')
-                    .where('status', '==', 'completed')
                     .orderBy('completedAt', 'desc')
+                    .limit(100)
                     .get();
 
                 const startDate = new Date(startVal);
@@ -17600,6 +17601,10 @@
                 
                 for (const doc of batchesSnap.docs) {
                     const batch = doc.data();
+                    
+                    // Filter completed batches in JavaScript
+                    if (batch.status !== 'completed') continue;
+                    
                     const completedDate = batch.completedAt?.toDate?.() || new Date(batch.completedAt);
                     
                     if (completedDate < startDate || completedDate > endDate) continue;
@@ -20756,53 +20761,6 @@
             }
 
             // Column filter UI removed; no global toggle handler attached.
-
-            // ===== PRODUCTION PAGE TABS HANDLERS =====
-            const tabActive = document.getElementById('tab-active-productions');
-            const tabCompleted = document.getElementById('tab-completed-productions');
-            const sectionActive = document.getElementById('active-productions-section');
-            const sectionCompleted = document.getElementById('completed-productions-section');
-
-            if (tabActive && tabCompleted && sectionActive && sectionCompleted) {
-                // Handle Active Tab Click
-                tabActive.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    console.log('🟢 Switched to Active Productions');
-                    
-                    // Show active section, hide completed
-                    sectionActive.classList.remove('hidden');
-                    sectionCompleted.classList.add('hidden');
-                    
-                    // Update tab styling
-                    tabActive.classList.add('text-green-600', 'border-b-2', 'border-green-600');
-                    tabActive.classList.remove('text-gray-600', 'hover:text-gray-800');
-                    
-                    tabCompleted.classList.remove('text-green-600', 'border-b-2', 'border-green-600');
-                    tabCompleted.classList.add('text-gray-600', 'hover:text-gray-800');
-                });
-
-                // Handle Completed Tab Click
-                tabCompleted.addEventListener('click', function(e) {
-                    e.preventDefault();
-                    console.log('🔵 Switched to Completed Productions');
-                    
-                    // Show completed section, hide active
-                    sectionCompleted.classList.remove('hidden');
-                    sectionActive.classList.add('hidden');
-                    
-                    // Update tab styling
-                    tabCompleted.classList.add('text-green-600', 'border-b-2', 'border-green-600');
-                    tabCompleted.classList.remove('text-gray-600', 'hover:text-gray-800');
-                    
-                    tabActive.classList.remove('text-green-600', 'border-b-2', 'border-green-600');
-                    tabActive.classList.add('text-gray-600', 'hover:text-gray-800');
-                });
-            } else {
-                if (!tabActive) console.warn('⚠️ tab-active-productions not found');
-                if (!tabCompleted) console.warn('⚠️ tab-completed-productions not found');
-                if (!sectionActive) console.warn('⚠️ active-productions-section not found');
-                if (!sectionCompleted) console.warn('⚠️ completed-productions-section not found');
-            }
 
             eventListenersAttached = true;
         }
