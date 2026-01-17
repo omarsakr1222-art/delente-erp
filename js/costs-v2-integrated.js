@@ -152,6 +152,9 @@
             loadRecipes();
             loadBatches();
             loadDashboard();
+            
+            // ✅ Populate batch profits product dropdown
+            populateFinishedProductsDropdown();
 
             // إنشار الأيقونات
             if(window.lucide) lucide.createIcons();
@@ -1011,21 +1014,29 @@
             return;
         }
 
-        const matches = allProductsFromStock.filter(p => 
-            p.name && p.name.includes(query) && (p.category === 'finished_goods' || p.type === 'finished')
-        ).slice(0, 5);
+        // 🔍 Search in finished products (case-insensitive, partial match)
+        const queryLower = query.toLowerCase();
+        const matches = Object.entries(productsMap)
+            .filter(([id, p]) => p.name && p.name.toLowerCase().includes(queryLower))
+            .map(([id, p]) => ({ id, ...p }))
+            .slice(0, 10);
 
         if (matches.length === 0) {
-            suggestionsDiv.classList.add('hidden');
+            // Show "no results" message
+            suggestionsDiv.innerHTML = '<div class="p-3 text-slate-500 text-sm text-center">لا توجد منتجات مطابقة</div>';
+            suggestionsDiv.classList.remove('hidden');
             return;
         }
 
         let html = '';
         matches.forEach(product => {
+            const displayName = product.name || 'بدون اسم';
+            const displayUnit = product.unit || 'كجم';
+            const displayPrice = product.price ? product.price.toFixed(2) : '0.00';
             html += `
-                <div class="p-3 border-b cursor-pointer hover:bg-blue-50" onclick="window.costsV2.selectProduct('${product.name}', '${product.unit || 'كجم'}')">
-                    <div class="font-bold text-slate-800">${product.name}</div>
-                    <div class="text-xs text-slate-500">الوحدة: ${product.unit || 'كجم'} | السعر: ${product.price || 0}</div>
+                <div class="p-3 border-b cursor-pointer hover:bg-blue-50 transition" onclick="window.costsV2.selectProduct('${displayName}', '${displayUnit}')">
+                    <div class="font-bold text-slate-800">${displayName}</div>
+                    <div class="text-xs text-slate-500">الوحدة: <span class="font-semibold text-slate-600">${displayUnit}</span> | السعر: ${displayPrice} ج.م</div>
                 </div>
             `;
         });
@@ -1038,6 +1049,36 @@
         document.getElementById('cv2-rec-name').value = name;
         document.getElementById('cv2-rec-unit').value = unit;
         document.getElementById('cv2-product-suggestions').classList.add('hidden');
+    }
+
+    // ===== Populate Batch Profits Product Dropdown =====
+    function populateFinishedProductsDropdown() {
+        const dropdown = document.getElementById('batch-profits-product');
+        if (!dropdown) return;
+
+        // Get all finished products from productsMap
+        const finishedProducts = Object.entries(productsMap).map(([id, product]) => ({
+            id: id,
+            name: product.name,
+            unit: product.unit || 'كجم'
+        }));
+
+        // Sort by name
+        finishedProducts.sort((a, b) => a.name.localeCompare(b.name));
+
+        // Clear existing options except the first one
+        dropdown.innerHTML = '<option value="all">جميع المنتجات</option>';
+
+        // Add products
+        finishedProducts.forEach(product => {
+            const option = document.createElement('option');
+            option.value = product.id;
+            option.textContent = product.name;
+            option.dataset.unit = product.unit;
+            dropdown.appendChild(option);
+        });
+
+        console.log('✅ Batch profits dropdown populated with', finishedProducts.length, 'finished products');
     }
 
     // ===== Export Public API =====
@@ -1058,7 +1099,8 @@
         closeBatchConfirm,
         loadReports,
         showProductSuggestions,
-        selectProduct
+        selectProduct,
+        populateFinishedProductsDropdown
     };
 
     // ===== Lazy-init: Only start after user authentication =====
