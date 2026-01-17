@@ -246,7 +246,11 @@ try {
 filteredSales.sort((a,b)=>{
 const ta=new Date(a.date||0).getTime();
 const tb=new Date(b.date||0).getTime();
-return ta - tb;
+if (ta !== tb) return tb - ta; // تنازلي: الأحدث أولاً
+// إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء تنازلياً
+const ca=new Date(a.createdAt||0).getTime();
+const cb=new Date(b.createdAt||0).getTime();
+return cb - ca; // الأحدث إنشاءاً أولاً
 });
 } catch(_){ }
 if (filteredSales.length===0) { 

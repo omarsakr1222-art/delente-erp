@@ -53,23 +53,6 @@ document.addEventListener('DOMContentLoaded', () => {
             const page = document.getElementById(pageId);
             if (!page) return;
             e.preventDefault();
-            
-            // 🔐 التحقق من صلاحيات Admin لصفحة تكاليف2
-            if (target === 'costs-v2') {
-                const role = (typeof getUserRole === 'function') ? getUserRole() : 'user';
-                if (role !== 'admin') {
-                    alert('هذه الصفحة متاحة للمسؤولين فقط');
-                    return;
-                }
-                // تهيئة نظام تكاليف2 عند الفتح لأول مرة
-                if (window.CostsV2 && typeof window.CostsV2.init === 'function' && !window.__costsv2_initialized) {
-                    window.__costsv2_initialized = true;
-                    setTimeout(() => {
-                        window.CostsV2.init();
-                    }, 100);
-                }
-            }
-            
             // Hide all pages
             document.querySelectorAll('.page').forEach(p => p.style.display = 'none');
             // Show target
@@ -3877,11 +3860,7 @@ function renderAllSales(textFilter = '', dateFilter = '', taxStatusFilter = 'all
          filteredSales.sort((a,b)=>{
              const ta = new Date(a.date||0).getTime();
              const tb = new Date(b.date||0).getTime();
-             if (ta !== tb) return tb - ta; // تنازلي: الأحدث أولاً
-             // إذا كان التاريخ نفسه، رتب حسب وقت الإنشاء تنازلياً
-             const ca = new Date(a.createdAt||0).getTime();
-             const cb = new Date(b.createdAt||0).getTime();
-             return cb - ca; // الأحدث إنشاءاً أولاً
+             return ta - tb;
          });
      } catch(_){ /* keep original order as fallback */ }
 
@@ -6049,9 +6028,7 @@ function addRowToNewDispatchGrid(item = {}) {
     row.innerHTML = `
         <td class="px-2 py-1"><select class="dispatch-item-product w-full p-1 border rounded-md text-sm" required><option value="">???? ????...</option>${productOptions}</select></td>
         <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="quantity" value="${item.quantity || ''}" placeholder="0" min="0"></td>
-        <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="goodReturn" value="${item.goodReturn || ''}" placeholder="0" min="0"></td>
-        <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="damagedReturn" value="${item.damagedReturn || ''}" placeholder="0" min="0"></td>
-        <td><input class="w-full p-1 border rounded-md text-center text-sm" type="number" data-field="freebie" value="${item.freebie || ''}" placeholder="0" min="0"></td>
+        <td><input class="w-full p-1 border rounded-md text-center text-sm actual-return-input" type="number" data-field="actualReturn" value="${item.actualReturn || ''}" placeholder="0" min="0"></td>
         <td class="px-2 py-1 text-center"><button type="button" class="delete-dispatch-item-btn text-red-500 hover:text-red-700 p-1"><i data-lucide="trash-2" class="w-4 h-4"></i></button></td>
     `;
     
@@ -6078,12 +6055,10 @@ async function saveNewDispatchNoteFromGrid() {
     for (const row of itemRows) {
         const productId = row.querySelector('.dispatch-item-product').value;
         const quantity = parseInt(row.querySelector('[data-field="quantity"]').value) || 0;
-        const goodReturn = parseInt(row.querySelector('[data-field="goodReturn"]').value) || 0;
-        const damagedReturn = parseInt(row.querySelector('[data-field="damagedReturn"]').value) || 0;
-        const freebie = parseInt(row.querySelector('[data-field="freebie"]').value) || 0;
+        const actualReturn = parseInt(row.querySelector('[data-field="actualReturn"]').value) || 0; // NEW
 
-        if (productId && (quantity > 0 || goodReturn > 0 || damagedReturn > 0 || freebie > 0)) {
-            items.push({ productId, quantity, goodReturn, damagedReturn, freebie });
+        if (productId && (quantity > 0 || actualReturn > 0)) { // Modified condition
+            items.push({ productId, quantity, actualReturn }); // Modified item object
         }
     }
 
@@ -6106,12 +6081,10 @@ async function saveNewDispatchNoteFromGrid() {
 
     try {
         await addDispatchNote(noteData);
-        await customDialog({ message: 'تم حفظ إذن الاستلام بنجاح وتم خصم الكميات من المخزن.', title: 'نجاح' });
+        await customDialog({ message: '?? ??? ??? ?????? ?? ??????? ?????.', title: '????' });
     } catch(e){
         console.warn('Failed to add dispatch note', e);
-        const errorMsg = e.message || 'تعذر حفظ الإذن. تحقق من الاتصال أو الصلاحيات.';
-        await customDialog({ message: errorMsg, title:'خطأ' });
-        return; // لا تعيد تهيئة النموذج في حالة الخطأ
+        await customDialog({ message:'???? ??? ?????. ???? ?? ??????? ?? ?????????.', title:'???' });
     }
 
     initializeNewDispatchGrid();
@@ -10278,50 +10251,16 @@ function createBackup() {
 
         if (copyBtn) copyBtn.classList.remove('hidden');
 
-        // Store a lightweight backup reference (metadata only, not full data)
+        // Also store a timestamped backup in localStorage_backups
         try {
             const backupsRaw = localStorage.getItem('mandoobiAppState_backups');
             const backups = backupsRaw ? JSON.parse(backupsRaw) : [];
-            
-            // Create minimal metadata instead of storing full state
-            const backupMetadata = {
-                ts: new Date().toISOString(),
-                size: payload.length,
-                customersCount: (state.customers || []).length,
-                salesCount: (state.sales || []).length,
-                repsCount: (state.reps || []).length,
-                hasData: !!payload
-            };
-            
-            backups.unshift(backupMetadata);
-            // Keep only recent 5 metadata backups instead of 12 full backups
-            while (backups.length > 5) backups.pop();
-            
-            // Clean old backup data before saving new metadata
-            try {
-                localStorage.removeItem('_oldBackupData');
-            } catch(e) {}
-            
+            backups.unshift({ ts: new Date().toISOString(), data: state });
+            // Keep only recent 12 backups
+            while (backups.length > 12) backups.pop();
             localStorage.setItem('mandoobiAppState_backups', JSON.stringify(backups));
         } catch (e) {
-            if (e.name === 'QuotaExceededError') {
-                console.warn('Storage quota exceeded, clearing old backups...');
-                try {
-                    localStorage.removeItem('mandoobiAppState_backups');
-                    localStorage.setItem('mandoobiAppState_backups', JSON.stringify([{
-                        ts: new Date().toISOString(),
-                        size: payload.length,
-                        customersCount: (state.customers || []).length,
-                        salesCount: (state.sales || []).length,
-                        repsCount: (state.reps || []).length,
-                        hasData: !!payload
-                    }]));
-                } catch(innerE) {
-                    console.warn('Failed to save even minimal backup', innerE);
-                }
-            } else {
-                console.warn('Failed to save backup metadata', e);
-            }
+            console.warn('Failed to save local backup list', e);
         }
 
         customDialog({ title: '???? ????????', message: '?? ????? ?????? ?????????? ?????? ?????? ??? ????? ?? ?????? ??????.' });
