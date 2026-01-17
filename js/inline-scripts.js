@@ -703,6 +703,20 @@
                                     try { window.storeSubscription && window.storeSubscription('role_current_user', unsubRole); } catch(_){ }
                                 } catch(e){ console.warn('setup role listener failed', e); }
                                 try { UIController.showApp(); appShownForUser = true; } catch(e){ console.error('showApp error:', e); }
+                                
+                                // ⏳ LAZY INIT: تشغيل الأنظمة الثقيلة بعد الدخول
+                                console.log('⏳ Initializing heavy systems (Stock Control & Costs V2)...');
+                                try {
+                                    if (typeof window.initStockControlV2 === 'function') {
+                                        setTimeout(() => window.initStockControlV2(), 100);
+                                    }
+                                } catch(e){ console.warn('Stock Control V2 init failed:', e); }
+                                try {
+                                    if (typeof window.initCostsV2System === 'function') {
+                                        setTimeout(() => window.initCostsV2System(), 100);
+                                    }
+                                } catch(e){ console.warn('Costs V2 init failed:', e); }
+                                
                                 // Fallback: ensure splash/login hidden and app visible
                                 try {
                                     const splash = document.getElementById('splash-screen');
@@ -4476,6 +4490,19 @@
                                 console.log('🚀 Opening app directly...');
                                 // دخول مباشر بدون صفحة تسجيل الدخول
                                 try { UIController.showApp(); } catch(e){ console.error('showApp error:', e); }
+                                
+                                // ⏳ LAZY INIT: تشغيل الأنظمة الثقيلة بعد الدخول
+                                console.log('⏳ Initializing heavy systems (Stock Control & Costs V2)...');
+                                try {
+                                    if (typeof window.initStockControlV2 === 'function') {
+                                        setTimeout(() => window.initStockControlV2(), 100);
+                                    }
+                                } catch(e){ console.warn('Stock Control V2 init failed:', e); }
+                                try {
+                                    if (typeof window.initCostsV2System === 'function') {
+                                        setTimeout(() => window.initCostsV2System(), 100);
+                                    }
+                                } catch(e){ console.warn('Costs V2 init failed:', e); }
                             } else {
                                 console.log('ℹ️ No user session - showing login page');
                                 // عرض صفحة تسجيل الدخول

@@ -1468,9 +1468,10 @@ document.addEventListener('change', (e) => {
 // Make appV2 globally available immediately
 window.appV2 = appV2;
 
-// Initialize when Firebase is ready
+// Initialize when user is authenticated (Lazy Init)
 let __initV2Attempts = 0;
 const __MAX_INIT_V2_ATTEMPTS = 60; // up to ~60s waiting for auth/db
+
 function initV2() {
     // Require authenticated user before initializing
     const isLoggedIn = !!(window.AuthSystem && typeof window.AuthSystem.getCurrentUser === 'function' && window.AuthSystem.getCurrentUser());
@@ -1492,11 +1493,8 @@ function initV2() {
     }
 }
 
-// Start initialization
-if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', () => setTimeout(initV2, 1000));
-} else {
-    setTimeout(initV2, 1000);
-}
+// Export for lazy loading
+window.initStockControlV2 = initV2;
 
-console.log('✅ Stock Control V2 script loaded');
+// Don't auto-init - let the main app trigger initialization after login
+console.log('✅ Stock Control V2 script loaded (lazy init enabled)');

@@ -1043,10 +1043,12 @@
         selectProduct
     };
 
-    // ===== Auto-init on page ready =====
-    if(document.readyState === 'loading') {
-        document.addEventListener('DOMContentLoaded', init);
-    } else {
+    // ===== Lazy-init: Only start after user authentication =====
+    window.initCostsV2System = function() {
+        console.log('🎯 Costs V2 System initialization started (after login)');
         init();
-    }
+    };
+
+    // Don't auto-init on page load - wait for user to authenticate
+    console.log('⏳ Costs V2 System: Lazy initialization enabled. Will start after authentication.');
 })();
