@@ -877,12 +877,11 @@
                 };
 
                 const onErr = function(err) {
-                    console.warn('sales snapshot error', err);
+                    // صمت تام لأخطاء permission-denied للمندوبين
                     if (err && err.code === 'permission-denied') {
-                        try {
-                            handlePermissionDenied('sales');
-                        } catch(e) {}
+                        return; // لا رسائل، لا إعادة محاولة
                     }
+                    console.warn('sales snapshot error', err);
                     try {
                         const raw = localStorage.getItem('cache_sales');
                         const cached = raw ? JSON.parse(raw) : [];
@@ -897,6 +896,8 @@
                     } catch(e) {}
                 };
 
+                // ✅ FIXED: Only admin/reviewer/manager can listen to all sales
+                // Rep users must use their own listener to avoid permission-denied spam
                 if (role === 'admin' || role === 'reviewer' || role === 'manager') {
                     db.collection('sales').onSnapshot(applySnap, onErr);
                 } else if ((role === 'rep' || role === 'user') && current && current.id) {
