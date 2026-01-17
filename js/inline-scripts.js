@@ -17404,7 +17404,7 @@
             }
         }
 
-        // تقرير جرد المخازن
+        // تقرير جرد المخازن (العجز والزيادة فقط)
         async function generateInventoryReport() {
             const out = reportOutputArea;
             const dateVal = document.getElementById('inventory-report-date')?.value;
@@ -17412,67 +17412,143 @@
             const category = document.getElementById('inventory-category')?.value || 'all';
 
             if (!out) return;
+            if (!window.db) {
+                out.innerHTML = '<p class="text-center text-red-500 p-4">قاعدة البيانات غير جاهزة حالياً.</p>';
+                return;
+            }
             if (!dateVal) {
                 await customDialog({ title: 'بيانات ناقصة', message: 'الرجاء تحديد تاريخ الجرد.' });
                 return;
             }
 
-            out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل تقرير الجرد...</p>';
+            out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل فروقات الجرد...</p>';
 
             try {
-                // Filter products by category
-                let products = state.products || [];
-                if (category !== 'all') {
-                    const catMap = {
-                        'finished': 'إنتاج تام',
-                        'raw': 'خامات',
-                        'packaging': 'تعبئة وتغليف'
-                    };
-                    const catName = catMap[category];
-                    products = products.filter(p => (p.category || '').includes(catName));
+                const targetDate = new Date(dateVal + 'T00:00:00');
+                const nextDay = new Date(targetDate);
+                nextDay.setDate(nextDay.getDate() + 1);
+
+                // Get discrepancies from transactions
+                const snap = await db.collection('transactions')
+                    .where('date', '>=', targetDate)
+                    .where('date', '<', nextDay)
+                    .orderBy('date', 'desc')
+                    .limit(200)
+                    .get();
+
+                const records = [];
+                snap.forEach(doc => {
+                    const d = doc.data();
+                    const dateObj = d.date?.toDate?.() || new Date(d.date);
+                    if (isNaN(dateObj.getTime())) return;
+                    
+                    const type = d.type || '';
+                    const include = d.isDiscrepancy === true || type === 'shortage' || type === 'surplus';
+                    if (!include) return;
+
+                    const prodName = d.prodName || d.productId || '-';
+                    
+                    // Filter by category if specified
+                    if (category !== 'all') {
+                        const prod = (state.products || []).find(p => 
+                            (p.name === prodName) || (p.id === d.productId) || (p._id === d.productId)
+                        );
+                        if (prod) {
+                            const catMap = {
+                                'finished': 'إنتاج تام',
+                                'raw': 'خامات',
+                                'packaging': 'تعبئة وتغليف'
+                            };
+                            const catName = catMap[category];
+                            if (!(prod.category || '').includes(catName)) return;
+                        }
+                    }
+
+                    records.push({
+                        id: doc.id,
+                        dateObj,
+                        type,
+                        qty: Number(d.qty || 0),
+                        prodName,
+                        party: d.party || '-',
+                        value: Number(d.qty || 0) * Number(d.price || 0)
+                    });
+                });
+
+                if (records.length === 0) {
+                    out.innerHTML = '<p class="text-center text-gray-500 p-4">لا توجد فروقات جرد في التاريخ المحدد.</p>';
+                    return;
                 }
 
-                let totalValue = 0;
-                const rows = products.map(p => {
-                    const stock = Number(p.stock || 0);
-                    const price = Number(p.price || 0);
-                    const value = stock * price;
-                    totalValue += value;
+                let totalShortage = 0;
+                let totalSurplus = 0;
+                let totalShortageValue = 0;
+                let totalSurplusValue = 0;
+
+                const rows = records.map(r => {
+                    const isShortage = r.type === 'shortage' || r.qty < 0;
+                    const displayQty = Math.abs(r.qty);
+                    const displayValue = Math.abs(r.value);
+                    
+                    if (isShortage) {
+                        totalShortage += displayQty;
+                        totalShortageValue += displayValue;
+                    } else {
+                        totalSurplus += displayQty;
+                        totalSurplusValue += displayValue;
+                    }
 
                     return `
                         <tr class="border-b hover:bg-gray-50">
-                            <td class="px-3 py-2 text-right font-semibold">${escapeHtml(p.name)}</td>
-                            <td class="px-3 py-2 text-center">${escapeHtml(p.category || '-')}</td>
-                            <td class="px-3 py-2 text-center font-bold text-blue-600">${stock}</td>
-                            <td class="px-3 py-2 text-center">${formatCurrency(price)}</td>
-                            <td class="px-3 py-2 text-center font-bold">${formatCurrency(value)}</td>
+                            <td class="px-3 py-2 text-right font-semibold">${escapeHtml(r.prodName)}</td>
+                            <td class="px-3 py-2 text-center">
+                                <span class="px-2 py-1 rounded text-xs font-bold ${isShortage ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-600'}">
+                                    ${isShortage ? 'عجز' : 'زيادة'}
+                                </span>
+                            </td>
+                            <td class="px-3 py-2 text-center font-bold ${isShortage ? 'text-red-600' : 'text-green-600'}">${displayQty.toFixed(2)}</td>
+                            <td class="px-3 py-2 text-center ${isShortage ? 'text-red-600' : 'text-green-600'}">${formatCurrency(displayValue)}</td>
+                            <td class="px-3 py-2 text-right text-gray-600 text-xs">${escapeHtml(r.party)}</td>
                         </tr>
                     `;
                 }).join('');
 
                 out.innerHTML = `
                     <div id="inventory-report-output" class="bg-white p-4 rounded-lg shadow">
-                        <h3 class="text-xl font-bold mb-4 text-center text-blue-600">تقرير جرد المخازن - ${dateVal}</h3>
-                        <div class="mb-4 p-3 bg-gray-100 rounded flex justify-between items-center">
-                            <span class="font-semibold">إجمالي قيمة المخزون:</span>
-                            <span class="text-2xl font-bold text-green-600">${formatCurrency(totalValue)}</span>
+                        <h3 class="text-xl font-bold mb-4 text-center text-blue-600">تقرير جرد المخازن (العجز والزيادة) - ${dateVal}</h3>
+                        <div class="mb-4 grid grid-cols-2 gap-4">
+                            <div class="p-3 bg-red-50 border border-red-200 rounded">
+                                <div class="text-sm text-red-600 mb-1">إجمالي العجز</div>
+                                <div class="text-2xl font-bold text-red-600">${totalShortage.toFixed(2)} وحدة</div>
+                                <div class="text-sm text-red-500 mt-1">القيمة: ${formatCurrency(totalShortageValue)}</div>
+                            </div>
+                            <div class="p-3 bg-green-50 border border-green-200 rounded">
+                                <div class="text-sm text-green-600 mb-1">إجمالي الزيادة</div>
+                                <div class="text-2xl font-bold text-green-600">${totalSurplus.toFixed(2)} وحدة</div>
+                                <div class="text-sm text-green-500 mt-1">القيمة: ${formatCurrency(totalSurplusValue)}</div>
+                            </div>
                         </div>
                         <div class="overflow-x-auto border rounded">
                             <table class="min-w-full text-sm">
                                 <thead class="bg-blue-600 text-white">
                                     <tr>
                                         <th class="px-3 py-2 text-right">الصنف</th>
-                                        <th class="px-3 py-2 text-center">الفئة</th>
+                                        <th class="px-3 py-2 text-center">النوع</th>
                                         <th class="px-3 py-2 text-center">الكمية</th>
-                                        <th class="px-3 py-2 text-center">السعر</th>
                                         <th class="px-3 py-2 text-center">القيمة</th>
+                                        <th class="px-3 py-2 text-right">الملاحظة</th>
                                     </tr>
                                 </thead>
                                 <tbody>${rows}</tbody>
-                                <tfoot class="bg-gray-100 font-bold">
+                                <tfoot class="bg-gray-100 font-bold text-sm">
                                     <tr>
-                                        <td colspan="4" class="px-3 py-2 text-right">الإجمالي:</td>
-                                        <td class="px-3 py-2 text-center text-green-600">${formatCurrency(totalValue)}</td>
+                                        <td class="px-3 py-2 text-right">الصافي (الزيادة - العجز):</td>
+                                        <td colspan="2" class="px-3 py-2 text-center ${(totalSurplus - totalShortage) >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${(totalSurplus - totalShortage).toFixed(2)} وحدة
+                                        </td>
+                                        <td colspan="2" class="px-3 py-2 text-center ${(totalSurplusValue - totalShortageValue) >= 0 ? 'text-green-600' : 'text-red-600'}">
+                                            ${formatCurrency(totalSurplusValue - totalShortageValue)}
+                                        </td>
                                     </tr>
                                 </tfoot>
                             </table>
@@ -17486,7 +17562,7 @@
                 updateIcons();
             } catch (err) {
                 console.error('generateInventoryReport error:', err);
-                out.innerHTML = '<p class="text-center text-red-500 p-4">حدث خطأ أثناء تحميل تقرير الجرد.</p>';
+                out.innerHTML = '<p class="text-center text-red-500 p-4">حدث خطأ أثناء تحميل فروقات الجرد.</p>';
             }
         }
 
