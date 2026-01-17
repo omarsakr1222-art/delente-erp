@@ -10503,10 +10503,14 @@
             // Handle reports page activation differently
             if (pageId === 'reports') {
                 if (pageEl) pageEl.classList.add('active');
-                if (reportsSubnav) reportsSubnav.classList.add('active');
+                // Query reports-subnav fresh each time to ensure it's found
+                const reportsSubnavEl = document.getElementById('reports-subnav');
+                if (reportsSubnavEl) reportsSubnavEl.classList.add('active');
                 initializeReportsPage();
             } else {
-                if (reportsSubnav) reportsSubnav.classList.remove('active'); 
+                // Query reports-subnav fresh each time
+                const reportsSubnavEl = document.getElementById('reports-subnav');
+                if (reportsSubnavEl) reportsSubnavEl.classList.remove('active'); 
             }
             
             if (pageEl) { pageEl.classList.add('active'); } else { console.error(`Page element not found for ID: page-${pageId}`); } 
@@ -16185,7 +16189,8 @@
             }
             
             // Set initial content area based on active subnav item
-            const activeReportSection = reportsSubnav.querySelector('.reports-subnav-item.active')?.dataset.reportSection || 'daily';
+            const reportsSubnavEl = document.getElementById('reports-subnav');
+            const activeReportSection = reportsSubnavEl?.querySelector('.reports-subnav-item.active')?.dataset.reportSection || 'daily';
 
             // Fallback: load customerTargets from local cache so values persist even if cloud is empty temporarily
             try {
