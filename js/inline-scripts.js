@@ -17831,8 +17831,8 @@
 
                     rows.push(`
                         <tr class="border-b hover:bg-gray-50">
-                            <td class="px-3 py-2 text-center font-semibold">${escapeHtml(batchNumber)}</td>
-                            <td class="px-3 py-2 text-right">${escapeHtml(productName)}</td>
+                            <td class="px-3 py-2 text-center font-semibold">${escapeHtml(String(batchNumber))}</td>
+                            <td class="px-3 py-2 text-right">${escapeHtml(String(productName))}</td>
                             <td class="px-3 py-2 text-center">${quantityProduced.toFixed(2)}</td>
                             <td class="px-3 py-2 text-center">${formatCurrency(costPerUnit)}</td>
                             <td class="px-3 py-2 text-center text-red-600 font-bold">${formatCurrency(totalBatchCost)}</td>
