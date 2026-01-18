@@ -17738,114 +17738,153 @@
             out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل تقرير الأرباح...</p>';
 
             try {
-                // Get batches from Costs V2 system - use correct collection name
-                const batchesSnap = await db.collection('batches_v2')
-                    .orderBy('completedAt', 'desc')
-                    .limit(100)
+                // Get ALL batches ordered by completion date (for FIFO)
+                const allBatchesSnap = await db.collection('batches_v2')
+                    .orderBy('completedAt', 'asc')
                     .get();
 
                 const startDate = new Date(startVal);
                 const endDate = new Date(endVal);
                 endDate.setHours(23, 59, 59, 999);
                 
+                // Group batches by product name (FIFO tracking)
+                const batchesByProduct = {};
+                
+                allBatchesSnap.docs.forEach(doc => {
+                    const batch = doc.data();
+                    if (batch.status !== 'completed' && batch.status !== 'closed') return;
+                    
+                    const productName = (batch.recipeName || batch.finishedProductName || '-').trim();
+                    if (!batchesByProduct[productName]) {
+                        batchesByProduct[productName] = [];
+                    }
+                    
+                    batchesByProduct[productName].push({
+                        id: doc.id,
+                        ...batch,
+                        productName: productName,
+                        completedDate: batch.completedAt?.toDate?.() || batch.closedAt?.toDate?.() || new Date(batch.completedAt || batch.closedAt),
+                        quantityProduced: Number(batch.finalQty || batch.actualYield || 0),
+                        remainingQty: Number(batch.finalQty || batch.actualYield || 0), // Will track this
+                        soldQty: 0,
+                        revenue: 0
+                    });
+                });
+                
+                // Get all sales and apply FIFO
+                const allSales = state.sales || [];
+                console.log(`📊 Processing ${allSales.length} sales with FIFO...`);
+                
+                // Sort sales by date (chronological)
+                const sortedSales = allSales.slice().sort((a, b) => {
+                    const dateA = new Date(a.date);
+                    const dateB = new Date(b.date);
+                    return dateA - dateB;
+                });
+                
+                // Apply FIFO: allocate sales to oldest batches first
+                sortedSales.forEach(sale => {
+                    const saleDate = new Date(sale.date);
+                    if (isNaN(saleDate.getTime())) return;
+                    
+                    if (!sale.items || !Array.isArray(sale.items)) return;
+                    
+                    sale.items.forEach(item => {
+                        const itemName = (item.productName || item.name || '').trim();
+                        const qty = Number(item.quantity || item.qty || 0);
+                        const price = Number(item.price || 0);
+                        
+                        if (qty <= 0) return;
+                        
+                        // Find matching product batches
+                        for (const productKey in batchesByProduct) {
+                            const productNameLower = productKey.toLowerCase();
+                            const itemNameLower = itemName.toLowerCase();
+                            
+                            // Flexible matching
+                            const isMatch = productNameLower === itemNameLower ||
+                                          productNameLower.includes(itemNameLower) ||
+                                          itemNameLower.includes(productNameLower);
+                            
+                            if (isMatch) {
+                                let remainingToAllocate = qty;
+                                
+                                // FIFO: Allocate to oldest batches first
+                                for (const batch of batchesByProduct[productKey]) {
+                                    if (remainingToAllocate <= 0) break;
+                                    if (batch.remainingQty <= 0) continue;
+                                    if (saleDate < batch.completedDate) continue; // Can't sell before production
+                                    
+                                    const allocatedQty = Math.min(remainingToAllocate, batch.remainingQty);
+                                    
+                                    batch.soldQty += allocatedQty;
+                                    batch.remainingQty -= allocatedQty;
+                                    batch.revenue += allocatedQty * price;
+                                    remainingToAllocate -= allocatedQty;
+                                    
+                                    console.log(`  📦 FIFO: Batch #${batch.batchNumber} - Allocated ${allocatedQty} units at ${price} ج.م`);
+                                }
+                                
+                                if (remainingToAllocate > 0) {
+                                    console.warn(`  ⚠️ ${remainingToAllocate} units of "${itemName}" sold without matching batch!`);
+                                }
+                                
+                                break; // Found match, no need to check other products
+                            }
+                        }
+                    });
+                });
+                
+                // Now generate report rows from batches in the selected date range
                 let totalRevenue = 0;
                 let totalCost = 0;
                 let totalProfit = 0;
-
                 const rows = [];
                 
-                for (const doc of batchesSnap.docs) {
-                    const batch = doc.data();
-                    
-                    // Filter completed batches in JavaScript (accept both 'completed' and 'closed')
-                    if (batch.status !== 'completed' && batch.status !== 'closed') continue;
-                    
-                    const completedDate = batch.completedAt?.toDate?.() || batch.closedAt?.toDate?.() || new Date(batch.completedAt || batch.closedAt);
-                    
-                    if (completedDate < startDate || completedDate > endDate) continue;
-                    if (productFilter !== 'all' && batch.finishedProductId !== productFilter) continue;
-
-                    const batchNumber = batch.batchNumber || doc.id;
-                    const productName = batch.recipeName || batch.finishedProductName || '-';
-                    const productId = batch.finishedProductId;
-                    const quantityProduced = Number(batch.finalQty || batch.actualYield || 0);
-                    const costPerUnit = Number(batch.unitCost || batch.costPerKg || 0);
-                    const totalBatchCost = Number(batch.totalCost || 0);
-
-                    // Calculate revenue from sales for this product
-                    // Strategy: Search by product NAME (more reliable than ID)
-                    const batchStart = batch.createdAt?.toDate?.() || completedDate;
-                    
-                    let revenue = 0;
-                    let soldQuantity = 0;
-                    
-                    // Use state.sales (already loaded in memory)
-                    let salesToCheck = state.sales || [];
-                    
-                    console.log(`📊 Calculating revenue for batch: ${productName}`, {
-                        batchStart: batchStart.toISOString().split('T')[0],
-                        completedDate: completedDate.toISOString().split('T')[0],
-                        availableSales: salesToCheck.length
-                    });
-                    
-                    // Search for sales of this product by NAME (most reliable)
-                    salesToCheck.forEach(sale => {
-                        const saleDate = new Date(sale.date);
-                        if (isNaN(saleDate.getTime())) return;
+                for (const productKey in batchesByProduct) {
+                    for (const batch of batchesByProduct[productKey]) {
+                        // Filter by date range
+                        if (batch.completedDate < startDate || batch.completedDate > endDate) continue;
+                        if (productFilter !== 'all' && batch.finishedProductId !== productFilter) continue;
                         
-                        // Only count sales between batch start and completion
-                        if (saleDate < batchStart || saleDate > completedDate) return;
-                        
-                        // Check each item in the sale
-                        if (!sale.items || !Array.isArray(sale.items)) return;
-                        
-                        sale.items.forEach(item => {
-                            const itemName = (item.productName || item.name || '').toLowerCase().trim();
-                            const batchProductName = productName.toLowerCase().trim();
-                            
-                            // Match by product name (exact or contains)
-                            const isMatch = itemName === batchProductName || 
-                                          itemName.includes(batchProductName) ||
-                                          batchProductName.includes(itemName);
-                            
-                            // Also try matching by ID if available
-                            const idMatch = productId && (item.productId === productId || item.id === productId);
-                            
-                            if (isMatch || idMatch) {
-                                const qty = Number(item.quantity || item.qty || 0);
-                                const price = Number(item.price || 0);
-                                const itemRevenue = qty * price;
-                                
-                                revenue += itemRevenue;
-                                soldQuantity += qty;
-                                
-                                console.log(`  ✅ Found sale: ${itemName} - ${qty} × ${price} = ${itemRevenue} ج.م`);
-                            }
-                        });
-                    });
-                    
-                    console.log(`💰 Total revenue for ${productName}: ${revenue} ج.م (sold: ${soldQuantity} units)`);
+                        const batchNumber = batch.batchNumber || batch.id;
+                        const productName = batch.productName;
+                        const quantityProduced = batch.quantityProduced;
+                        const soldQty = batch.soldQty;
+                        const remainingQty = batch.remainingQty;
+                        const costPerUnit = Number(batch.unitCost || batch.costPerKg || 0);
+                        const totalBatchCost = Number(batch.totalCost || 0);
+                        const revenue = batch.revenue;
+                        const profit = revenue - totalBatchCost;
+                        const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : '0.00';
 
+                        totalRevenue += revenue;
+                        totalCost += totalBatchCost;
+                        totalProfit += profit;
 
-                    const profit = revenue - totalBatchCost;
-                    const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : '0.00';
-
-                    totalRevenue += revenue;
-                    totalCost += totalBatchCost;
-                    totalProfit += profit;
-
-                    rows.push(`
-                        <tr class="border-b hover:bg-gray-50">
-                            <td class="px-3 py-2 text-center font-semibold">${escapeHtml(String(batchNumber))}</td>
-                            <td class="px-3 py-2 text-right">${escapeHtml(String(productName))}</td>
-                            <td class="px-3 py-2 text-center">${quantityProduced.toFixed(2)}</td>
-                            <td class="px-3 py-2 text-center">${formatCurrency(costPerUnit)}</td>
-                            <td class="px-3 py-2 text-center text-red-600 font-bold">${formatCurrency(totalBatchCost)}</td>
-                            <td class="px-3 py-2 text-center text-green-600 font-bold">${formatCurrency(revenue)}</td>
-                            <td class="px-3 py-2 text-center font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(profit)}</td>
-                            <td class="px-3 py-2 text-center ${parseFloat(margin) >= 0 ? 'text-green-600' : 'text-red-600'}">${margin}%</td>
-                        </tr>
-                    `);
+                        rows.push(`
+                            <tr class="border-b hover:bg-gray-50">
+                                <td class="px-3 py-2 text-center font-semibold">${escapeHtml(String(batchNumber))}</td>
+                                <td class="px-3 py-2 text-right">${escapeHtml(String(productName))}</td>
+                                <td class="px-3 py-2 text-center">
+                                    <div class="font-bold">${quantityProduced.toFixed(0)}</div>
+                                    <div class="text-xs text-gray-500">مُنتَج</div>
+                                </td>
+                                <td class="px-3 py-2 text-center">
+                                    <div class="font-bold text-blue-600">${soldQty.toFixed(0)}</div>
+                                    <div class="text-xs text-gray-500">مباع</div>
+                                </td>
+                                <td class="px-3 py-2 text-center">
+                                    <div class="font-bold ${remainingQty > 0 ? 'text-orange-600' : 'text-gray-400'}">${remainingQty.toFixed(0)}</div>
+                                    <div class="text-xs text-gray-500">متبقي</div>
+                                </td>
+                                <td class="px-3 py-2 text-center text-red-600 font-bold">${formatCurrency(totalBatchCost)}</td>
+                                <td class="px-3 py-2 text-center text-green-600 font-bold">${formatCurrency(revenue)}</td>
+                                <td class="px-3 py-2 text-center font-bold ${profit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(profit)}</td>
+                                <td class="px-3 py-2 text-center ${parseFloat(margin) >= 0 ? 'text-green-600' : 'text-red-600'}">${margin}%</td>
+                            </tr>
+                        `);
+                    }
                 }
 
                 if (rows.length === 0) {
@@ -17881,7 +17920,8 @@
                                         <th class="px-3 py-2 text-center">رقم التشغيلة</th>
                                         <th class="px-3 py-2 text-right">المنتج</th>
                                         <th class="px-3 py-2 text-center">الكمية المنتجة</th>
-                                        <th class="px-3 py-2 text-center">تكلفة الوحدة</th>
+                                        <th class="px-3 py-2 text-center bg-blue-700">الكمية المباعة</th>
+                                        <th class="px-3 py-2 text-center bg-orange-600">الكمية المتبقية</th>
                                         <th class="px-3 py-2 text-center">التكلفة الكلية</th>
                                         <th class="px-3 py-2 text-center">الإيراد</th>
                                         <th class="px-3 py-2 text-center">صافي الربح</th>
@@ -17891,7 +17931,7 @@
                                 <tbody>${rows.join('')}</tbody>
                                 <tfoot class="bg-gray-100 font-bold">
                                     <tr>
-                                        <td colspan="4" class="px-3 py-2 text-right">الإجمالي:</td>
+                                        <td colspan="5" class="px-3 py-2 text-right">الإجمالي:</td>
                                         <td class="px-3 py-2 text-center text-red-600">${formatCurrency(totalCost)}</td>
                                         <td class="px-3 py-2 text-center text-green-600">${formatCurrency(totalRevenue)}</td>
                                         <td class="px-3 py-2 text-center ${totalProfit >= 0 ? 'text-green-600' : 'text-red-600'}">${formatCurrency(totalProfit)}</td>
