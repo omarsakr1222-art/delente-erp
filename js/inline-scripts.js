@@ -17772,55 +17772,60 @@
                     const costPerUnit = Number(batch.unitCost || batch.costPerKg || 0);
                     const totalBatchCost = Number(batch.totalCost || 0);
 
-                    // Calculate revenue from sales for this product during batch period
-                    // Get batch start date (or use completed date as fallback)
+                    // Calculate revenue from sales for this product
+                    // Strategy: Search by product NAME (more reliable than ID)
                     const batchStart = batch.createdAt?.toDate?.() || completedDate;
                     
                     let revenue = 0;
+                    let soldQuantity = 0;
                     
-                    // Calculate from state.sales OR fetch from Firestore if needed
-                    if (productId) {
-                        let salesToCheck = state.sales || [];
+                    // Use state.sales (already loaded in memory)
+                    let salesToCheck = state.sales || [];
+                    
+                    console.log(`📊 Calculating revenue for batch: ${productName}`, {
+                        batchStart: batchStart.toISOString().split('T')[0],
+                        completedDate: completedDate.toISOString().split('T')[0],
+                        availableSales: salesToCheck.length
+                    });
+                    
+                    // Search for sales of this product by NAME (most reliable)
+                    salesToCheck.forEach(sale => {
+                        const saleDate = new Date(sale.date);
+                        if (isNaN(saleDate.getTime())) return;
                         
-                        // If state.sales is empty or limited, try to fetch from Firestore
-                        if (!salesToCheck || salesToCheck.length === 0) {
-                            try {
-                                const salesSnap = await db.collection('sales')
-                                    .where('date', '>=', batchStart.toISOString())
-                                    .where('date', '<=', completedDate.toISOString())
-                                    .limit(500)
-                                    .get();
-                                salesToCheck = salesSnap.docs.map(d => d.data());
-                            } catch(e) {
-                                console.warn('Failed to fetch sales from Firestore:', e);
-                                salesToCheck = state.sales || [];
-                            }
-                        }
+                        // Only count sales between batch start and completion
+                        if (saleDate < batchStart || saleDate > completedDate) return;
                         
-                        const productSales = salesToCheck.filter(sale => {
-                            const saleDate = new Date(sale.date);
-                            if (isNaN(saleDate.getTime())) return false;
-                            // Sales between batch start and completion
-                            if (saleDate < batchStart || saleDate > completedDate) return false;
+                        // Check each item in the sale
+                        if (!sale.items || !Array.isArray(sale.items)) return;
+                        
+                        sale.items.forEach(item => {
+                            const itemName = (item.productName || item.name || '').toLowerCase().trim();
+                            const batchProductName = productName.toLowerCase().trim();
                             
-                            // Check if sale contains this product
-                            return sale.items?.some(item => 
-                                item.productId === productId || 
-                                item.productName === productName
-                            );
+                            // Match by product name (exact or contains)
+                            const isMatch = itemName === batchProductName || 
+                                          itemName.includes(batchProductName) ||
+                                          batchProductName.includes(itemName);
+                            
+                            // Also try matching by ID if available
+                            const idMatch = productId && (item.productId === productId || item.id === productId);
+                            
+                            if (isMatch || idMatch) {
+                                const qty = Number(item.quantity || item.qty || 0);
+                                const price = Number(item.price || 0);
+                                const itemRevenue = qty * price;
+                                
+                                revenue += itemRevenue;
+                                soldQuantity += qty;
+                                
+                                console.log(`  ✅ Found sale: ${itemName} - ${qty} × ${price} = ${itemRevenue} ج.م`);
+                            }
                         });
-                        
-                        // Sum revenue from matching sales
-                        productSales.forEach(sale => {
-                            sale.items?.forEach(item => {
-                                if (item.productId === productId || item.productName === productName) {
-                                    const qty = Number(item.quantity || item.qty || 0);
-                                    const price = Number(item.price || 0);
-                                    revenue += qty * price;
-                                }
-                            });
-                        });
-                    }
+                    });
+                    
+                    console.log(`💰 Total revenue for ${productName}: ${revenue} ج.م (sold: ${soldQuantity} units)`);
+
 
                     const profit = revenue - totalBatchCost;
                     const margin = revenue > 0 ? ((profit / revenue) * 100).toFixed(2) : '0.00';
