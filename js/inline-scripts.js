@@ -17738,9 +17738,8 @@
             out.innerHTML = '<p class="text-center text-gray-500 p-4">جارٍ تحميل تقرير الأرباح...</p>';
 
             try {
-                // Get batches from Costs V2 system
-                // Remove where clause to avoid index requirement - filter in JS instead
-                const batchesSnap = await db.collection('costs_v2_batches')
+                // Get batches from Costs V2 system - use correct collection name
+                const batchesSnap = await db.collection('batches_v2')
                     .orderBy('completedAt', 'desc')
                     .limit(100)
                     .get();
@@ -17758,20 +17757,20 @@
                 for (const doc of batchesSnap.docs) {
                     const batch = doc.data();
                     
-                    // Filter completed batches in JavaScript
-                    if (batch.status !== 'completed') continue;
+                    // Filter completed batches in JavaScript (accept both 'completed' and 'closed')
+                    if (batch.status !== 'completed' && batch.status !== 'closed') continue;
                     
-                    const completedDate = batch.completedAt?.toDate?.() || new Date(batch.completedAt);
+                    const completedDate = batch.completedAt?.toDate?.() || batch.closedAt?.toDate?.() || new Date(batch.completedAt || batch.closedAt);
                     
                     if (completedDate < startDate || completedDate > endDate) continue;
                     if (productFilter !== 'all' && batch.finishedProductId !== productFilter) continue;
 
                     const batchNumber = batch.batchNumber || doc.id;
-                    const productName = batch.finishedProductName || '-';
+                    const productName = batch.recipeName || batch.finishedProductName || '-';
                     const productId = batch.finishedProductId;
-                    const quantityProduced = Number(batch.actualYield || 0);
-                    const costPerUnit = Number(batch.costPerKg || 0);
-                    const totalBatchCost = quantityProduced * costPerUnit;
+                    const quantityProduced = Number(batch.finalQty || batch.actualYield || 0);
+                    const costPerUnit = Number(batch.unitCost || batch.costPerKg || 0);
+                    const totalBatchCost = Number(batch.totalCost || 0);
 
                     // Calculate revenue from sales for this product during batch period
                     // Get batch start date (or use completed date as fallback)
