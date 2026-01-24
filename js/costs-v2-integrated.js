@@ -339,11 +339,11 @@
         // دمج كل من الخامات المحلية والمتزامنة من الاستوك
         let allIngredients = { ...stockIngredientsMapData, ...localIngredientsMapData };
 
-        console.log('🎨 renderAllIngredients:', {
-            stock: Object.keys(stockIngredientsMapData).length,
-            local: Object.keys(localIngredientsMapData).length,
-            total: Object.keys(allIngredients).length
-        });
+        // console.log('🎨 renderAllIngredients:', {
+        //     stock: Object.keys(stockIngredientsMapData).length,
+        //     local: Object.keys(localIngredientsMapData).length,
+        //     total: Object.keys(allIngredients).length
+        // });
 
         if(Object.keys(allIngredients).length === 0) {
             tbody.innerHTML = `
@@ -517,7 +517,7 @@
 
         const unsubscribe = db.collection(COLL_RECIPES)
             .onSnapshot(snap => {
-                console.log('📋 Recipes loaded:', snap.docs.length, 'recipes');
+                // console.log('📋 Recipes loaded:', snap.docs.length, 'recipes');
                 
                 const grid = document.getElementById('cv2-recipes-grid');
                 if(!grid) return;
@@ -667,7 +667,7 @@
         const unsubscribe = db.collection(COLL_BATCHES)
             .orderBy('createdAt', 'desc')
             .onSnapshot(snap => {
-                console.log('🏭 Batches loaded:', snap.docs.length, 'batches');
+                // console.log('🏭 Batches loaded:', snap.docs.length, 'batches');
                 
                 const activeList = document.getElementById('cv2-active-batches-list');
                 const completedList = document.getElementById('cv2-completed-batches-list');

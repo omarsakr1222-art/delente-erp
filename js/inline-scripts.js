@@ -1,4 +1,4 @@
-
+﻿
         // Safe global error handler: log only, never alter the UI
         window.onerror = function (msg, url, line, col, error) {
             try {
@@ -17773,7 +17773,7 @@
                 
                 // Get all sales and apply FIFO
                 const allSales = state.sales || [];
-                console.log(`📊 Processing ${allSales.length} sales with FIFO...`);
+                // console.log(`📊 Processing ${allSales.length} sales with FIFO...`);
                 
                 // Sort sales by date (chronological)
                 const sortedSales = allSales.slice().sort((a, b) => {
@@ -17822,12 +17822,12 @@
                                     batch.revenue += allocatedQty * price;
                                     remainingToAllocate -= allocatedQty;
                                     
-                                    console.log(`  📦 FIFO: Batch #${batch.batchNumber} - Allocated ${allocatedQty} units at ${price} ج.م`);
+                                    // console.log(`  📦 FIFO: Batch #${batch.batchNumber} - Allocated ${allocatedQty} units at ${price} ج.م`);
                                 }
                                 
-                                if (remainingToAllocate > 0) {
-                                    console.warn(`  ⚠️ ${remainingToAllocate} units of "${itemName}" sold without matching batch!`);
-                                }
+                                // if (remainingToAllocate > 0) {
+                                //     console.warn(`  ⚠️ ${remainingToAllocate} units of "${itemName}" sold without matching batch!`);
+                                // }
                                 
                                 break; // Found match, no need to check other products
                             }
